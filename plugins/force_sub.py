@@ -22,6 +22,6 @@ async def check_subscription(update: Update, context: CallbackContext):
         keyboard = [[InlineKeyboardButton("ချန်နယ်သို့ ဝင်ပါ", url=f"https://t.me/{channel_id}") for channel_id in REQUIRED_CHANNELS]]
         keyboard.append([InlineKeyboardButton("စစ်ဆေးရန် ✅", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("ဆက်လက်ရှာဖွေရန် ချန်နယ်များသို့ ဝင်ပါ။", reply_markup=reply_markup)
+        await update.message.reply_text("ဆက်လက်ရှာဖွေရန် ချန်�နယ်များသို့ ဝင်ပါ။", reply_markup=reply_markup)
         return False
     return True
