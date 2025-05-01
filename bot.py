@@ -1,7 +1,7 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler  # Add CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 from config import BOT_TOKEN
-from plugins import message_counter, force_sub, withdrawal, add_group
+from plugins import message_counter, force_sub, withdrawal, add_group, add_bonus  # Add add_bonus
 from database.database import get_user
 
 async def start(update: Update, context: CallbackContext):
@@ -21,14 +21,12 @@ async def check_balance(update: Update, context: CallbackContext):
 
 async def handle_check_subscription(update: Update, context: CallbackContext):
     query = update.callback_query
-    await query.answer()  # Acknowledge the callback query
+    await query.answer()
 
-    # Recheck subscription status
     is_subscribed = await force_sub.check_subscription(update, context)
     if is_subscribed:
         await query.message.reply_text("သင်သည် လိုအပ်သော ချန်နယ်များသို့ ဝင်ပြီးပါပြီ။ စာပို့ရင်း ပိုက်ဆံရှာနိုင်ပါပြီ။")
     else:
-        # If still not subscribed, the check_subscription function will handle sending the prompt again
         pass
 
 def main():
@@ -38,7 +36,8 @@ def main():
     application.add_handler(CommandHandler("withdraw", withdrawal.withdraw))
     application.add_handler(CommandHandler("addgroup", add_group.add_group))
     application.add_handler(CommandHandler("balance", check_balance))
-    application.add_handler(CallbackQueryHandler(handle_check_subscription, pattern="check_subscription"))  # Add this line
+    application.add_handler(CommandHandler("add_bonus", add_bonus.add_bonus))  # Add this line
+    application.add_handler(CallbackQueryHandler(handle_check_subscription, pattern="check_subscription"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_counter.count_message))
 
     application.run_polling()
