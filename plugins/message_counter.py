@@ -17,7 +17,7 @@ async def count_message(update: Update, context: CallbackContext):
     # Check if the chat group is registered
     chat_group = await get_chat_group(chat_id)
     if not chat_group:
-        return  # Ignore messages from unregistered groups
+        return
 
     # Check if user has joined required channels
     if not await check_subscription(update, context):
