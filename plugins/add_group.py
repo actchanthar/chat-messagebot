@@ -1,3 +1,4 @@
+# plugins/add_group.py
 from telegram import Update
 from telegram.ext import CallbackContext
 from config import ADMIN_IDS
@@ -7,12 +8,10 @@ async def add_group(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
-    # Only allow super admins to add groups
     if user_id not in ADMIN_IDS:
         await update.message.reply_text("ဒီညွှန်ကြားချက်ကို အက်ဒမင်များသာ အသုံးပြုနိုင်ပါတယ်။")
         return
 
-    # Expect command format: /addgroup <chat_id> <admin_id1> <admin_id2> ...
     if not context.args or len(context.args) < 2:
         await update.message.reply_text(
             "ကျေးဇူးပြုပြီး အောက်ပါပုံစံဖြင့် ထည့်ပါ။\n"
@@ -21,13 +20,12 @@ async def add_group(update: Update, context: CallbackContext):
         return
 
     try:
-        new_chat_id = int(context.args[0])  # Chat ID of the group to add
-        admin_ids = [int(admin_id) for admin_id in context.args[1:]]  # List of admin IDs
+        new_chat_id = int(context.args[0])
+        admin_ids = [int(admin_id) for admin_id in context.args[1:]]
     except ValueError:
         await update.message.reply_text("Chat ID နှင့် Admin ID များသည် ဂဏန်းများဖြစ်ရပါမည်။")
         return
 
-    # Add the chat group to the database
     await add_chat_group(new_chat_id, admin_ids)
 
     await update.message.reply_text(
