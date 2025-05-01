@@ -1,33 +1,27 @@
-from telegram import Update
+# plugins/force_sub.py
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext
-from config import ADMIN_IDS
-from database.database import add_chat_group
+from config import REQUIRED_CHANNELS
 
-async def add_group(update: Update, context: CallbackContext):
+async def check_subscription(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    all_subscribed = True
 
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("ဒီညွှန်ကြားချက်ကို အက်ဒမင်များသာ အသုံးပြုနိုင်ပါတယ်။")
-        return
+    for channel_id in REQUIRED_CHANNELS:
+        try:
+            chat_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+            if chat_member.status not in ["member", "administrator", "creator"]:
+                all_subscribed = False
+                break
+        except:
+            all_subscribed = False
+            break
 
-    if not context.args or len(context.args) < 2:
-        await update.message.reply_text(
-            "ကျေးဇူးပြုပြီး အောက်ပါပုံစံဖြင့် ထည့်ပါ။\n"
-            "ဥပမာ: /addgroup -100123456789 123456789 987654321"
-        )
-        return
-
-    try:
-        new_chat_id = int(context.args[0])
-        admin_ids = [int(admin_id) for admin_id in context.args[1:]]
-    except ValueError:
-        await update.message.reply_text("Chat ID နှင့် Admin ID များသည် ဂဏန်းများဖြစ်ရပါမည်။")
-        return
-
-    await add_chat_group(new_chat_id, admin_ids)
-
-    await update.message.reply_text(
-        f"Chat Group {new_chat_id} ကို အောင်မြင်စွာ ထည့်ပြီးပါပြီ။\n"
-        f"အက်ဒမင်များ: {', '.join([str(admin_id) for admin_id in admin_ids])}"
-    )
+    if not all_subscribed:
+        keyboard = [[InlineKeyboardButton("ချန်နယ်သို့ ဝင်ပါ", url=f"https://t.me/{channel_id}") for channel_id in REQUIRED_CHANNELS]]
+        keyboard.append([InlineKeyboardButton("စစ်ဆေးရန် ✅", callback_data="check_subscription")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("ဆက်လက်ရှာဖွေရန် ချန်နယ်များသို့ ဝင်ပါ။", reply_markup=reply_markup)
+        return False
+    return True
