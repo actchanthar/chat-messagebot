@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import CallbackContext
-from config import PER_MESSAGE_REWARD, SPAM_THRESHOLD, SIMILARITY_THRESHOLD, LOG_CHANNEL  # Add LOG_CHANNEL
+from config import PER_MESSAGE_REWARD, SPAM_THRESHOLD, SIMILARITY_THRESHOLD
 from database.database import get_user, update_user, log_message, get_chat_group
 from difflib import SequenceMatcher
 import time
@@ -50,8 +50,13 @@ async def count_message(update: Update, context: CallbackContext):
     # Notify user in the group every 10 messages
     if balance % 10 == 0:
         await context.bot.send_message(chat_id=chat_id, text=f"@{update.effective_user.username} သင့်မှာ {balance} ကျပ် ရှိပါတယ်။")
-        # Notify admins in the log channel
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL,
-            text=f"📊 User @{update.effective_user.username} (ID: {user_id}) reached {balance} ကျပ် in group {chat_id}"
-        )
+        # Notify the admins who added the group
+        admin_ids = chat_group.get("admin_ids", [])
+        for admin_id in admin_ids:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"📊 User @{update.effective_user.username} (ID: {user_id}) reached {balance} ကျပ် in group {chat_id}"
+                )
+            except Exception as e:
+                print(f"Failed to notify admin {admin_id}: {e}")
