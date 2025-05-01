@@ -3,12 +3,12 @@ from config import MONGO_URI
 import time
 
 client = MongoClient(MONGO_URI)
-db = client["chat_group_bot"]
+db = client["actchat"]  # Updated to your database name
 
 users_collection = db["users"]
 messages_collection = db["messages"]
 withdrawals_collection = db["withdrawals"]
-chat_groups_collection = db["chat_groups"]  # New collection for chat groups
+chat_groups_collection = db["chat_groups"]
 
 async def get_user(user_id, chat_id):
     return users_collection.find_one({"user_id": user_id, "chat_id": chat_id})
