@@ -1,3 +1,4 @@
+# plugins/message_counter.py
 from telegram import Update
 from telegram.ext import CallbackContext
 from config import PER_MESSAGE_REWARD, SPAM_THRESHOLD, SIMILARITY_THRESHOLD
