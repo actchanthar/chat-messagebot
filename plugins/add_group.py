@@ -1,3 +1,8 @@
+from telegram import Update
+from telegram.ext import CallbackContext
+from config import ADMIN_IDS
+from database.database import add_chat_group
+
 async def add_group(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
