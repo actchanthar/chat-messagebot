@@ -3,7 +3,7 @@ from config import MONGO_URI
 import time
 
 client = MongoClient(MONGO_URI)
-db = client["actchat"]  # Updated to your database name
+db = client["actchat"]
 
 users_collection = db["users"]
 messages_collection = db["messages"]
