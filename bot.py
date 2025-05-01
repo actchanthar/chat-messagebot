@@ -12,7 +12,7 @@ def main():
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("withdraw", withdrawal.withdraw))
-    application.add_handler(CommandHandler("addgroup", add_group.add_group))  # New command
+    application.add_handler(CommandHandler("addgroup", add_group.add_group))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_counter.count_message))
 
     application.run_polling()
