@@ -1,9 +1,20 @@
-BOT_TOKEN = "7784918819:AAGxcb10Je-oSKZVoOGDjpcpaFgMq1FNTr8"
-MONGO_URI = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-REQUIRED_CHANNELS = [-1002097823468, -1001610001670]
-PER_MESSAGE_REWARD = 1
-MIN_WITHDRAWAL = 500
-SPAM_THRESHOLD = 5
-SIMILARITY_THRESHOLD = 0.8
-LOG_CHANNEL = -1002185995735
-ADMIN_IDS = [5062124930]  # Replace with your Telegram user ID
+import os
+
+# Bot token from environment variable
+BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+
+# MongoDB URI from environment variable
+MONGODB_URI = os.environ.get("MONGODB_URI")
+
+# Admin user IDs (list of strings)
+ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")
+
+# Spam detection settings
+SPAM_THRESHOLD = 5  # Number of similar messages allowed within time window
+TIME_WINDOW = 60 * 30  # 30 minutes in seconds
+
+# Reward settings
+REWARD_PER_MESSAGE = 1  # Kyat per message
+
+# Currency symbol
+CURRENCY = "kyat"
