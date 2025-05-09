@@ -1,7 +1,7 @@
 import os
 
 # Bot token from environment variable
-BOT_TOKEN = os.environ.get("7784918819:AAGxcb10Je-oSKZVoOGDjpcpaFgMq1FNTr8")
+BOT_TOKEN = os.environ.get("7784918819:AAHxNG_ZH6JE8cGGg4XzxIfzVkAz5HbsvXs")
 
 # MongoDB URI from environment variable
 MONGODB_URI = os.environ.get("mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
