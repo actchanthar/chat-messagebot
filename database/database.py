@@ -1,53 +1,145 @@
-from pymongo import MongoClient
-from config import MONGO_URI
-import time
+import os
+from pymongo import MongoClient, errors
+from datetime import datetime, timedelta
+import asyncio
 
-client = MongoClient(MONGO_URI)
-db = client["actchat"]
+class Database:
+    def __init__(self):
+        self.client = MongoClient(os.environ.get("MONGODB_URI"))
+        self.db = self.client["actchat"]
+        self.users = self.db["users"]
+        self.messages = self.db["messages"]
+        self.spam_threshold = 5
+        self.time_window = 30 * 60  # 30 minutes
 
-users_collection = db["users"]
-messages_collection = db["messages"]
-withdrawals_collection = db["withdrawals"]
-chat_groups_collection = db["chat_groups"]
+    async def init(self):
+        # Check and create indexes if they don't exist
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            self._create_indexes
+        )
 
-async def get_user(user_id, chat_id):
-    return users_collection.find_one({"user_id": user_id, "chat_id": chat_id})
+    def _create_indexes(self):
+        # Get existing indexes
+        existing_indexes = self.users.index_information()
+        
+        # Create user_id index if it doesn't exist
+        if "user_id_1" not in existing_indexes:
+            try:
+                self.users.create_index("user_id", unique=True)
+            except errors.DuplicateKeyError:
+                pass  # Ignore if index creation fails due to existing index
+        
+        # Create messages index if it doesn't exist
+        if "user_id_1_timestamp_1" not in existing_indexes:
+            self.messages.create_index([("user_id", 1), ("timestamp", 1)])
 
-async def update_user(user_id, chat_id, data):
-    users_collection.update_one(
-        {"user_id": user_id, "chat_id": chat_id},
-        {"$set": data},
-        upsert=True
-    )
+    async def get_user(self, user_id):
+        user = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.find_one({"user_id": user_id})
+        )
+        return user
 
-async def log_message(user_id, chat_id, message_text, timestamp):
-    messages_collection.insert_one({
-        "user_id": user_id,
-        "chat_id": chat_id,
-        "message_text": message_text,
-        "timestamp": timestamp
-    })
+    async def create_user(self, user_id, name):
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.update_one(
+                {"user_id": user_id},
+                {"$setOnInsert": {
+                    "user_id": user_id,
+                    "name": name,
+                    "messages": 0,
+                    "balance": 0.0,
+                    "notified_10kyat": False
+                }},
+                upsert=True
+            )
+        )
 
-async def create_withdrawal_request(user_id, chat_id, amount):
-    request = {
-        "user_id": user_id,
-        "chat_id": chat_id,
-        "amount": amount,
-        "status": "pending",
-        "timestamp": time.time()
-    }
-    result = withdrawals_collection.insert_one(request)
-    return {"_id": result.inserted_id, **request}
+    async def increment_message(self, user_id, name, text):
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.find_one_and_update(
+                {"user_id": user_id},
+                {
+                    "$inc": {"messages": 1, "balance": 1.0},
+                    "$set": {"name": name}
+                },
+                return_document=True
+            )
+        )
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.messages.insert_one(
+                {"user_id": user_id, "text": text, "timestamp": datetime.now()}
+            )
+        )
+        return result  # Return updated user document
 
-async def add_chat_group(chat_id, admin_ids):
-    chat_groups_collection.update_one(
-        {"chat_id": chat_id},
-        {"$set": {"admin_ids": admin_ids}},
-        upsert=True
-    )
+    async def mark_notified_10kyat(self, user_id):
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"notified_10kyat": True}}
+            )
+        )
 
-async def get_chat_group(chat_id):
-    return chat_groups_collection.find_one({"chat_id": chat_id})
+    async def get_top_users(self, limit=10):
+        users = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: list(self.users.find().sort("messages", -1).limit(limit))
+        )
+        return users
 
-async def get_all_chat_groups():
-    return list(chat_groups_collection.find())
+    async def reset_stats(self):
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.delete_many({})
+        )
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.messages.delete_many({})
+        )
+
+    async def reset_balance(self, user_id):
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"balance": 0.0, "notified_10kyat": False}}
+            )
+        )
+
+    async def is_spam(self, user_id, text):
+        cutoff = datetime.now() - timedelta(seconds=self.time_window)
+        messages = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: list(self.messages.find(
+                {"user_id": user_id, "timestamp": {"$gt": cutoff}}
+            ))
+        )
+
+        if len(text.strip()) < 5:
+            return True
+
+        from difflib import SequenceMatcher
+        message_counts = {}
+        for msg in messages:
+            similarity = SequenceMatcher(None, text.lower(), msg["text"].lower()).ratio()
+            if similarity > 0.9:
+                return True
+            message_counts[msg["text"]] = message_counts.get(msg["text"], 0) + 1
+            if message_counts[msg["text"]] >= self.spam_threshold:
+                return True
+        
+        if messages:
+            last_ts = messages[-1]["timestamp"]
+            if (datetime.now() - last_ts) < timedelta(seconds=5):
+                return True
+        
+        return False
+
+# Create global db instance
+db = Database()
