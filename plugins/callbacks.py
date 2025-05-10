@@ -1,5 +1,6 @@
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ContextTypes
+from database.database import db
 import config
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -9,17 +10,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     if data == "balance":
         user_id = str(query.from_user.id)
-        user = await context.bot_data["db"].get_user(user_id)
+        user = await db.get_user(user_id)
         if not user:
-            await context.bot_data["db"].create_user(user_id, query.from_user.first_name)
-            user = await context.bot_data["db"].get_user(user_id)
+            await db.create_user(user_id, query.from_user.first_name)
+            user = await db.get_user(user_id)
         await query.message.reply_text(
             f"Hi {user['name']}!\n"
             f"Messages: {user['messages']}\n"
             f"Balance: {user['balance']} {config.CURRENCY}"
         )
     elif data == "top":
-        top_users = await context.bot_data["db"].get_top_users()
+        top_users = await db.get_top_users()
         if not top_users:
             await query.message.reply_text("No stats yet.")
             return
@@ -42,7 +43,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "withdraw":
         user_id = str(query.from_user.id)
-        user = await context.bot_data["db"].get_user(user_id)
+        user = await db.get_user(user_id)
         if not user or user['balance'] < config.WITHDRAWAL_THRESHOLD:
             await query.message.reply_text(
                 f"You need at least {config.WITHDRAWAL_THRESHOLD} {config.CURRENCY} to withdraw."
@@ -92,5 +93,3 @@ async def check_force_sub(bot, user_id, channel_id):
 
 def register_handlers(application):
     application.add_handler(CallbackQueryHandler(button_callback))
-    # Store db in bot_data for access in callbacks
-    application.bot_data["db"] = application.bot_data.get("db", application.bot_data.get("db", None))
