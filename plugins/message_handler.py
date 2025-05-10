@@ -3,6 +3,7 @@ from telegram.ext import MessageHandler, filters, ContextTypes
 from telegram.error import RetryAfter
 from database.database import db
 import logging
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if user reached 10 kyat and hasn't been notified
     if updated_user.get("balance", 0) >= 10 and not updated_user.get("notified_10kyat", False):
         username = update.effective_user.username or update.effective_user.first_name
-        withdrawal_threshold = 100  # Adjust if needed
         try:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"Congratulations @{username} ပိုက်ဆံ ၁၀ ကျပ်ရရှိပါပြီ ငွေထုတ်ရန် {withdrawal_threshold} ပြည့်ရင်ထုတ်လို့ရပါပြီ"
+                text=f"Congratulations @{username} ပိုက်ဆံ ၁၀ ကျပ်ရရှိပါပြီ ငွေထုတ်ရန် {config.WITHDRAWAL_THRESHOLD} ပြည့်ရင်ထုတ်လို့ရပါပြီ"
             )
             await db.mark_notified_10kyat(user_id)
         except RetryAfter as e:
