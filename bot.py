@@ -22,6 +22,9 @@ async def main():
     # Create and configure the Application
     application = Application.builder().token(config.BOT_TOKEN).build()
 
+    # Store db in bot_data
+    application.bot_data["db"] = db
+
     # Register handlers
     start.register_handlers(application)
     balance.register_handlers(application)
