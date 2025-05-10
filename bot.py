@@ -2,7 +2,7 @@ import asyncio
 import logging
 from telegram.ext import Application
 import config
-from database.database import Database
+from database.database import db
 from plugins import start, balance, stats, admin, message_handler
 
 logging.basicConfig(
@@ -10,8 +10,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-db = Database()
 
 async def main():
     if not config.BOT_TOKEN:
