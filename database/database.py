@@ -46,26 +46,43 @@ class Database:
             None,
             lambda: self.users.update_one(
                 {"user_id": user_id},
-                {"$setOnInsert": {"user_id": user_id, "name": name, "messages": 0, "balance": 0.0}},
+                {"$setOnInsert": {
+                    "user_id": user_id,
+                    "name": name,
+                    "messages": 0,
+                    "balance": 0.0,
+                    "notified_10kyat": False
+                }},
                 upsert=True
             )
         )
 
     async def increment_message(self, user_id, name, text):
-        await asyncio.get_event_loop().run_in_executor(
+        result = await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self.users.update_one(
+            lambda: self.users.find_one_and_update(
                 {"user_id": user_id},
                 {
                     "$inc": {"messages": 1, "balance": 1.0},
                     "$set": {"name": name}
-                }
+                },
+                return_document=True
             )
         )
         await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self.messages.insert_one(
                 {"user_id": user_id, "text": text, "timestamp": datetime.now()}
+            )
+        )
+        return result  # Return updated user document
+
+    async def mark_notified_10kyat(self, user_id):
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.update_one(
+                {"user_id": user_id},
+                {"$set": {"notified_10kyat": True}}
             )
         )
 
@@ -91,7 +108,7 @@ class Database:
             None,
             lambda: self.users.update_one(
                 {"user_id": user_id},
-                {"$set": {"balance": 0.0}}
+                {"$set": {"balance": 0.0, "notified_10kyat": False}}
             )
         )
 
