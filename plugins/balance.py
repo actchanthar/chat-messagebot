@@ -1,4 +1,4 @@
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.error import RetryAfter
 from database.database import db
@@ -85,6 +85,15 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
     if text:
         profile_info += f"Text: {text}\n"
     
+    # Create Approve/Reject buttons
+    keyboard = [
+        [
+            InlineKeyboardButton("Approve", callback_data=f"withdraw_approve_{user_id}"),
+            InlineKeyboardButton("Reject", callback_data=f"withdraw_reject_{user_id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     # Forward to admins
     for admin_id in config.ADMIN_IDS:
         if admin_id:
@@ -93,12 +102,14 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
                     await context.bot.send_photo(
                         chat_id=admin_id,
                         photo=photo.file_id,
-                        caption=profile_info
+                        caption=profile_info,
+                        reply_markup=reply_markup
                     )
                 else:
                     await context.bot.send_message(
                         chat_id=admin_id,
-                        text=profile_info
+                        text=profile_info,
+                        reply_markup=reply_markup
                     )
             except RetryAfter as e:
                 logger.warning(f"RetryAfter error for admin {admin_id}: {e}")
