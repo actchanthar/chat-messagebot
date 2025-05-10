@@ -86,6 +86,15 @@ class Database:
             )
         )
 
+    async def add_bonus(self, user_id, amount):
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.users.update_one(
+                {"user_id": user_id},
+                {"$inc": {"balance": amount}}
+            )
+        )
+
     async def get_top_users(self, limit=10):
         users = await asyncio.get_event_loop().run_in_executor(
             None,
