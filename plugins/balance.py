@@ -21,9 +21,9 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.create_user(user_id, update.effective_user.first_name)
         user = await db.get_user(user_id)
     await update.message.reply_text(
-        f"Hi {user['name']}!\n"
-        f"Messages: {user['messages']}\n"
-        f"Balance: {user['balance']} {config.CURRENCY}"
+        f"မင်္ဂလာပါ {user['name']}!\n"
+        f"စာတိုများ: {user['messages']}\n"
+        f"လက်ကျန်: {user['balance']} {config.CURRENCY}"
     )
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -31,14 +31,14 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = await db.get_user(user_id)
     if not user or user['balance'] < config.WITHDRAWAL_THRESHOLD:
         await update.message.reply_text(
-            f"You need at least {config.WITHDRAWAL_THRESHOLD} {config.CURRENCY} to withdraw."
+            f"ထုတ်ယူရန်အတွက် အနည်းဆုံး {config.WITHDRAWAL_THRESHOLD} {config.CURRENCY} လိုအပ်ပါသည်။"
         )
         return
     
     is_subscribed = await check_force_sub(context.bot, user_id, config.CHANNEL_ID)
     if not is_subscribed:
         await update.message.reply_text(
-            f"Join {config.CHANNEL_USERNAME} to withdraw.\nThen try /withdraw again."
+            f"ထုတ်ယူရန်အတွက် {config.CHANNEL_USERNAME} သို့ဝင်ရောက်ပါ။\nထို့နောက် ထပ်မံကြိုးစားပါ။"
         )
         return
     
@@ -49,15 +49,18 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
-        "Select a payment method:",
-        reply_markup=reply_markup
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="ငွေထုတ်ယူရန်နည်းလမ်းရွေးချယ်ပါ:"
     )
 
 async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
-        await update.message.reply_text("Please start the withdrawal process with /withdraw.")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
+        )
         return
     
     method = context.user_data["withdrawal"]["method"]
@@ -69,7 +72,10 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
     photo = update.message.photo[-1] if update.message.photo else None
     
     if not text and not photo:
-        await update.message.reply_text("Please send your account details or QR code.")
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="ကျေးဇူးပြု၍ သင့်အကောင့်အသေးစိတ်အချက်အလက်များ သို့မဟုတ် QR ကုဒ်ပေးပို့ပါ။"
+        )
         return
     
     # Prepare user profile and details
@@ -116,8 +122,9 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
             except Exception as e:
                 logger.error(f"Failed to notify admin {admin_id}: {e}")
     
-    await update.message.reply_text(
-        "Your withdrawal request has been sent to the admin. You'll be notified once processed."
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် အကြောင်းကြားပါမည်။"
     )
     
     # Clear user state
