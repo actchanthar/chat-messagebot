@@ -115,3 +115,6 @@ class Database:
                 return True
         
         return False
+
+# Create global db instance
+db = Database()
