@@ -1,5 +1,5 @@
-from telegram import Update
-from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.error import RetryAfter
 from database.database import db
 import config
@@ -65,67 +65,92 @@ async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Added {amount} {config.CURRENCY} bonus to {user['name']} (ID: {target_user_id})."
     )
 
-async def handle_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
     if user_id not in config.ADMIN_IDS:
+        await query.message.reply_text("Admins only.")
         return
     
-    if not update.message.reply_to_message:
+    data = query.data
+    if not data.startswith("withdraw_"):
         return
     
-    # Check if replying to a withdrawal request
-    reply_text = update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
-    if "Withdrawal Request" not in reply_text:
-        return
-    
-    # Extract user_id from the withdrawal request
-    lines = reply_text.split("\n")
-    target_user_id = None
-    amount = None
-    for line in lines:
-        if line.startswith("User ID: "):
-            target_user_id = line.split("User ID: ")[1]
-        if line.startswith("Amount: "):
-            amount = line.split("Amount: ")[1].split(f" {config.CURRENCY}")[0]
-    
-    if not target_user_id or not amount:
-        await update.message.reply_text("Could not parse withdrawal request.")
-        return
+    action, target_user_id = data.split("_")[1], data.split("_")[2]
     
     user = await db.get_user(target_user_id)
     if not user:
-        await update.message.reply_text(f"User {target_user_id} not found.")
+        await query.message.reply_text(f"User {target_user_id} not found.")
         return
     
-    # Send receipt to user
+    # Extract amount from the original message
+    original_message = query.message.text or query.message.caption or ""
+    amount = None
+    for line in original_message.split("\n"):
+        if line.startswith("Amount: "):
+            amount = line.split("Amount: ")[1].split(f" {config.CURRENCY}")[0]
+            break
+    
+    if not amount:
+        await query.message.reply_text("Could not parse withdrawal amount.")
+        return
+    
     try:
-        if update.message.photo:
-            await context.bot.send_photo(
-                chat_id=target_user_id,
-                photo=update.message.photo[-1].file_id,
-                caption=f"Your withdrawal of {amount} {config.CURRENCY} has been processed."
+        amount = float(amount)
+    except ValueError:
+        await query.message.reply_text("Invalid withdrawal amount.")
+        return
+    
+    if action == "approve":
+        # Send confirmation to user (with receipt if available)
+        try:
+            if query.message.photo:
+                await context.bot.send_photo(
+                    chat_id=target_user_id,
+                    photo=query.message.photo[-1].file_id,
+                    caption=f"Your withdrawal of {amount} {config.CURRENCY} has been approved."
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=target_user_id,
+                    text=f"Your withdrawal of {amount} {config.CURRENCY} has been approved."
+                )
+            await query.message.reply_text(
+                f"Approved withdrawal for {user['name']} (ID: {target_user_id})."
             )
-        else:
+            # Reset balance after approval
+            await db.reset_balance(target_user_id)
+        except RetryAfter as e:
+            logger.warning(f"RetryAfter error for user {target_user_id}: {e}")
+            await query.message.reply_text("Failed to notify user due to rate limits.")
+        except Exception as e:
+            logger.error(f"Failed to notify user {target_user_id}: {e}")
+            await query.message.reply_text(f"Failed to notify user: {e}")
+    
+    elif action == "reject":
+        # Notify user of rejection
+        try:
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=f"Your withdrawal of {amount} {config.CURRENCY} has been processed."
+                text=f"Your withdrawal request of {amount} {config.CURRENCY} was rejected."
             )
-        await update.message.reply_text(f"Receipt sent to {user['name']} (ID: {target_user_id}).")
-        
-        # Reset balance after successful withdrawal
-        await db.reset_balance(target_user_id)
-    except RetryAfter as e:
-        logger.warning(f"RetryAfter error for user {target_user_id}: {e}")
-        await update.message.reply_text(f"Failed to send receipt due to rate limits. Try again later.")
-    except Exception as e:
-        logger.error(f"Failed to send receipt to {target_user_id}: {e}")
-        await update.message.reply_text(f"Failed to send receipt: {e}")
+            await query.message.reply_text(
+                f"Rejected withdrawal for {user['name']} (ID: {target_user_id})."
+            )
+        except RetryAfter as e:
+            logger.warning(f"RetryAfter error for user {target_user_id}: {e}")
+            await query.message.reply_text("Failed to notify user due to rate limits.")
+        except Exception as e:
+            logger.error(f"Failed to notify user {target_user_id}: {e}")
+            await query.message.reply_text(f"Failed to notify user: {e}")
+    
+    # Remove buttons after action
+    await query.message.edit_reply_markup(reply_markup=None)
 
 def register_handlers(application):
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("pay", pay))
     application.add_handler(CommandHandler("add_bonus", add_bonus))
-    application.add_handler(MessageHandler(
-        filters.PHOTO | filters.TEXT & ~filters.COMMAND & filters.REPLY,
-        handle_receipt
-    ))
+    application.add_handler(CallbackQueryHandler(handle_withdrawal_action, pattern="^withdraw_"))
