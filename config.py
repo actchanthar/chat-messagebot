@@ -6,3 +6,4 @@ CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME")
 ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")
 CURRENCY = "kyat"
 WITHDRAWAL_THRESHOLD = 100  # Minimum balance for withdrawal
+PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
