@@ -1,5 +1,5 @@
 import os
-from pymongo import MongoClient
+from pymongo import MongoClient, errors
 from datetime import datetime, timedelta
 import asyncio
 
@@ -13,15 +13,26 @@ class Database:
         self.time_window = 30 * 60  # 30 minutes
 
     async def init(self):
-        # Ensure indexes for efficient queries
+        # Check and create indexes if they don't exist
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self.users.create_index("user_id", unique=True)
+            self._create_indexes
         )
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self.messages.create_index([("user_id", 1), ("timestamp", 1)])
-        )
+
+    def _create_indexes(self):
+        # Get existing indexes
+        existing_indexes = self.users.index_information()
+        
+        # Create user_id index if it doesn't exist
+        if "user_id_1" not in existing_indexes:
+            try:
+                self.users.create_index("user_id", unique=True)
+            except errors.DuplicateKeyError:
+                pass  # Ignore if index creation fails due to existing index
+        
+        # Create messages index if it doesn't exist
+        if "user_id_1_timestamp_1" not in existing_indexes:
+            self.messages.create_index([("user_id", 1), ("timestamp", 1)])
 
     async def get_user(self, user_id):
         user = await asyncio.get_event_loop().run_in_executor(
