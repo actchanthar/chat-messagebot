@@ -3,7 +3,7 @@ import logging
 from telegram.ext import Application
 import config
 from database.database import db
-from plugins import start, balance, stats, admin, message_handler
+from plugins import start, balance, stats, admin, message_handler, callbacks
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -28,6 +28,7 @@ async def main():
     stats.register_handlers(application)
     admin.register_handlers(application)
     message_handler.register_handlers(application)
+    callbacks.register_handlers(application)
 
     logger.info("Starting bot")
 
