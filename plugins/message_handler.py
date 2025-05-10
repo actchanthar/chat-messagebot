@@ -32,7 +32,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"Congratulations @{username} ပိုက်ဆံ ၁၀ ကျပ်ရရှိပါပြီ ငွေထုတ်ရန် {config.WITHDRAWAL_THRESHOLD} ပြည့်ရင်ထုတ်လို့ရပါပြီ"
+                text=f"ဂုဏ်ယူပါတယ် @{username} ပိုက်ဆံ ၁၀ ကျပ်ရရှိပါပြီ ငွေထုတ်ရန် {config.WITHDRAWAL_THRESHOLD} ပြည့်ရင်ထုတ်လို့ရပါပြီ"
             )
             await db.mark_notified_10kyat(user_id)
         except RetryAfter as e:
