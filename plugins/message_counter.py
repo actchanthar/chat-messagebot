@@ -1,6 +1,10 @@
 from telegram import Update
 from telegram.ext import MessageHandler, filters, ContextTypes
+from telegram.error import RetryAfter
 from database.database import db
+import logging
+
+logger = logging.getLogger(__name__)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
@@ -16,8 +20,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await db.create_user(user_id, update.effective_user.first_name)
     
     if await db.is_spam(user_id, message_text):
-        await update.message.reply_text("Spam detected. Message not counted.")
-        return
+        logger.info(f"Spam detected from user {user_id}: {message_text}")
+        return  # Silently ignore spam instead of replying
     
     await db.increment_message(user_id, update.effective_user.first_name, message_text)
 
