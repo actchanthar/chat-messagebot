@@ -38,6 +38,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except RetryAfter as e:
             logger.warning(f"RetryAfter error: {e}")
             # Skip notification to avoid flood control
+        except Exception as e:
+            logger.error(f"Error sending 10 kyat notification: {e}")
 
 def register_handlers(application):
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
