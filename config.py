@@ -1,20 +1,19 @@
 import os
+import sys
 
-# Bot token from environment variable
-BOT_TOKEN = os.environ.get("7784918819:AAHxNG_ZH6JE8cGGg4XzxIfzVkAz5HbsvXs")
+def validate_env_vars():
+    required_vars = ["TELEGRAM_TOKEN", "MONGODB_URI"]
+    missing = [var for var in required_vars if not os.environ.get(var)]
+    if missing:
+        print(f"Error: Missing environment variables: {', '.join(missing)}")
+        sys.exit(1)
 
-# MongoDB URI from environment variable
-MONGODB_URI = os.environ.get("mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+validate_env_vars()
 
-# Admin user IDs (list of strings)
-ADMIN_IDS = os.environ.get("ADMIN_IDS", "5062124930").split(",")
-
-# Spam detection settings
-SPAM_THRESHOLD = 5  # Number of similar messages allowed within time window
-TIME_WINDOW = 60 * 30  # 30 minutes in seconds
-
-# Reward settings
-REWARD_PER_MESSAGE = 1  # Kyat per message
-
-# Currency symbol
+BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+MONGODB_URI = os.environ.get("MONGODB_URI")
+ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")
+SPAM_THRESHOLD = 5
+TIME_WINDOW = 60 * 30
+REWARD_PER_MESSAGE = 1
 CURRENCY = "kyat"
