@@ -9,19 +9,17 @@ class Database:
         self.db = self.client["actchat"]
         self.users = self.db["users"]
         self.messages = self.db["messages"]
-        self.groups = self.db["groups"]  # New collection for registered groups
+        self.groups = self.db["groups"]
         self.spam_threshold = 5
         self.time_window = 30 * 60  # 30 minutes
 
     async def init(self):
-        # Check and create indexes if they don't exist
         await asyncio.get_event_loop().run_in_executor(
             None,
             self._create_indexes
         )
 
     def _create_indexes(self):
-        # Get existing indexes for users
         existing_indexes = self.users.index_information()
         if "user_id_1" not in existing_indexes:
             try:
@@ -29,11 +27,9 @@ class Database:
             except errors.DuplicateKeyError:
                 pass
         
-        # Create messages index if it doesn't exist
         if "user_id_1_timestamp_1" not in existing_indexes:
             self.messages.create_index([("user_id", 1), ("timestamp", 1)])
         
-        # Create index for groups
         groups_indexes = self.groups.index_information()
         if "group_id_1" not in groups_indexes:
             try:
@@ -103,9 +99,12 @@ class Database:
         )
 
     async def get_top_users(self, limit=10):
+        query = self.users.find().sort("messages", -1)
+        if limit is not None:
+            query = query.limit(limit)
         users = await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: list(self.users.find().sort("messages", -1).limit(limit))
+            lambda: list(query)
         )
         return users
 
@@ -157,7 +156,6 @@ class Database:
         
         return False
 
-    # New methods for group management
     async def add_group(self, group_id):
         await asyncio.get_event_loop().run_in_executor(
             None,
@@ -175,5 +173,4 @@ class Database:
         )
         return [group["group_id"] for group in groups]
 
-# Create global db instance
 db = Database()
