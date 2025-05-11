@@ -1,56 +1,29 @@
-import asyncio
 import logging
 from telegram.ext import Application
 import config
-from database.database import db
-from plugins import start, balance, stats, admin, message_handler, callbacks
+from plugins.message_handler import register_handlers
+from plugins.balance import register_handlers as register_balance_handlers
+from plugins.admin import register_handlers as register_admin_handlers
 
+# Set up logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-async def main():
-    if not config.BOT_TOKEN:
-        logger.error("TELEGRAM_TOKEN not set")
-        return
-    
-    # Initialize database
-    await db.init()
-
-    # Create and configure the Application
+def main():
+    logger.info("Starting bot")
     application = Application.builder().token(config.BOT_TOKEN).build()
 
-    # Store db in bot_data
-    application.bot_data["db"] = db
+    # Register all handlers
+    register_handlers(application)
+    register_balance_handlers(application)
+    register_admin_handlers(application)
 
-    # Register handlers
-    start.register_handlers(application)
-    balance.register_handlers(application)
-    stats.register_handlers(application)
-    admin.register_handlers(application)
-    message_handler.register_handlers(application)
-    callbacks.register_handlers(application)
+    # Start the bot
+    logger.info("Bot is running")
+    application.run_polling()
 
-    logger.info("Starting bot")
-
-    try:
-        # Initialize and start polling
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-        
-        # Keep the bot running until interrupted
-        await asyncio.Event().wait()
-    except KeyboardInterrupt:
-        logger.info("Bot stopping...")
-    finally:
-        # Properly shut down
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
-        logger.info("Bot stopped")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__ == '__main__':
+    main()
