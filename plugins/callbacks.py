@@ -187,6 +187,18 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         chat_id=approved_user_id,
                         text=f"Your withdrawal of {amount} {config.CURRENCY} has been approved. Remaining balance: {(user['balance'] - amount)} {config.CURRENCY}"
                     )
+                    # Send announcement to the group
+                    username = user.get("username", user["name"])  # Use username if available, else first name
+                    mention = f"@{username}" if username else user["name"]
+                    group_message = f"{mention} သူက ငွေ {amount} ကျပ်ထုတ်ခဲ့သည် ချိုချဉ်ယ်စားပါ"
+                    try:
+                        await context.bot.send_message(
+                            chat_id=config.GROUP_CHAT_ID,
+                            text=group_message
+                        )
+                        logger.info(f"Sent withdrawal announcement to group {config.GROUP_CHAT_ID} for user {approved_user_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to send announcement to group {config.GROUP_CHAT_ID}: {str(e)}")
                     del context.user_data["pending_withdrawals"][approved_user_id]
                 logger.info(f"Withdrawal approved for user {approved_user_id}, amount: {amount}")
         elif data.startswith("withdraw_reject_"):
