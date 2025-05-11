@@ -198,7 +198,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Entering handle_payment_details for user {user_id} in chat {chat_id}, context: {context.user_data}")
+    logger.info(f"Entering handle_payment_details for user {user_id} in chat {chat_id}, state: PAYMENT_DETAILS, context: {context.user_data}")
 
     if update.effective_chat.type != "private":
         logger.info(f"Ignoring payment details in group chat {chat_id}")
@@ -308,7 +308,10 @@ def register_handlers(application):
         entry_points=[CallbackQueryHandler(button_callback, pattern="^withdraw$")],
         states={
             PAYMENT_METHOD: [CallbackQueryHandler(button_callback, pattern="^payment_.*$")],
-            PAYMENT_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND | filters.PHOTO, handle_payment_details)],
+            PAYMENT_DETAILS: [
+                MessageHandler(filters.PHOTO, handle_payment_details),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_details),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel_withdrawal)],
     )
@@ -317,7 +320,7 @@ def register_handlers(application):
     # Handle all other button callbacks outside conversation
     application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help|withdraw_approve_.*|withdraw_reject_.*)$"))
     
-    # Fallback handler to debug unhandled messages
+    # Fallback handler to debug unhandled messages (lower priority)
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, debug_unhandled_message), group=1)
     
     logger.info("Registered start command, conversation handler, button callbacks, and debug handler")
