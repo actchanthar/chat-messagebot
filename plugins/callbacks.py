@@ -30,7 +30,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("Balance", callback_data="balance")],
         [InlineKeyboardButton("Top", callback_data="top")],
         [InlineKeyboardButton("Help", callback_data="help")],
-        [InlineKeyboardButton("Withdrawal", callback_data="withdraw")]
+        [InlineKeyboardButton("ထုတ်ယူရန်", callback_data="withdraw")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await context.bot.send_message(
@@ -103,21 +103,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "withdraw":
             if update.effective_chat.type != "private":
                 logger.info(f"Ignoring withdraw request in group chat {chat_id}")
-                return ConversationHandler.END
+                await query.message.reply_text("This action is only available in private chat.")
+                return
             user = await db.get_user(user_id)
-            if not user or user['balance'] < config.WITHDRAWAL_THRESHOLD:
+            if not user:
+                await db.create_user(user_id, query.from_user.first_name)
+                user = await db.get_user(user_id)
+            if user['balance'] < config.WITHDRAWAL_THRESHOLD:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=f"ထုတ်ယူရန်အတွက် အနည်းဆုံး {config.WITHDRAWAL_THRESHOLD} {config.CURRENCY} လိုအပ်ပါသည်။"
                 )
-                return ConversationHandler.END
-            is_subscribed = await check_force_sub(context.bot, user_id, config.CHANNEL_ID)
-            if not is_subscribed:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"ထုတ်ယူရန်အတွက် {config.CHANNEL_USERNAME} သို့ဝင်ရောက်ပါ။\nထို့နောက် ထပ်မံကြိုးစားပါ။"
-                )
-                return ConversationHandler.END
+                logger.info(f"Insufficient balance for user {user_id}: {user['balance']}")
+                return
+            try:
+                is_subscribed = await check_force_sub(context.bot, user_id, config.CHANNEL_ID)
+                if not is_subscribed:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"ထုတ်ယူရန်အတွက် {config.CHANNEL_USERNAME} သို့ဝင်ရောက်ပါ။\nထို့နောက် ထပ်မံကြိုးစားပါ။"
+                    )
+                    logger.info(f"User {user_id} not subscribed to {config.CHANNEL_USERNAME}")
+                    return
+            except Exception as e:
+                logger.error(f"Subscription check failed for user {user_id}: {str(e)}")
+                await context.bot.send_message(chat_id=chat_id, text="Subscription check failed. Please try again later.")
+                return
             context.user_data["withdrawal"] = {"amount": user["balance"]}
             keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -131,7 +142,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("payment_"):
             if update.effective_chat.type != "private":
                 logger.info(f"Ignoring payment method selection in group chat {chat_id}")
-                return ConversationHandler.END
+                await query.message.reply_text("This action is only available in private chat.")
+                return
             method = data.replace("payment_", "")
             logger.info(f"Payment method {method} selected by user {user_id}")
             if "withdrawal" not in context.user_data:
@@ -140,7 +152,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text="ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
                 )
                 logger.info(f"No withdrawal context for user {user_id}")
-                return ConversationHandler.END
+                return
             context.user_data["withdrawal"]["method"] = method
             if method == "KBZ Pay":
                 await context.bot.send_message(
