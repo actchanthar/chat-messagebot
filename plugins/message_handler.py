@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
+        logger.info(f"Private message received, ignoring for counting: {update.message.text}")
         return
     
     # Check if the group is registered
@@ -26,6 +27,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user = await db.get_user(user_id)
     if not user:
+        logger.info(f"Creating new user {user_id}")
         await db.create_user(user_id, update.effective_user.first_name)
     
     if await db.is_spam(user_id, message_text):
