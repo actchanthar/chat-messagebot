@@ -103,21 +103,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data == "withdraw":
             if update.effective_chat.type != "private":
                 logger.info(f"Ignoring withdraw request in group chat {chat_id}")
-                return
+                return ConversationHandler.END
             user = await db.get_user(user_id)
             if not user or user['balance'] < config.WITHDRAWAL_THRESHOLD:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"ထုတ်ယူရန်အတွက် အနည်းဆုံး {config.WITHRAWAL_THRESHOLD} {config.CURRENCY} လိုအပ်ပါသည်။"
+                    text=f"ထုတ်ယူရန်အတွက် အနည်းဆုံး {config.WITHDRAWAL_THRESHOLD} {config.CURRENCY} လိုအပ်ပါသည်။"
                 )
-                return
+                return ConversationHandler.END
             is_subscribed = await check_force_sub(context.bot, user_id, config.CHANNEL_ID)
             if not is_subscribed:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=f"ထုတ်ယူရန်အတွက် {config.CHANNEL_USERNAME} သို့ဝင်ရောက်ပါ။\nထို့နောက် ထပ်မံကြိုးစားပါ။"
                 )
-                return
+                return ConversationHandler.END
             context.user_data["withdrawal"] = {"amount": user["balance"]}
             keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -128,10 +128,60 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             logger.info(f"Withdrawal initiated for user {user_id}, moving to PAYMENT_METHOD state")
             return PAYMENT_METHOD
+        elif data.startswith("payment_"):
+            if update.effective_chat.type != "private":
+                logger.info(f"Ignoring payment method selection in group chat {chat_id}")
+                return ConversationHandler.END
+            method = data.replace("payment_", "")
+            logger.info(f"Payment method {method} selected by user {user_id}")
+            if "withdrawal" not in context.user_data:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
+                )
+                logger.info(f"No withdrawal context for user {user_id}")
+                return ConversationHandler.END
+            context.user_data["withdrawal"]["method"] = method
+            if method == "KBZ Pay":
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="QR ကုဒ် သို့မဟုတ် အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ (ဥပမာ: 09123456789 ZAYAR KO KO MIN ZAW)။"
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"{method} အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ။"
+                )
+            logger.info(f"Payment method {method} confirmed for user {user_id}, moving to PAYMENT_DETAILS state")
+            return PAYMENT_DETAILS
+        elif data.startswith("withdraw_approve_"):
+            approved_user_id = data.replace("withdraw_approve_", "")
+            if approved_user_id in context.user_data.get("pending_withdrawals", {}):
+                withdrawal = context.user_data["pending_withdrawals"][approved_user_id]
+                amount = withdrawal["amount"]
+                user = await db.get_user(approved_user_id)
+                if user and user["balance"] >= amount:
+                    await db.update_user(approved_user_id, balance=user["balance"] - amount)
+                    await context.bot.send_message(
+                        chat_id=approved_user_id,
+                        text=f"သင့်ငွေထုတ်ယူမှု {amount} {config.CURRENCY} ကို အတည်ပြုပြီးပါသည်။ လက်ကျန်: {(user['balance'] - amount)} {config.CURRENCY}"
+                    )
+                    del context.user_data["pending_withdrawals"][approved_user_id]
+                logger.info(f"Withdrawal approved for user {approved_user_id}, amount: {amount}")
+        elif data.startswith("withdraw_reject_"):
+            rejected_user_id = data.replace("withdraw_reject_", "")
+            if rejected_user_id in context.user_data.get("pending_withdrawals", {}):
+                await context.bot.send_message(
+                    chat_id=rejected_user_id,
+                    text="သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို ပယ်ချခံလိုက်ရပါသည်။"
+                )
+                del context.user_data["pending_withdrawals"][rejected_user_id]
+                logger.info(f"Withdrawal rejected for user {rejected_user_id}")
 
     except Exception as e:
         logger.error(f"Error in button callback for user {user_id}: {str(e)}")
         await context.bot.send_message(chat_id=chat_id, text="An error occurred. Please try again later.")
+        return ConversationHandler.END
 
 async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -253,7 +303,7 @@ def register_handlers(application):
     application.add_handler(conv_handler)
     
     # Handle all other button callbacks outside conversation
-    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help)$"))
+    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help|withdraw_approve_.*|withdraw_reject_.*)$"))
     
     # Fallback handler to debug unhandled messages
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, debug_unhandled_message), group=1)
