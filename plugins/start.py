@@ -14,7 +14,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received /start command from user {user_id} in chat {chat_id}")
 
     try:
-        # Get top 10 users
         top_users = await db.get_top_users()
         top_users_text = "ထိပ်တန်းအသုံးပြုသူ ၁၀ ဦး:\n"
         if not top_users:
@@ -23,7 +22,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i, user in enumerate(top_users, 1):
                 top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user['balance']} {config.CURRENCY}\n"
 
-        # Define inline keyboard buttons
         keyboard = [
             [
                 InlineKeyboardButton("ထုတ်ယူရန်", callback_data="withdraw"),
@@ -36,7 +34,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Send welcome message with image and buttons in Myanmar
         await update.message.reply_photo(
             photo="https://i.imghippo.com/files/cbg1841XQ.jpg",
             caption=(
@@ -78,7 +75,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Acknowledge the button press
+    await query.answer()
 
     user_id = str(query.from_user.id)
     chat_id = str(query.message.chat.id)
@@ -87,13 +84,15 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         if callback_data == "balance":
+            update.message = query.message  # Simulate a message for the handler
             await balance_handler(update, context)
         elif callback_data == "withdraw":
+            update.message = query.message
             await withdraw_handler(update, context)
         elif callback_data == "top":
+            update.message = query.message
             await top_handler(update, context)
         elif callback_data == "help":
-            # Simulate the /help command
             await query.message.reply_text(
                 "တစ်စာတိုလျှင် ၁ ကျပ်ရရှိမည်။\n"
                 "ထုတ်ယူရန်အတွက် ကျွန်ုပ်တို့၏ချန်နယ်သို့ဝင်ရောက်ပါ။\n\n"
