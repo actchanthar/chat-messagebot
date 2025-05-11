@@ -32,6 +32,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return  # Silently ignore spam
     
     updated_user = await db.increment_message(user_id, update.effective_user.first_name, message_text)
+    logger.info(f"Incremented messages for user {user_id}. New count: {updated_user.get('messages', 0)}, Balance: {updated_user.get('balance', 0)}")
     
     # Check if user reached 10 kyat and hasn't been notified
     if updated_user.get("balance", 0) >= 10 and not updated_user.get("notified_10kyat", False):
@@ -42,9 +43,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=f"ဂုဏ်ယူပါတယ် @{username} ပိုက်ဆံ ၁၀ ကျပ်ရရှိပါပြီ ငွေထုတ်ရန် {config.WITHDRAWAL_THRESHOLD} ပြည့်ရင်ထုတ်လို့ရပါပြီ"
             )
             await db.mark_notified_10kyat(user_id)
+            logger.info(f"Sent 10 kyat notification to {username} in group {group_id}")
         except RetryAfter as e:
             logger.warning(f"RetryAfter error: {e}")
-            # Skip notification to avoid flood control
         except Exception as e:
             logger.error(f"Error sending 10 kyat notification: {e}")
 
