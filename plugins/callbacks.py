@@ -299,7 +299,7 @@ async def debug_unhandled_message(update: Update, context: ContextTypes.DEFAULT_
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
     message = update.message if update.message else None
-    logger.info(f"Unhandled message from user {user_id} in chat {chat_id}: text={message.text if message and message.text else 'None'}, photo={message.photo if message else 'None'}")
+    logger.info(f"Debug unhandled message: user {user_id} in chat {chat_id}, chat type: {update.effective_chat.type}, text={message.text if message and message.text else 'None'}, photo={message.photo if message else 'None'}, context: {context.user_data}")
 
 def register_handlers(application):
     # Register /start command
@@ -311,18 +311,20 @@ def register_handlers(application):
         states={
             PAYMENT_METHOD: [CallbackQueryHandler(button_callback, pattern="^payment_.*$")],
             PAYMENT_DETAILS: [
-                MessageHandler(filters.PHOTO, handle_payment_details),
+                MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, handle_payment_details),
                 MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_payment_details),
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_withdrawal)],
+        per_chat=True,  # Ensure the conversation is per chat
+        per_user=True,  # Ensure the conversation is per user
     )
-    application.add_handler(conv_handler, group=0)  # Higher priority
+    application.add_handler(conv_handler, group=0)  # Highest priority
     
     # Handle all other button callbacks outside conversation
-    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help|withdraw_approve_.*|withdraw_reject_.*)$"))
+    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help|withdraw_approve_.*|withdraw_reject_.*)$"), group=1)
     
-    # Fallback handler to debug unhandled messages (lower priority)
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, debug_unhandled_message), group=1)
+    # Fallback handler to debug unhandled messages (lowest priority)
+    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, debug_unhandled_message), group=2)
     
     logger.info("Registered start command, conversation handler, button callbacks, and debug handler")
