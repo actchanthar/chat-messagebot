@@ -6,6 +6,7 @@ from plugins.balance import register_handlers as register_balance_handlers
 from plugins.top import register_handlers as register_top_handlers
 from plugins.admin import register_handlers as register_admin_handlers
 from plugins.start import register_handlers as register_start_handlers
+from plugins.callbacks import register_handlers as register_callbacks_handlers
 
 # Set up logging
 logging.basicConfig(
@@ -24,6 +25,7 @@ def main():
     register_balance_handlers(application)
     register_top_handlers(application)
     register_admin_handlers(application)
+    register_callbacks_handlers(application)
 
     # Start the bot
     logger.info("Bot is running")
