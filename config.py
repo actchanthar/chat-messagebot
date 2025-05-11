@@ -7,3 +7,4 @@ ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")
 CURRENCY = "kyat"
 WITHDRAWAL_THRESHOLD = 100  # Minimum balance for withdrawal
 PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
+# Add other config variables like BOT_TOKEN, CHANNEL_ID, etc.
