@@ -13,10 +13,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     Handle incoming messages, count them in registered groups, and notify users
     when they reach 10 kyat. Ignores private messages and non-text content.
     """
-    # Log the received message and chat details
-    logger.info(f"Received message in chat {update.effective_chat.id} (type: {update.effective_chat.type})")
+    # Log all updates to ensure the handler is triggered
+    logger.info(f"Processing update in chat {update.effective_chat.id} (type: {update.effective_chat.type}), message: {update.message.text if update.message else 'None'}")
 
-    # Ignore private messages for counting
     if update.effective_chat.type == "private":
         logger.info(f"Private message received, ignoring for counting: {update.message.text}")
         return
@@ -73,5 +72,6 @@ def register_handlers(application):
     """
     Register message handlers for text and captions, excluding commands.
     """
+    logger.info("Registering message handlers")
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.CAPTION & ~filters.COMMAND, handle_message))
