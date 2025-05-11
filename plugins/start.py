@@ -1,10 +1,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import CommandHandler, ContextTypes
 from database.database import db
 import config
 import logging
-from plugins.balance import balance as balance_handler, withdraw as withdraw_handler
-from plugins.top import top as top_handler
 
 logger = logging.getLogger(__name__)
 
@@ -73,43 +71,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Failed to send /help response to user {user_id} in chat {chat_id}: {e}")
         raise
 
-async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    user_id = str(query.from_user.id)
-    chat_id = str(query.message.chat.id)
-    callback_data = query.data
-    logger.info(f"Received button press from user {user_id} in chat {chat_id}: {callback_data}")
-
-    try:
-        if callback_data == "balance":
-            update.message = query.message  # Simulate a message for the handler
-            await balance_handler(update, context)
-        elif callback_data == "withdraw":
-            update.message = query.message
-            await withdraw_handler(update, context)
-        elif callback_data == "top":
-            update.message = query.message
-            await top_handler(update, context)
-        elif callback_data == "help":
-            await query.message.reply_text(
-                "တစ်စာတိုလျှင် ၁ ကျပ်ရရှိမည်။\n"
-                "ထုတ်ယူရန်အတွက် ကျွန်ုပ်တို့၏ချန်နယ်သို့ဝင်ရောက်ပါ။\n\n"
-                "အမိန့်များ:\n"
-                "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
-                "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
-                "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
-                "/help - ဤစာကိုပြရန်"
-            )
-            logger.info(f"Sent help response to user {user_id} via button in chat {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to handle button {callback_data} for user {user_id} in chat {chat_id}: {e}")
-        await query.message.reply_text("An error occurred while processing your request.")
-        raise
-
 def register_handlers(application):
-    logger.info("Registering start, help, and button handlers")
+    logger.info("Registering start and help handlers")
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CallbackQueryHandler(handle_button))
