@@ -188,8 +188,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text=f"Your withdrawal of {amount} {config.CURRENCY} has been approved. Remaining balance: {(user['balance'] - amount)} {config.CURRENCY}"
                     )
                     # Send announcement to the group
-                    username = user.get("username", user["name"])  # Use username if available, else first name
-                    mention = f"@{username}" if username else user["name"]
+                    username = user.get("username", user["name"])
+                    mention = f"@{username}" if username.startswith('@') else user["name"]
                     group_message = f"{mention} သူက ငွေ {amount} ကျပ်ထုတ်ခဲ့သည် ချိုချဉ်ယ်စားပါ"
                     try:
                         await context.bot.send_message(
