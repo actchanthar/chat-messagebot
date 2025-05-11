@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler, ContextTypes
+from telegram.ext import CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from database.database import db
 import config
 import logging
@@ -59,6 +59,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             )
         elif data == "withdraw":
+            if update.effective_chat.type != "private":
+                return
             user = await db.get_user(user_id)
             if not user or user['balance'] < config.WITHDRAWAL_THRESHOLD:
                 await context.bot.send_message(
@@ -78,13 +80,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["withdrawal"] = {"amount": user["balance"]}
             keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
             reply_markup = InlineKeyboardMarkup(keyboard)
-
             await context.bot.send_message(
                 chat_id=user_id,
                 text="ငွေထုတ်ယူရန်နည်းလမ်းရွေးချယ်ပါ:",
                 reply_markup=reply_markup
             )
         elif data.startswith("payment_"):
+            if update.effective_chat.type != "private":
+                return
             method = data.replace("payment_", "")
             if "withdrawal" not in context.user_data:
                 await context.bot.send_message(
@@ -104,8 +107,103 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=user_id,
                     text=f"{method} အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ။"
                 )
+        elif data.startswith("withdraw_approve_"):
+            approved_user_id = data.replace("withdraw_approve_", "")
+            if approved_user_id in context.user_data.get("pending_withdrawals", {}):
+                withdrawal = context.user_data["pending_withdrawals"][approved_user_id]
+                amount = withdrawal["amount"]
+                user = await db.get_user(approved_user_id)
+                if user and user["balance"] >= amount:
+                    await db.update_user(approved_user_id, balance=user["balance"] - amount)
+                    await context.bot.send_message(
+                        chat_id=approved_user_id,
+                        text=f"သင့်ငွေထုတ်ယူမှု {amount} {config.CURRENCY} ကို အတည်ပြုပြီးပါသည်။ လက်ကျန်: {(user['balance'] - amount)} {config.CURRENCY}"
+                    )
+                    del context.user_data["pending_withdrawals"][approved_user_id]
+        elif data.startswith("withdraw_reject_"):
+            rejected_user_id = data.replace("withdraw_reject_", "")
+            if rejected_user_id in context.user_data.get("pending_withdrawals", {}):
+                await context.bot.send_message(
+                    chat_id=rejected_user_id,
+                    text="သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို ပယ်ချခံလိုက်ရပါသည်။"
+                )
+                del context.user_data["pending_withdrawals"][rejected_user_id]
+
     except Exception as e:
         logger.error(f"Error in button callback for user {user_id}: {e}")
+
+async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != "private":
+        return
+
+    user_id = str(update.effective_user.id)
+    if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
+        await update.message.reply_text(
+            "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
+        )
+        return
+
+    method = context.user_data["withdrawal"]["method"]
+    amount = context.user_data["withdrawal"]["amount"]
+    text = update.message.text or ""
+    photo = update.message.photo[-1] if update.message.photo else None
+
+    if not text and not photo:
+        await update.message.reply_text(
+            "ကျေးဇူးပြု၍ သင့်အကောင့်အသေးစိတ်အချက်အလက်များ သို့မဟုတ် QR ကုဒ်ပေးပို့ပါ။"
+        )
+        return
+
+    username = update.effective_user.username or update.effective_user.first_name
+    profile_info = (
+        f"Withdrawal Request\n"
+        f"User: @{username}\n"
+        f"User ID: {user_id}\n"
+        f"Amount: {amount} {config.CURRENCY}\n"
+        f"Method: {method}\n"
+        f"Details:\n"
+    )
+    if text:
+        profile_info += f"Text: {text}\n"
+
+    context.user_data.setdefault("pending_withdrawals", {})[user_id] = {
+        "amount": amount,
+        "method": method,
+        "details": text if text else "Photo provided"
+    }
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Approve", callback_data=f"withdraw_approve_{user_id}"),
+            InlineKeyboardButton("Reject", callback_data=f"withdraw_reject_{user_id}")
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    for admin_id in config.ADMIN_IDS:
+        if admin_id:
+            try:
+                if photo:
+                    await context.bot.send_photo(
+                        chat_id=admin_id,
+                        photo=photo.file_id,
+                        caption=profile_info,
+                        reply_markup=reply_markup
+                    )
+                else:
+                    await context.bot.send_message(
+                        chat_id=admin_id,
+                        text=profile_info,
+                        reply_markup=reply_markup
+                    )
+            except Exception as e:
+                logger.error(f"Failed to notify admin {admin_id}: {e}")
+
+    await update.message.reply_text(
+        "သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် အကြောင်းကြားပါမည်။"
+    )
+
+    context.user_data.pop("withdrawal", None)
 
 async def check_force_sub(bot, user_id, channel_id):
     try:
@@ -116,3 +214,7 @@ async def check_force_sub(bot, user_id, channel_id):
 
 def register_handlers(application):
     application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(
+        filters.TEXT & ~filters.COMMAND | filters.PHOTO,
+        handle_payment_details
+    ))
