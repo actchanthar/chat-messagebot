@@ -2,6 +2,7 @@ import os
 
 BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHANNEL_ID = os.environ.get("CHANNEL_ID")
+GROUP_CHAT_ID = "-1001234567890"  # Replace with your group chat ID
 CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME")
 ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")
 CURRENCY = "kyat"
