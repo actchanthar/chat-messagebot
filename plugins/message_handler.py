@@ -1,12 +1,3 @@
-from telegram import Update
-from telegram.ext import MessageHandler, filters, ContextTypes
-from telegram.error import RetryAfter
-from database.database import db
-import logging
-import config
-
-logger = logging.getLogger(__name__)
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received message in chat {update.effective_chat.id} (type: {update.effective_chat.type})")
 
@@ -14,7 +5,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Private message received, ignoring for counting: {update.message.text}")
         return
     
-    # Check if the group is registered
     group_id = str(update.effective_chat.id)
     registered_groups = await db.get_groups()
     logger.info(f"Registered groups: {registered_groups}")
@@ -42,7 +32,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     updated_user = await db.increment_message(user_id, update.effective_user.first_name, message_text)
     logger.info(f"Incremented messages for user {user_id} in group {group_id}. New count: {updated_user.get('messages', 0)}, Balance: {updated_user.get('balance', 0)}")
     
-    # Check if user reached 10 kyat and hasn't been notified
     if updated_user.get("balance", 0) >= 10 and not updated_user.get("notified_10kyat", False):
         username = update.effective_user.username or update.effective_user.first_name
         try:
@@ -56,7 +45,3 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"RetryAfter error: {e}")
         except Exception as e:
             logger.error(f"Error sending 10 kyat notification: {e}")
-
-def register_handlers(application):
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.CAPTION & ~filters.COMMAND, handle_message))
