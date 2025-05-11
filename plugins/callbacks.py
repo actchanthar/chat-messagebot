@@ -51,6 +51,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(query.from_user.id)
     chat_id = str(query.message.chat_id)
     data = query.data
+    logger.info(f"Button callback received: user {user_id}, chat {chat_id}, data: {data}, context: {context.user_data}")
 
     try:
         if data == "balance":
@@ -96,6 +97,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
                     "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
                     "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
+                    "/force_withdraw - ငွေထုတ်ခြင်းကို အတင်းစတင်ရန်\n"
                     "/help - ဤစာကိုပြရန်\n"
                     "/reset - Reset withdrawal process\n"
                     "/debug - Check current state\n"
@@ -132,8 +134,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Subscription check failed for user {user_id}: {str(e)}")
                 await context.bot.send_message(chat_id=chat_id, text="Subscription check failed. Please try again later.")
                 return
+            # Clear any existing withdrawal data before starting a new one
+            context.user_data.pop("withdrawal", None)
+            context.user_data.pop("state", None)
             context.user_data["withdrawal"] = {"amount": user["balance"]}
-            context.user_data["state"] = PAYMENT_METHOD  # Explicitly set state
+            context.user_data["state"] = PAYMENT_METHOD
             keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await context.bot.send_message(
@@ -158,7 +163,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"No withdrawal context for user {user_id}")
                 return
             context.user_data["withdrawal"]["method"] = method
-            context.user_data["state"] = PAYMENT_DETAILS  # Explicitly set state
+            context.user_data["state"] = PAYMENT_DETAILS
             if method == "KBZ Pay":
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -281,10 +286,52 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text(
         "သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် အကြောင်းကြားပါမည်။"
     ) if update.message else None
+    # Clear all withdrawal-related data
     context.user_data.pop("withdrawal", None)
-    context.user_data.pop("state", None)  # Clear state after completion
-    logger.info(f"Withdrawal request processed for user {user_id}, state cleared")
+    context.user_data.pop("state", None)
+    context.user_data.pop("pending_withdrawals", None)
+    logger.info(f"Withdrawal request processed for user {user_id}, all states and withdrawal data cleared")
     return ConversationHandler.END
+
+async def force_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    chat_id = str(update.effective_chat.id)
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("This command is only available in private chat.")
+        return
+    user = await db.get_user(user_id)
+    if not user:
+        await db.create_user(user_id, update.effective_user.first_name)
+        user = await db.get_user(user_id)
+    if user['balance'] < config.WITHDRAWAL_THRESHOLD:
+        await update.message.reply_text(
+            f"ထုတ်ယူရန်အတွက် အနည်းဆုံး {config.WITHDRAWAL_THRESHOLD} {config.CURRENCY} လိုအပ်ပါသည်။"
+        )
+        logger.info(f"Insufficient balance for user {user_id}: {user['balance']}")
+        return
+    try:
+        is_subscribed = await check_force_sub(context.bot, user_id, config.CHANNEL_ID)
+        if not is_subscribed:
+            await update.message.reply_text(
+                f"ထုတ်ယူရန်အတွက် {config.CHANNEL_USERNAME} သို့ဝင်ရောက်ပါ။\nထို့နောက် ထပ်မံကြိုးစားပါ။"
+            )
+            logger.info(f"User {user_id} not subscribed to {config.CHANNEL_USERNAME}")
+            return
+    except Exception as e:
+        logger.error(f"Subscription check failed for user {user_id}: {str(e)}")
+        await update.message.reply_text("Subscription check failed. Please try again later.")
+        return
+    # Clear any existing data and start fresh
+    context.user_data.clear()
+    context.user_data["withdrawal"] = {"amount": user["balance"]}
+    context.user_data["state"] = PAYMENT_METHOD
+    keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "ငွေထုတ်ယူရန်နည်းလမ်းရွေးချယ်ပါ:",
+        reply_markup=reply_markup
+    )
+    logger.info(f"Forced withdrawal initiated for user {user_id}, state set to PAYMENT_METHOD")
 
 async def force_payment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
@@ -315,8 +362,7 @@ async def catch_missed_messages(update: Update, context: ContextTypes.DEFAULT_TY
 async def cancel_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    context.user_data.pop("withdrawal", None)
-    context.user_data.pop("state", None)
+    context.user_data.clear()
     await update.message.reply_text("Withdrawal process cancelled. Use /withdraw to start again.") if update.message else None
     logger.info(f"Withdrawal process cancelled for user {user_id} in chat {chat_id}")
     return ConversationHandler.END
@@ -358,6 +404,7 @@ def register_handlers(application):
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("debug", debug))
     application.add_handler(CommandHandler("force_payment_details", force_payment_details))
+    application.add_handler(CommandHandler("force_withdraw", force_withdraw))
     
     # Register /start command
     application.add_handler(CommandHandler("start", start))
@@ -387,4 +434,4 @@ def register_handlers(application):
     # Fallback handler to debug unhandled messages
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, debug_unhandled_message), group=3)
     
-    logger.info("Registered start command, conversation handler, button callbacks, reset, debug, force_payment_details, and debug handler")
+    logger.info("Registered start command, conversation handler, button callbacks, reset, debug, force_payment_details, force_withdraw, and debug handler")
