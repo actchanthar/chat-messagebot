@@ -11,6 +11,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type == "private":
         return
     
+    # Check if the group is registered
+    group_id = str(update.effective_chat.id)
+    registered_groups = await db.get_groups()
+    if group_id not in registered_groups:
+        logger.info(f"Group {group_id} not registered for message counting.")
+        return
+    
     user_id = str(update.effective_user.id)
     message_text = update.message.text or update.message.caption or ""
     if not message_text:
