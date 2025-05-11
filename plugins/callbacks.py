@@ -1,10 +1,20 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    CallbackQueryHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+    ConversationHandler,
+    CommandHandler
+)
 from database.database import db
 import config
 import logging
 
 logger = logging.getLogger(__name__)
+
+# States for ConversationHandler
+PAYMENT_METHOD, PAYMENT_DETAILS = range(2)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -87,6 +97,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=reply_markup
             )
             logger.info(f"Withdrawal initiated for user {user_id}")
+            return PAYMENT_METHOD
+
         elif data.startswith("payment_"):
             if update.effective_chat.type != "private":
                 logger.info(f"Ignoring payment method selection in group chat {update.effective_chat.id}")
@@ -98,7 +110,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text="ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
                 )
                 return
-
             context.user_data["withdrawal"]["method"] = method
             if method == "KBZ Pay":
                 await context.bot.send_message(
@@ -111,6 +122,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"{method} အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ။"
                 )
             logger.info(f"Payment method {method} selected for user {user_id}")
+            return PAYMENT_DETAILS
+
         elif data.startswith("withdraw_approve_"):
             approved_user_id = data.replace("withdraw_approve_", "")
             if approved_user_id in context.user_data.get("pending_withdrawals", {}):
@@ -139,19 +152,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error in button callback for user {user_id}: {e}")
 
 async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    logger.info(f"Entering handle_payment_details for user {user_id}, context: {context.user_data}")
+
     if update.effective_chat.type != "private":
         logger.info(f"Ignoring payment details in group chat {update.effective_chat.id}")
-        return
-
-    user_id = str(update.effective_user.id)
-    logger.info(f"Received message from user {user_id}, text: {update.message.text}, photo: {update.message.photo}")
+        return ConversationHandler.END
 
     if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
         )
         logger.info(f"No withdrawal context for user {user_id}")
-        return
+        return ConversationHandler.END
 
     method = context.user_data["withdrawal"]["method"]
     amount = context.user_data["withdrawal"]["amount"]
@@ -165,7 +178,7 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
             "ကျေးဇူးပြု၍ သင့်အကောင့်အသေးစိတ်အချက်အလက်များ သို့မဟုတ် QR ကုဒ်ပေးပို့ပါ။"
         )
         logger.info(f"No valid input from user {user_id}")
-        return
+        return PAYMENT_DETAILS
 
     username = update.effective_user.username or update.effective_user.first_name
     profile_info = (
@@ -214,10 +227,18 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
                 logger.error(f"Failed to notify admin {admin_id}: {e}")
 
     await update.message.reply_text(
-        "သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် အကြောင်းကြားပါမည်။"
+        "သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်�နှင့် အကြောင်းကြားပါမည်။"
     )
     context.user_data.pop("withdrawal", None)
     logger.info(f"Withdrawal request processed for user {user_id}")
+    return ConversationHandler.END
+
+async def cancel_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    context.user_data.pop("withdrawal", None)
+    await update.message.reply_text("Withdrawal process cancelled. Use /withdraw to start again.")
+    logger.info(f"Withdrawal process cancelled for user {user_id}")
+    return ConversationHandler.END
 
 async def check_force_sub(bot, user_id, channel_id):
     try:
@@ -227,10 +248,23 @@ async def check_force_sub(bot, user_id, channel_id):
         logger.error(f"Error checking subscription for user {user_id}: {e}")
         return False
 
+async def debug_unhandled_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    logger.info(f"Unhandled message from user {user_id}: text={update.message.text}, photo={update.message.photo}")
+
 def register_handlers(application):
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(
-        filters.TEXT | filters.PHOTO,  # Simplified to catch all text and photos
-        handle_payment_details
-    ))
-    logger.info("Registered callback and payment details handlers")
+    # Conversation handler for withdrawal process
+    conv_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(button_callback, pattern="^(withdraw|payment_.*)$")],
+        states={
+            PAYMENT_METHOD: [CallbackQueryHandler(button_callback, pattern="^payment_.*$")],
+            PAYMENT_DETAILS: [MessageHandler(filters.TEXT | filters.PHOTO, handle_payment_details)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_withdrawal)],
+    )
+    application.add_handler(conv_handler)
+    
+    # Fallback handler to debug unhandled messages
+    application.add_handler(MessageHandler(filters.ALL, debug_unhandled_message), group=1)
+    
+    logger.info("Registered conversation handler for withdrawal and debug handler")
