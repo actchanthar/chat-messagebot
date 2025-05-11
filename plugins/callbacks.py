@@ -2,11 +2,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, ContextTypes
 from database.database import db
 import config
+import logging
+
+logger = logging.getLogger(__name__)
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # Acknowledge the callback
-    
+    await query.answer()
+
     user_id = str(query.from_user.id)
     data = query.data
 
@@ -63,7 +66,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"ထုတ်ယူရန်အတွက် အနည်းဆုံး {config.WITHDRAWAL_THRESHOLD} {config.CURRENCY} လိုအပ်ပါသည်။"
                 )
                 return
-            
+
             is_subscribed = await check_force_sub(context.bot, user_id, config.CHANNEL_ID)
             if not is_subscribed:
                 await context.bot.send_message(
@@ -71,14 +74,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"ထုတ်ယူရန်အတွက် {config.CHANNEL_USERNAME} သို့ဝင်ရောက်ပါ။\nထို့နောက် ထပ်မံကြိုးစားပါ။"
                 )
                 return
-            
-            # Store user state for withdrawal
+
             context.user_data["withdrawal"] = {"amount": user["balance"]}
-            
-            # Create payment method buttons
             keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
+
             await context.bot.send_message(
                 chat_id=user_id,
                 text="ငွေထုတ်ယူရန်နည်းလမ်းရွေးချယ်ပါ:",
@@ -92,7 +92,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text="ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
                 )
                 return
-            
+
             context.user_data["withdrawal"]["method"] = method
             if method == "KBZ Pay":
                 await context.bot.send_message(
@@ -105,7 +105,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"{method} အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ။"
                 )
     except Exception as e:
-        # Silently log errors without sending messages to group
         logger.error(f"Error in button callback for user {user_id}: {e}")
 
 async def check_force_sub(bot, user_id, channel_id):
