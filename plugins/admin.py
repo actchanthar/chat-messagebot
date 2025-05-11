@@ -65,6 +65,30 @@ async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Added {amount} {config.CURRENCY} bonus to {user['name']} (ID: {target_user_id})."
     )
 
+async def add_bonus_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in config.ADMIN_IDS:
+        await update.message.reply_text("Admins only.")
+        return
+    
+    if len(context.args) < 1:
+        await update.message.reply_text("Usage: /add_bonus_all <amount>")
+        return
+    
+    try:
+        amount = float(context.args[0])
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("Amount must be a positive number.")
+        return
+    
+    users = await db.get_top_users(limit=None)  # Get all users
+    for user in users:
+        await db.add_bonus(user["user_id"], amount)
+    
+    await update.message.reply_text(f"Added {amount} {config.CURRENCY} bonus to all {len(users)} users.")
+
 async def add_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in config.ADMIN_IDS:
@@ -167,5 +191,6 @@ def register_handlers(application):
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("pay", pay))
     application.add_handler(CommandHandler("add_bonus", add_bonus))
+    application.add_handler(CommandHandler("add_bonus_all", add_bonus_all))
     application.add_handler(CommandHandler("addgroup", add_group))
     application.add_handler(CallbackQueryHandler(handle_withdrawal_action, pattern="^withdraw_"))
