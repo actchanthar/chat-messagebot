@@ -310,12 +310,12 @@ def register_handlers(application):
             PAYMENT_METHOD: [CallbackQueryHandler(button_callback, pattern="^payment_.*$")],
             PAYMENT_DETAILS: [
                 MessageHandler(filters.PHOTO, handle_payment_details),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_payment_details),
+                MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_payment_details),
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_withdrawal)],
     )
-    application.add_handler(conv_handler)
+    application.add_handler(conv_handler, group=0)  # Higher priority
     
     # Handle all other button callbacks outside conversation
     application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help|withdraw_approve_.*|withdraw_reject_.*)$"))
