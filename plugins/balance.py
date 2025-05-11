@@ -27,6 +27,10 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != "private":
+        logger.info(f"Ignoring /withdraw in group chat {update.effective_chat.id}")
+        return  # Silently ignore in group chats
+    
     user_id = str(update.effective_user.id)
     user = await db.get_user(user_id)
     if not user or user['balance'] < config.WITHDRAWAL_THRESHOLD:
@@ -55,12 +59,14 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.type != "private":
+        logger.info(f"Ignoring withdrawal details in group chat {update.effective_chat.id}")
+        return  # Silently ignore in group chats
+    
     user_id = str(update.effective_user.id)
     if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
         await update.message.reply_text(
-            "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။\n"
-            "ထုတ်ယူမှုများသည် ကိုယ်ပိုင်ချက်တွင်သာ လုပ်ဆောင်နိုင်ပါသည်။ "
-            "ကျေးဇူးပြု၍ ဘော့တ်အား ကိုယ်ပိုင်ချက်တွင် /start ပြုလုပ်ပြီး /withdraw ပြန်လုပ်ပါ။"
+            "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
         )
         return
     
