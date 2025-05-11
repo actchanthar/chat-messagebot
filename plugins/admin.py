@@ -65,6 +65,20 @@ async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Added {amount} {config.CURRENCY} bonus to {user['name']} (ID: {target_user_id})."
     )
 
+async def add_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in config.ADMIN_IDS:
+        await update.message.reply_text("Admins only.")
+        return
+    
+    if update.effective_chat.type != "supergroup":
+        await update.message.reply_text("This command can only be used in a group.")
+        return
+    
+    group_id = str(update.effective_chat.id)
+    await db.add_group(group_id)
+    await update.message.reply_text(f"Group {group_id} added for message counting.")
+
 async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -153,4 +167,5 @@ def register_handlers(application):
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("pay", pay))
     application.add_handler(CommandHandler("add_bonus", add_bonus))
+    application.add_handler(CommandHandler("addgroup", add_group))
     application.add_handler(CallbackQueryHandler(handle_withdrawal_action, pattern="^withdraw_"))
