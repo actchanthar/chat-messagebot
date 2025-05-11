@@ -85,6 +85,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="ငွေထုတ်ယူရန်နည်းလမ်းရွေးချယ်ပါ:",
                 reply_markup=reply_markup
             )
+            logger.info(f"Withdrawal initiated for user {user_id}")
         elif data.startswith("payment_"):
             if update.effective_chat.type != "private":
                 return
@@ -107,6 +108,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     chat_id=user_id,
                     text=f"{method} အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ။"
                 )
+            logger.info(f"Payment method {method} selected for user {user_id}")
         elif data.startswith("withdraw_approve_"):
             approved_user_id = data.replace("withdraw_approve_", "")
             if approved_user_id in context.user_data.get("pending_withdrawals", {}):
@@ -120,6 +122,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         text=f"သင့်ငွေထုတ်ယူမှု {amount} {config.CURRENCY} ကို အတည်ပြုပြီးပါသည်။ လက်ကျန်: {(user['balance'] - amount)} {config.CURRENCY}"
                     )
                     del context.user_data["pending_withdrawals"][approved_user_id]
+                logger.info(f"Withdrawal approved for user {approved_user_id}, amount: {amount}")
         elif data.startswith("withdraw_reject_"):
             rejected_user_id = data.replace("withdraw_reject_", "")
             if rejected_user_id in context.user_data.get("pending_withdrawals", {}):
@@ -128,12 +131,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text="သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို ပယ်ချခံလိုက်ရပါသည်။"
                 )
                 del context.user_data["pending_withdrawals"][rejected_user_id]
+                logger.info(f"Withdrawal rejected for user {rejected_user_id}")
 
     except Exception as e:
         logger.error(f"Error in button callback for user {user_id}: {e}")
 
 async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
+        logger.info(f"Ignoring payment details in group chat {update.effective_chat.id}")
         return
 
     user_id = str(update.effective_user.id)
@@ -141,12 +146,15 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
         )
+        logger.info(f"No withdrawal context for user {user_id}")
         return
 
     method = context.user_data["withdrawal"]["method"]
     amount = context.user_data["withdrawal"]["amount"]
     text = update.message.text or ""
     photo = update.message.photo[-1] if update.message.photo else None
+
+    logger.info(f"Received payment details for user {user_id}, method: {method}, text: {text}, photo: {bool(photo)}")
 
     if not text and not photo:
         await update.message.reply_text(
@@ -196,14 +204,15 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
                         text=profile_info,
                         reply_markup=reply_markup
                     )
+                logger.info(f"Sent withdrawal request to admin {admin_id}")
             except Exception as e:
                 logger.error(f"Failed to notify admin {admin_id}: {e}")
 
     await update.message.reply_text(
         "သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် အကြောင်းကြားပါမည်။"
     )
-
     context.user_data.pop("withdrawal", None)
+    logger.info(f"Withdrawal request processed for user {user_id}")
 
 async def check_force_sub(bot, user_id, channel_id):
     try:
