@@ -6,7 +6,7 @@ import asyncio
 class Database:
     def __init__(self):
         self.client = MongoClient(os.environ.get("MONGODB_URI"))
-        self.db = self.client["actchat1"]
+        self.db = self.client["actchat1"]  # Changed to actchat1
         self.users = self.db["users"]
         self.messages = self.db["messages"]
         self.groups = self.db["groups"]
