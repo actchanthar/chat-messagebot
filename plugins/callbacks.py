@@ -96,7 +96,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
                     "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
                     "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
-                    "/help - ဤစာကိုပြရန်"
+                    "/help - ဤစာကိုပြရန်\n"
+                    "/reset - Reset withdrawal process\n"
+                    "/debug - Check current state"
                 )
             )
             logger.info(f"Help shown for user {user_id}")
@@ -199,7 +201,8 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
     message = update.message if update.message else None
-    logger.info(f"Entering handle_payment_details for user {user_id} in chat {chat_id}, state: PAYMENT_DETAILS, message: {message}, context: {context.user_data}")
+    current_state = context.user_data.get("state", "Unknown")
+    logger.info(f"Entering handle_payment_details for user {user_id} in chat {chat_id}, state: {current_state}, message: {message}, context: {context.user_data}")
 
     if update.effective_chat.type != "private":
         logger.info(f"Ignoring payment details in group chat {chat_id}")
@@ -287,6 +290,24 @@ async def cancel_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Withdrawal process cancelled for user {user_id} in chat {chat_id}")
     return ConversationHandler.END
 
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    chat_id = str(update.effective_chat.id)
+    context.user_data.clear()
+    logger.info(f"Reset state for user {user_id} in chat {chat_id}")
+    await update.message.reply_text("State has been reset. Use /withdraw to start again.")
+    return ConversationHandler.END
+
+async def debug(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    chat_id = str(update.effective_chat.id)
+    state = context.user_data.get("state", "Unknown")
+    withdrawal = context.user_data.get("withdrawal", {})
+    logger.info(f"Debug for user {user_id} in chat {chat_id}: State={state}, Withdrawal={withdrawal}")
+    await update.message.reply_text(
+        f"Debug Info:\nState: {state}\nWithdrawal: {withdrawal}"
+    )
+
 async def check_force_sub(bot, user_id, channel_id):
     try:
         member = await bot.get_chat_member(channel_id, user_id)
@@ -302,6 +323,10 @@ async def debug_unhandled_message(update: Update, context: ContextTypes.DEFAULT_
     logger.info(f"Debug unhandled message: user {user_id} in chat {chat_id}, chat type: {update.effective_chat.type}, text={message.text if message and message.text else 'None'}, photo={message.photo if message else 'None'}, context: {context.user_data}")
 
 def register_handlers(application):
+    # Register new commands
+    application.add_handler(CommandHandler("reset", reset))
+    application.add_handler(CommandHandler("debug", debug))
+    
     # Register /start command
     application.add_handler(CommandHandler("start", start))
     
@@ -316,15 +341,15 @@ def register_handlers(application):
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel_withdrawal)],
-        per_chat=True,  # Ensure the conversation is per chat
-        per_user=True,  # Ensure the conversation is per user
+        per_chat=True,
+        per_user=True,
     )
-    application.add_handler(conv_handler, group=0)  # Highest priority
+    application.add_handler(conv_handler, group=0)
     
     # Handle all other button callbacks outside conversation
     application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help|withdraw_approve_.*|withdraw_reject_.*)$"), group=1)
     
-    # Fallback handler to debug unhandled messages (lowest priority)
+    # Fallback handler to debug unhandled messages
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, debug_unhandled_message), group=2)
     
-    logger.info("Registered start command, conversation handler, button callbacks, and debug handler")
+    logger.info("Registered start command, conversation handler, button callbacks, reset, debug, and debug handler")
