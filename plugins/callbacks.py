@@ -144,8 +144,8 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     user_id = str(update.effective_user.id)
-    logger.info(f"Checking withdrawal context for user {user_id}: {context.user_data.get('withdrawal')}")
-    
+    logger.info(f"Received message from user {user_id}, text: {update.message.text}, photo: {update.message.photo}")
+
     if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
@@ -155,16 +155,16 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
 
     method = context.user_data["withdrawal"]["method"]
     amount = context.user_data["withdrawal"]["amount"]
-    text = update.message.text
+    text = update.message.text.strip() if update.message.text else ""
     photo = update.message.photo[-1] if update.message.photo else None
 
-    logger.info(f"Received payment details for user {user_id}, method: {method}, text: {text}, photo: {bool(photo)}")
+    logger.info(f"Processing payment details for user {user_id}, method: {method}, text: '{text}', photo: {bool(photo)}")
 
     if not text and not photo:
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ သင့်အကောင့်အသေးစိတ်အချက်အလက်များ သို့မဟုတ် QR ကုဒ်ပေးပို့ပါ။"
         )
-        logger.info(f"No text or photo provided by user {user_id}")
+        logger.info(f"No valid input from user {user_id}")
         return
 
     username = update.effective_user.username or update.effective_user.first_name
@@ -230,7 +230,7 @@ async def check_force_sub(bot, user_id, channel_id):
 def register_handlers(application):
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(
-        (filters.TEXT & ~filters.COMMAND) | filters.PHOTO,
+        filters.TEXT | filters.PHOTO,  # Simplified to catch all text and photos
         handle_payment_details
     ))
     logger.info("Registered callback and payment details handlers")
