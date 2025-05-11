@@ -9,6 +9,7 @@ class Database:
         self.db = self.client["actchat"]
         self.users = self.db["users"]
         self.messages = self.db["messages"]
+        self.groups = self.db["groups"]  # New collection for registered groups
         self.spam_threshold = 5
         self.time_window = 30 * 60  # 30 minutes
 
@@ -20,19 +21,25 @@ class Database:
         )
 
     def _create_indexes(self):
-        # Get existing indexes
+        # Get existing indexes for users
         existing_indexes = self.users.index_information()
-        
-        # Create user_id index if it doesn't exist
         if "user_id_1" not in existing_indexes:
             try:
                 self.users.create_index("user_id", unique=True)
             except errors.DuplicateKeyError:
-                pass  # Ignore if index creation fails due to existing index
+                pass
         
         # Create messages index if it doesn't exist
         if "user_id_1_timestamp_1" not in existing_indexes:
             self.messages.create_index([("user_id", 1), ("timestamp", 1)])
+        
+        # Create index for groups
+        groups_indexes = self.groups.index_information()
+        if "group_id_1" not in groups_indexes:
+            try:
+                self.groups.create_index("group_id", unique=True)
+            except errors.DuplicateKeyError:
+                pass
 
     async def get_user(self, user_id):
         user = await asyncio.get_event_loop().run_in_executor(
@@ -75,7 +82,7 @@ class Database:
                 {"user_id": user_id, "text": text, "timestamp": datetime.now()}
             )
         )
-        return result  # Return updated user document
+        return result
 
     async def mark_notified_10kyat(self, user_id):
         await asyncio.get_event_loop().run_in_executor(
@@ -149,6 +156,24 @@ class Database:
                 return True
         
         return False
+
+    # New methods for group management
+    async def add_group(self, group_id):
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.groups.update_one(
+                {"group_id": group_id},
+                {"$setOnInsert": {"group_id": group_id}},
+                upsert=True
+            )
+        )
+
+    async def get_groups(self):
+        groups = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: list(self.groups.find())
+        )
+        return [group["group_id"] for group in groups]
 
 # Create global db instance
 db = Database()
