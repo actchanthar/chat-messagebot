@@ -60,6 +60,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif data == "withdraw":
             if update.effective_chat.type != "private":
+                logger.info(f"Ignoring withdraw request in group chat {update.effective_chat.id}")
                 return
             user = await db.get_user(user_id)
             if not user or user['balance'] < config.WITHDRAWAL_THRESHOLD:
@@ -88,6 +89,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Withdrawal initiated for user {user_id}")
         elif data.startswith("payment_"):
             if update.effective_chat.type != "private":
+                logger.info(f"Ignoring payment method selection in group chat {update.effective_chat.id}")
                 return
             method = data.replace("payment_", "")
             if "withdrawal" not in context.user_data:
@@ -142,6 +144,8 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     user_id = str(update.effective_user.id)
+    logger.info(f"Checking withdrawal context for user {user_id}: {context.user_data.get('withdrawal')}")
+    
     if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
@@ -151,7 +155,7 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
 
     method = context.user_data["withdrawal"]["method"]
     amount = context.user_data["withdrawal"]["amount"]
-    text = update.message.text or ""
+    text = update.message.text
     photo = update.message.photo[-1] if update.message.photo else None
 
     logger.info(f"Received payment details for user {user_id}, method: {method}, text: {text}, photo: {bool(photo)}")
@@ -160,6 +164,7 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ သင့်အကောင့်အသေးစိတ်အချက်အလက်များ သို့မဟုတ် QR ကုဒ်ပေးပို့ပါ။"
         )
+        logger.info(f"No text or photo provided by user {user_id}")
         return
 
     username = update.effective_user.username or update.effective_user.first_name
@@ -204,7 +209,7 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
                         text=profile_info,
                         reply_markup=reply_markup
                     )
-                logger.info(f"Sent withdrawal request to admin {admin_id}")
+                logger.info(f"Sent withdrawal request to admin {admin_id} for user {user_id}")
             except Exception as e:
                 logger.error(f"Failed to notify admin {admin_id}: {e}")
 
@@ -218,12 +223,14 @@ async def check_force_sub(bot, user_id, channel_id):
     try:
         member = await bot.get_chat_member(channel_id, user_id)
         return member.status in ["member", "administrator", "creator"]
-    except:
+    except Exception as e:
+        logger.error(f"Error checking subscription for user {user_id}: {e}")
         return False
 
 def register_handlers(application):
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND | filters.PHOTO,
+        (filters.TEXT & ~filters.COMMAND) | filters.PHOTO,
         handle_payment_details
     ))
+    logger.info("Registered callback and payment details handlers")
