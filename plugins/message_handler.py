@@ -21,6 +21,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     message_text = update.message.text or update.message.caption or ""
     if not message_text:
+        logger.info(f"No valid text from user {user_id} in group {group_id}")
         return
     
     user = await db.get_user(user_id)
@@ -32,7 +33,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return  # Silently ignore spam
     
     updated_user = await db.increment_message(user_id, update.effective_user.first_name, message_text)
-    logger.info(f"Incremented messages for user {user_id}. New count: {updated_user.get('messages', 0)}, Balance: {updated_user.get('balance', 0)}")
+    logger.info(f"Incremented messages for user {user_id} in group {group_id}. New count: {updated_user.get('messages', 0)}, Balance: {updated_user.get('balance', 0)}")
     
     # Check if user reached 10 kyat and hasn't been notified
     if updated_user.get("balance", 0) >= 10 and not updated_user.get("notified_10kyat", False):
