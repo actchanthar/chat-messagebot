@@ -8,6 +8,8 @@ import config
 logger = logging.getLogger(__name__)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"Received message in chat {update.effective_chat.id} (type: {update.effective_chat.type})")
+
     if update.effective_chat.type == "private":
         logger.info(f"Private message received, ignoring for counting: {update.message.text}")
         return
@@ -15,12 +17,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if the group is registered
     group_id = str(update.effective_chat.id)
     registered_groups = await db.get_groups()
+    logger.info(f"Registered groups: {registered_groups}")
     if group_id not in registered_groups:
         logger.info(f"Group {group_id} not registered for message counting.")
         return
     
     user_id = str(update.effective_user.id)
     message_text = update.message.text or update.message.caption or ""
+    logger.info(f"Message from user {user_id} in group {group_id}: {message_text}")
+    
     if not message_text:
         logger.info(f"No valid text from user {user_id} in group {group_id}")
         return
