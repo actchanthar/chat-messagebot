@@ -198,7 +198,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Entering handle_payment_details for user {user_id} in chat {chat_id}, state: PAYMENT_DETAILS, context: {context.user_data}")
+    message = update.message if update.message else None
+    logger.info(f"Entering handle_payment_details for user {user_id} in chat {chat_id}, state: PAYMENT_DETAILS, message: {message}, context: {context.user_data}")
 
     if update.effective_chat.type != "private":
         logger.info(f"Ignoring payment details in group chat {chat_id}")
@@ -207,21 +208,21 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
     if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
-        )
+        ) if update.message else None
         logger.info(f"No withdrawal context for user {user_id}")
         return ConversationHandler.END
 
     method = context.user_data["withdrawal"]["method"]
     amount = context.user_data["withdrawal"]["amount"]
-    text = update.message.text.strip() if update.message.text else ""
-    photo = update.message.photo[-1] if update.message.photo else None
+    text = message.text.strip() if message and message.text else ""
+    photo = message.photo[-1] if message and message.photo else None
 
     logger.info(f"Processing payment details for user {user_id}, method: {method}, text: '{text}', photo: {bool(photo)}")
 
     if not text and not photo:
         await update.message.reply_text(
             "ကျေးဇူးပြု၍ သင့်အကောင့်အသေးစိတ်အချက်အလက်များ သို့မဟုတ် QR ကုဒ်ပေးပို့ပါ။"
-        )
+        ) if update.message else None
         logger.info(f"No valid input from user {user_id}")
         return PAYMENT_DETAILS
 
@@ -273,7 +274,7 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
 
     await update.message.reply_text(
         "သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် အကြောင်းကြားပါမည်။"
-    )
+    ) if update.message else None
     context.user_data.pop("withdrawal", None)
     logger.info(f"Withdrawal request processed for user {user_id}")
     return ConversationHandler.END
@@ -282,7 +283,7 @@ async def cancel_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
     context.user_data.pop("withdrawal", None)
-    await update.message.reply_text("Withdrawal process cancelled. Use /withdraw to start again.")
+    await update.message.reply_text("Withdrawal process cancelled. Use /withdraw to start again.") if update.message else None
     logger.info(f"Withdrawal process cancelled for user {user_id} in chat {chat_id}")
     return ConversationHandler.END
 
@@ -297,7 +298,8 @@ async def check_force_sub(bot, user_id, channel_id):
 async def debug_unhandled_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Unhandled message from user {user_id} in chat {chat_id}: text={update.message.text}, photo={update.message.photo}")
+    message = update.message if update.message else None
+    logger.info(f"Unhandled message from user {user_id} in chat {chat_id}: text={message.text if message and message.text else 'None'}, photo={message.photo if message else 'None'}")
 
 def register_handlers(application):
     # Register /start command
