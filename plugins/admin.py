@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    logger.info(f"Received /reset command from user {user_id} in chat {update.effective_chat.id}")
     if user_id not in config.ADMIN_IDS:
+        logger.info(f"User {user_id} is not an admin, rejecting /reset")
         await update.message.reply_text("Admins only.")
         return
     await db.reset_stats()
@@ -17,7 +19,9 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    logger.info(f"Received /pay command from user {user_id} in chat {update.effective_chat.id}")
     if user_id not in config.ADMIN_IDS:
+        logger.info(f"User {user_id} is not an admin, rejecting /pay")
         await update.message.reply_text("Admins only.")
         return
     
@@ -38,7 +42,9 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    logger.info(f"Received /add_bonus command from user {user_id} in chat {update.effective_chat.id}")
     if user_id not in config.ADMIN_IDS:
+        logger.info(f"User {user_id} is not an admin, rejecting /add_bonus")
         await update.message.reply_text("Admins only.")
         return
     
@@ -67,7 +73,9 @@ async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_bonus_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    logger.info(f"Received /add_bonus_all command from user {user_id} in chat {update.effective_chat.id}")
     if user_id not in config.ADMIN_IDS:
+        logger.info(f"User {user_id} is not an admin, rejecting /add_bonus_all")
         await update.message.reply_text("Admins only.")
         return
     
@@ -83,7 +91,7 @@ async def add_bonus_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Amount must be a positive number.")
         return
     
-    users = await db.get_top_users(limit=None)  # Get all users
+    users = await db.get_top_users(limit=None)
     for user in users:
         await db.add_bonus(user["user_id"], amount)
     
@@ -91,16 +99,20 @@ async def add_bonus_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def add_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    logger.info(f"Received /addgroup command from user {user_id} in chat {update.effective_chat.id}")
     if user_id not in config.ADMIN_IDS:
+        logger.info(f"User {user_id} is not an admin, rejecting /addgroup")
         await update.message.reply_text("Admins only.")
         return
     
     if update.effective_chat.type != "supergroup":
+        logger.info(f"Chat {update.effective_chat.id} is not a supergroup, rejecting /addgroup")
         await update.message.reply_text("This command can only be used in a group.")
         return
     
     group_id = str(update.effective_chat.id)
     await db.add_group(group_id)
+    logger.info(f"Group {group_id} added to database for message counting")
     await update.message.reply_text(f"Group {group_id} added for message counting.")
 
 async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -108,7 +120,9 @@ async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     
     user_id = str(query.from_user.id)
+    logger.info(f"Received withdrawal action from user {user_id}")
     if user_id not in config.ADMIN_IDS:
+        logger.info(f"User {user_id} is not an admin, rejecting withdrawal action")
         await query.message.reply_text("Admins only.")
         return
     
@@ -123,7 +137,6 @@ async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT
         await query.message.reply_text(f"User {target_user_id} not found.")
         return
     
-    # Extract amount from the original message
     original_message = query.message.text or query.message.caption or ""
     amount = None
     for line in original_message.split("\n"):
@@ -142,7 +155,6 @@ async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT
         return
     
     if action == "approve":
-        # Send confirmation to user (with receipt if available)
         try:
             if query.message.photo:
                 await context.bot.send_photo(
@@ -158,7 +170,6 @@ async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT
             await query.message.reply_text(
                 f"Approved withdrawal for {user['name']} (ID: {target_user_id})."
             )
-            # Reset balance after approval
             await db.reset_balance(target_user_id)
         except RetryAfter as e:
             logger.warning(f"RetryAfter error for user {target_user_id}: {e}")
@@ -168,7 +179,6 @@ async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT
             await query.message.reply_text(f"Failed to notify user: {e}")
     
     elif action == "reject":
-        # Notify user of rejection
         try:
             await context.bot.send_message(
                 chat_id=target_user_id,
@@ -184,10 +194,10 @@ async def handle_withdrawal_action(update: Update, context: ContextTypes.DEFAULT
             logger.error(f"Failed to notify user {target_user_id}: {e}")
             await query.message.reply_text(f"Failed to notify user: {e}")
     
-    # Remove buttons after action
     await query.message.edit_reply_markup(reply_markup=None)
 
 def register_handlers(application):
+    logger.info("Registering admin handlers")
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("pay", pay))
     application.add_handler(CommandHandler("add_bonus", add_bonus))
