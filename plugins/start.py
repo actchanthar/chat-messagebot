@@ -35,8 +35,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{top_users_text}\n"
             "အမိန့်များ:\n"
             "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
-            "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
-            "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
+            "/top -ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
+            "ထုတ်ယူရန်တောင်းဆိုရန်\n"
             "/help - ဤစာကိုပြရန်"
         ),
         reply_markup=reply_markup
