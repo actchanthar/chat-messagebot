@@ -134,16 +134,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Subscription check failed for user {user_id}: {str(e)}")
                 await context.bot.send_message(chat_id=chat_id, text="Subscription check failed. Please try again later.")
                 return
-            # Clear any existing withdrawal data before starting a new one
-            context.user_data.pop("withdrawal", None)
-            context.user_data.pop("state", None)
+            # Clear existing data before starting a new withdrawal
+            context.user_data.clear()
             context.user_data["withdrawal"] = {"amount": user["balance"]}
             context.user_data["state"] = PAYMENT_METHOD
             keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="ငွေထုတ်ယူရန်နည်းလမ်းရွေးချယ်ပါ:",
+                text="Choose a payment method:",
                 reply_markup=reply_markup
             )
             logger.info(f"Withdrawal initiated for user {user_id}, state set to PAYMENT_METHOD")
@@ -158,7 +157,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if "withdrawal" not in context.user_data:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text="ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
+                    text="Please start the withdrawal process with /withdraw."
                 )
                 logger.info(f"No withdrawal context for user {user_id}")
                 return
@@ -167,12 +166,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if method == "KBZ Pay":
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text="QR ကုဒ် သို့မဟုတ် အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ (ဥပမာ: 09123456789 ZAYAR KO KO MIN ZAW)။"
+                    text="Please send your QR code or account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW)."
                 )
             else:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=f"{method} အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ။"
+                    text=f"Please send your {method} account details."
                 )
             logger.info(f"Payment method {method} confirmed for user {user_id}, state set to PAYMENT_DETAILS")
             return PAYMENT_DETAILS
@@ -186,7 +185,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await db.update_user(approved_user_id, balance=user["balance"] - amount)
                     await context.bot.send_message(
                         chat_id=approved_user_id,
-                        text=f"သင့်ငွေထုတ်ယူမှု {amount} {config.CURRENCY} ကို အတည်ပြုပြီးပါသည်။ လက်ကျန်: {(user['balance'] - amount)} {config.CURRENCY}"
+                        text=f"Your withdrawal of {amount} {config.CURRENCY} has been approved. Remaining balance: {(user['balance'] - amount)} {config.CURRENCY}"
                     )
                     del context.user_data["pending_withdrawals"][approved_user_id]
                 logger.info(f"Withdrawal approved for user {approved_user_id}, amount: {amount}")
@@ -195,7 +194,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if rejected_user_id in context.user_data.get("pending_withdrawals", {}):
                 await context.bot.send_message(
                     chat_id=rejected_user_id,
-                    text="သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို ပယ်ချခံလိုက်ရပါသည်။"
+                    text="Your withdrawal request has been rejected."
                 )
                 del context.user_data["pending_withdrawals"][rejected_user_id]
                 logger.info(f"Withdrawal rejected for user {rejected_user_id}")
@@ -218,7 +217,7 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
 
     if "withdrawal" not in context.user_data or "method" not in context.user_data["withdrawal"]:
         await update.message.reply_text(
-            "ကျေးဇူးပြု၍ /withdraw ဖြင့် ထုတ်ယူမှုစတင်ပါ။"
+            "Please start the withdrawal process with /withdraw."
         ) if update.message else None
         logger.info(f"No withdrawal context for user {user_id}")
         return ConversationHandler.END
@@ -232,7 +231,7 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
 
     if not text and not photo:
         await update.message.reply_text(
-            "ကျေးဇူးပြု၍ သင့်အကောင့်အသေးစိတ်အချက်အလက်များ သို့မဟုတ် QR ကုဒ်ပေးပို့ပါ။"
+            "Please send your account details or QR code."
         ) if update.message else None
         logger.info(f"No valid input from user {user_id}")
         return PAYMENT_DETAILS
@@ -284,13 +283,11 @@ async def handle_payment_details(update: Update, context: ContextTypes.DEFAULT_T
                 logger.error(f"Failed to notify admin {admin_id}: {e}")
 
     await update.message.reply_text(
-        "သင့်ငွေထုတ်ယူမှုတောင်းဆိုမှုကို အက်ဒမင်ထံပေးပို့ပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် အကြောင်းကြားပါမည်။"
+        "Your withdrawal request has been sent to the admin. You’ll be notified once it’s processed."
     ) if update.message else None
-    # Clear all withdrawal-related data
-    context.user_data.pop("withdrawal", None)
-    context.user_data.pop("state", None)
-    context.user_data.pop("pending_withdrawals", None)
-    logger.info(f"Withdrawal request processed for user {user_id}, all states and withdrawal data cleared")
+    # Fully clear all data after processing
+    context.user_data.clear()
+    logger.info(f"Withdrawal request processed for user {user_id}, all data cleared")
     return ConversationHandler.END
 
 async def force_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -328,7 +325,7 @@ async def force_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in config.PAYMENT_METHODS]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "ငွေထုတ်ယူရန်နည်းလမ်းရွေးချယ်ပါ:",
+        "Choose a payment method:",
         reply_markup=reply_markup
     )
     logger.info(f"Forced withdrawal initiated for user {user_id}, state set to PAYMENT_METHOD")
@@ -345,9 +342,9 @@ async def force_payment_details(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["state"] = PAYMENT_DETAILS
     method = context.user_data["withdrawal"]["method"]
     if method == "KBZ Pay":
-        await update.message.reply_text("QR ကုဒ် သို့မဟုတ် အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ (ဥပမာ: 09123456789 ZAYAR KO KO MIN ZAW)။")
+        await update.message.reply_text("Please send your QR code or account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).")
     else:
-        await update.message.reply_text(f"{method} အကောင့်အသေးစိတ်အချက်အလက်များ ပေးပို့ပါ။")
+        await update.message.reply_text(f"Please send your {method} account details.")
     logger.info(f"Forced PAYMENT_DETAILS state for user {user_id} in chat {chat_id}")
 
 async def catch_missed_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
