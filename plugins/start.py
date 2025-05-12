@@ -98,7 +98,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "withdraw":
         from plugins.withdrawal import withdraw
-        return await withdraw(update, context)  # Trigger the ConversationHandler
+        logger.info(f"Triggering withdraw for user {user_id} via inline button")
+        return await withdraw(update, context)
     elif data == "balance":
         from plugins.balance import balance
         await balance(update, context)
