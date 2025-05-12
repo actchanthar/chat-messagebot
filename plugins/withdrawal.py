@@ -107,30 +107,45 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
         return
 
     message = update.message
-    current_step = context.user_data.get("step")
+    current_step = context.user_data.get("step", None)
     logger.info(f"Handling withdrawal details for user {user_id}, step: {current_step}, context: {context.user_data}, message text: {message.text}")
+
+    # Ensure we're in the correct step
+    if not current_step:
+        await message.reply_text("Please start the withdrawal process with /withdraw.")
+        logger.info(f"User {user_id} has no step in context, resetting")
+        context.user_data.clear()
+        return
 
     if current_step == STEP_AMOUNT:
         logger.info(f"User {user_id} entered amount: {message.text}")
+        # Validate the amount
         amount = None
         try:
-            amount = int(message.text.strip())  # Strip whitespace to avoid parsing issues
-        except (ValueError, TypeError):
+            # Remove any whitespace and ensure it's a number
+            amount_text = message.text.strip()
+            if not amount_text.isdigit():
+                raise ValueError("Amount must be a number")
+            amount = int(amount_text)
+        except (ValueError, TypeError) as e:
             await message.reply_text(f"Please enter a valid amount (e.g., {WITHDRAWAL_THRESHOLD}).")
-            logger.info(f"User {user_id} entered invalid amount: {message.text}")
+            logger.info(f"User {user_id} entered invalid amount: {message.text}, error: {e}")
             return
 
+        # Check minimum withdrawal amount
         if amount < WITHDRAWAL_THRESHOLD:
             await message.reply_text(f"Minimum withdrawal amount is {WITHDRAWAL_THRESHOLD} {CURRENCY}.")
             logger.info(f"User {user_id} entered amount {amount} below minimum {WITHDRAWAL_THRESHOLD}")
             return
 
+        # Check balance
         balance = user.get("balance", 0)
         if amount > balance:
             await message.reply_text("Insufficient balance for this withdrawal.")
             logger.info(f"User {user_id} has insufficient balance. Requested: {amount}, Balance: {balance}")
             return
 
+        # Check daily withdrawal limit
         last_withdrawal = user.get("last_withdrawal")
         withdrawn_today = user.get("withdrawn_today", 0)
         current_time = datetime.now(timezone.utc)
@@ -146,6 +161,7 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
             else:
                 withdrawn_today = 0
 
+        # Amount is valid, update context
         context.user_data["withdrawal_amount"] = amount
         context.user_data["step"] = STEP_PAYMENT_METHOD
         logger.info(f"User {user_id} entered valid amount {amount}, updated context: {context.user_data}")
@@ -217,10 +233,11 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
         logger.info(f"Cleared context for user {user_id} after withdrawal submission")
         return
 
-    # If the user sends a message out of sequence
-    await message.reply_text("Please start the withdrawal process again with /withdraw.")
-    logger.info(f"User {user_id} sent message out of sequence, step: {current_step}")
-    context.user_data.clear()
+    else:
+        # If the user sends a message out of sequence
+        await message.reply_text("Please start the withdrawal process again with /withdraw.")
+        logger.info(f"User {user_id} sent message out of sequence, step: {current_step}")
+        context.user_data.clear()
 
 # Handle admin approval/rejection
 async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
