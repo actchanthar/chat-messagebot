@@ -28,12 +28,14 @@ async def withdraw(update: Update, context: CallbackContext):
         return
 
     # Clear previous state to avoid loops, including any residual keys
+    logger.info(f"Clearing context.user_data for user {user_id}: {context.user_data}")
     context.user_data.clear()
     context.user_data["awaiting_withdrawal_amount"] = True
     context.user_data["awaiting_payment_method"] = False
     context.user_data["awaiting_withdrawal_details"] = False
     context.user_data["withdrawal_amount"] = None
     context.user_data["payment_method"] = None
+    logger.info(f"Initialized context.user_data for user {user_id}: {context.user_data}")
 
     # Send the withdrawal prompt based on update type
     if update.message:
@@ -77,6 +79,7 @@ async def handle_payment_method_selection(update: Update, context: CallbackConte
     context.user_data["payment_method"] = method
     context.user_data["awaiting_payment_method"] = False
     context.user_data["awaiting_withdrawal_details"] = True
+    logger.info(f"Updated context.user_data after payment method selection for user {user_id}: {context.user_data}")
 
     if method == "KBZ Pay":
         await query.message.reply_text(
@@ -107,7 +110,7 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
 
     # Step 1: Handle the withdrawal amount
     if context.user_data.get("awaiting_withdrawal_amount"):
-        logger.info(f"User {user_id} entered amount: {message.text}")
+        logger.info(f"User {user_id} entered amount: {message.text}, context: {context.user_data}")
         amount = None
         try:
             amount = int(message.text)
@@ -145,10 +148,12 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
         context.user_data["withdrawal_amount"] = amount
         context.user_data["awaiting_withdrawal_amount"] = False
         context.user_data["awaiting_payment_method"] = True
+        logger.info(f"Updated context.user_data after amount entry for user {user_id}: {context.user_data}")
 
         # Show payment method selection buttons
         keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
         reply_markup = InlineKeyboardMarkup(keyboard)
+        logger.info(f"Sending payment method selection buttons to user {user_id}: {PAYMENT_METHODS}")
         await message.reply_text(
             "Please select a payment method: 💳",
             reply_markup=reply_markup
@@ -158,7 +163,7 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
 
     # Step 2: Handle the withdrawal details (after payment method selection)
     if context.user_data.get("awaiting_withdrawal_details"):
-        logger.info(f"User {user_id} entered withdrawal details: {message.text}")
+        logger.info(f"User {user_id} entered withdrawal details: {message.text}, context: {context.user_data}")
         amount = context.user_data.get("withdrawal_amount")
         payment_method = context.user_data.get("payment_method")
         if not amount or not payment_method:
@@ -170,6 +175,7 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
 
         context.user_data["awaiting_withdrawal_details"] = False
         context.user_data["withdrawal_details"] = payment_details
+        logger.info(f"Updated context.user_data after details entry for user {user_id}: {context.user_data}")
 
         keyboard = [
             [
@@ -211,7 +217,7 @@ async def handle_admin_receipt(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     data = query.data
-    logger.info(f"handle_admin_receipt triggered with data: {data}")
+    logger.info(f"handle_admin_receipt triggered with data: {data}, context: {context.user_data}")
 
     try:
         if data.startswith("approve_withdrawal_"):
