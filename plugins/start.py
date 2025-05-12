@@ -1,6 +1,6 @@
 # plugins/start.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import CommandHandler, CallbackQueryHandler, ContextTypes
 from database.database import db
 import config
 import logging
@@ -68,26 +68,36 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     logger.info(f"Received /help command from user {user_id} in chat {chat_id}")
 
-    # Clear any existing state
-    logger.info(f"Clearing context.user_data for user {user_id}: {context.user_data}")
-    context.user_data.clear()
+    await update.message.reply_text(
+        "တစ်စာတိုလျှင် ၁ ကျပ်ရရှိမည်။\n"
+        "ထုတ်ယူရန်အတွက် ကျွန်ုပ်တို့၏ချန်နယ်သို့ဝင်ရောက်ပါ။\n\n"
+        "အမိန့်များ:\n"
+        "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
+        "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
+        "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
+        "/help - ဤစာကိုပြရန်"
+    )
+    logger.info(f"Successfully sent /help response to user {user_id} in chat {chat_id}")
 
-    try:
-        await update.message.reply_text(
-            "တစ်စာတိုလျှင် ၁ ကျပ်ရရှိမည်။\n"
-            "ထုတ်ယူရန်အတွက် ကျွန်ုပ်တို့၏ချန်နယ်သို့ဝင်ရောက်ပါ။\n\n"
-            "အမိန့်များ:\n"
-            "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
-            "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
-            "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
-            "/help - ဤစာကိုပြရန်"
-        )
-        logger.info(f"Successfully sent /help response to user {user_id} in chat {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to send /help response to user {user_id} in chat {chat_id}: {e}")
-        raise
+# Handle inline button callbacks
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = str(update.effective_user.id)
+    data = query.data
+    logger.info(f"Button callback for user {user_id}, data: {data}")
+
+    if data == "withdraw":
+        await withdraw(update, context)
+    elif data == "balance":
+        await balance(update, context)  # Assuming balance function exists in balance.py
+    elif data == "top":
+        await top(update, context)  # Assuming top function exists in top.py
+    elif data == "help":
+        await help_command(update, context)
 
 def register_handlers(application):
     logger.info("Registering start and help handlers")
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(withdraw|balance|top|help)$"))
