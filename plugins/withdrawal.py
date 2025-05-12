@@ -9,43 +9,37 @@ from datetime import datetime, timezone
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Define withdrawal steps
+STEP_AMOUNT = "awaiting_amount"
+STEP_PAYMENT_METHOD = "awaiting_payment_method"
+STEP_DETAILS = "awaiting_details"
+STEP_DONE = "done"
+
 async def withdraw(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     user = await db.get_user(str(user_id))
 
     if not user:
-        if update.message:
-            await update.message.reply_text("User not found. Please start with /start.")
-        elif update.callback_query:
-            await update.callback_query.message.reply_text("User not found. Please start with /start.")
+        await update.effective_message.reply_text("User not found. Please start with /start.")
+        logger.error(f"User {user_id} not found in database")
         return
 
     if user.get("banned", False):
-        if update.message:
-            await update.message.reply_text("You are banned from using this bot.")
-        elif update.callback_query:
-            await update.callback_query.message.reply_text("You are banned from using this bot.")
+        await update.effective_message.reply_text("You are banned from using this bot.")
+        logger.info(f"User {user_id} is banned")
         return
 
-    # Clear previous state to avoid loops, including any residual keys
-    logger.info(f"Clearing context.user_data for user {user_id}: {context.user_data}")
+    # Clear previous state and initialize withdrawal process
+    logger.info(f"Starting withdrawal process for user {user_id}, clearing context: {context.user_data}")
     context.user_data.clear()
-    context.user_data["awaiting_withdrawal_amount"] = True
-    context.user_data["awaiting_payment_method"] = False
-    context.user_data["awaiting_withdrawal_details"] = False
-    context.user_data["withdrawal_amount"] = None
-    context.user_data["payment_method"] = None
-    logger.info(f"Initialized context.user_data for user {user_id}: {context.user_data}")
+    context.user_data["step"] = STEP_AMOUNT
+    logger.info(f"Initialized withdrawal step for user {user_id}: {context.user_data}")
 
-    # Send the withdrawal prompt based on update type
-    if update.message:
-        await update.message.reply_text(
-            f"Please enter the amount you wish to withdraw (e.g., {WITHDRAWAL_THRESHOLD}). 💸 \n\n ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ ငွေထုတ်ရန် အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
-        )
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(
-            f"Please enter the amount you wish to withdraw (e.g., {WITHDRAWAL_THRESHOLD}). 💸 \n\n ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ ငွေထုတ်ရန် အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
-        )
+    # Prompt for withdrawal amount
+    await update.effective_message.reply_text(
+        f"Please enter the amount you wish to withdraw (minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}). 💸\n"
+        f"ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
+    )
     logger.info(f"User {user_id} prompted for withdrawal amount")
 
 async def handle_payment_method_selection(update: Update, context: CallbackContext):
@@ -53,21 +47,24 @@ async def handle_payment_method_selection(update: Update, context: CallbackConte
     await query.answer()
     user_id = update.effective_user.id
     data = query.data
-    logger.info(f"Payment method callback received: user {user_id}, data: {data}, context: {context.user_data}")
+    logger.info(f"Payment method callback for user {user_id}, data: {data}, context: {context.user_data}")
 
-    if not data.startswith("payment_"):
-        logger.error(f"Invalid payment method callback data: {data}")
-        await query.message.reply_text("Invalid callback data. Please start the withdrawal process again with /withdraw.")
+    # Check if the user is in the correct step
+    if context.user_data.get("step") != STEP_PAYMENT_METHOD:
+        await query.message.reply_text("Please enter the withdrawal amount first. Start again with /withdraw.")
+        logger.info(f"User {user_id} tried to select payment method out of sequence")
+        context.user_data.clear()
         return
 
-    if not context.user_data.get("awaiting_payment_method"):
-        await query.message.reply_text("Please enter the withdrawal amount first. Start the process again with /withdraw.")
-        logger.info(f"User {user_id} tried to select payment method without proper context")
+    if not data.startswith("payment_"):
+        await query.message.reply_text("Invalid payment method. Please start again with /withdraw.")
+        logger.error(f"Invalid payment method callback data for user {user_id}: {data}")
         return
 
     if not context.user_data.get("withdrawal_amount"):
-        await query.message.reply_text("Withdrawal amount not found. Please start the withdrawal process again with /withdraw.")
-        logger.info(f"User {user_id} tried to select payment method without a withdrawal amount")
+        await query.message.reply_text("Withdrawal amount not found. Please start again with /withdraw.")
+        logger.error(f"User {user_id} has no withdrawal amount in context")
+        context.user_data.clear()
         return
 
     method = data.replace("payment_", "")
@@ -77,9 +74,8 @@ async def handle_payment_method_selection(update: Update, context: CallbackConte
         return
 
     context.user_data["payment_method"] = method
-    context.user_data["awaiting_payment_method"] = False
-    context.user_data["awaiting_withdrawal_details"] = True
-    logger.info(f"Updated context.user_data after payment method selection for user {user_id}: {context.user_data}")
+    context.user_data["step"] = STEP_DETAILS
+    logger.info(f"User {user_id} selected payment method {method}, updated context: {context.user_data}")
 
     if method == "KBZ Pay":
         await query.message.reply_text(
@@ -97,20 +93,23 @@ async def handle_payment_method_selection(update: Update, context: CallbackConte
         await query.message.reply_text(
             f"Please provide your {method} account details. 💳"
         )
-    logger.info(f"User {user_id} selected payment method {method} and prompted for details")
+    logger.info(f"User {user_id} prompted for {method} account details")
 
 async def handle_withdrawal_details(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     user = await db.get_user(str(user_id))
     if not user:
         await update.message.reply_text("User not found. Please start with /start.")
+        logger.error(f"User {user_id} not found in database")
         return
 
     message = update.message
+    current_step = context.user_data.get("step")
+    logger.info(f"Handling withdrawal details for user {user_id}, step: {current_step}, context: {context.user_data}")
 
     # Step 1: Handle the withdrawal amount
-    if context.user_data.get("awaiting_withdrawal_amount"):
-        logger.info(f"User {user_id} entered amount: {message.text}, context: {context.user_data}")
+    if current_step == STEP_AMOUNT:
+        logger.info(f"User {user_id} entered amount: {message.text}")
         amount = None
         try:
             amount = int(message.text)
@@ -146,36 +145,35 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
                 withdrawn_today = 0
 
         context.user_data["withdrawal_amount"] = amount
-        context.user_data["awaiting_withdrawal_amount"] = False
-        context.user_data["awaiting_payment_method"] = True
-        logger.info(f"Updated context.user_data after amount entry for user {user_id}: {context.user_data}")
+        context.user_data["step"] = STEP_PAYMENT_METHOD
+        logger.info(f"User {user_id} entered valid amount {amount}, updated context: {context.user_data}")
 
         # Show payment method selection buttons
         keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        logger.info(f"Sending payment method selection buttons to user {user_id}: {PAYMENT_METHODS}")
         await message.reply_text(
             "Please select a payment method: 💳",
             reply_markup=reply_markup
         )
-        logger.info(f"User {user_id} prompted for payment method selection after entering amount {amount}")
+        logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
         return
 
-    # Step 2: Handle the withdrawal details (after payment method selection)
-    if context.user_data.get("awaiting_withdrawal_details"):
-        logger.info(f"User {user_id} entered withdrawal details: {message.text}, context: {context.user_data}")
+    # Step 2: Handle the account details (after payment method selection)
+    if current_step == STEP_DETAILS:
+        logger.info(f"User {user_id} entered account details: {message.text}")
         amount = context.user_data.get("withdrawal_amount")
         payment_method = context.user_data.get("payment_method")
         if not amount or not payment_method:
-            await message.reply_text("Error: Withdrawal amount or payment method not found. Please start the withdrawal process again with /withdraw.")
-            logger.error(f"User {user_id} has no withdrawal amount or payment method in context")
+            await message.reply_text("Error: Withdrawal amount or payment method not found. Please start again with /withdraw.")
+            logger.error(f"User {user_id} missing amount or payment method in context: {context.user_data}")
+            context.user_data.clear()
             return
 
         payment_details = message.text if message.text else "No details provided"
 
-        context.user_data["awaiting_withdrawal_details"] = False
         context.user_data["withdrawal_details"] = payment_details
-        logger.info(f"Updated context.user_data after details entry for user {user_id}: {context.user_data}")
+        context.user_data["step"] = STEP_DONE
+        logger.info(f"User {user_id} submitted account details, updated context: {context.user_data}")
 
         keyboard = [
             [
@@ -186,10 +184,9 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         try:
-            # Send the withdrawal request message to each admin
             for admin_id in ADMIN_IDS:
                 if admin_id:
-                    withdrawal_message = await context.bot.send_message(
+                    await context.bot.send_message(
                         chat_id=admin_id,
                         text=(
                             f"Withdrawal Request:\n"
@@ -204,8 +201,9 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
                     )
                     logger.info(f"Sent withdrawal request to admin {admin_id} for user {user_id}")
         except Exception as e:
-            logger.error(f"Failed to send withdrawal request to admins: {e}")
+            logger.error(f"Failed to send withdrawal request to admins for user {user_id}: {e}")
             await message.reply_text("Error submitting withdrawal request. Please try again later.")
+            context.user_data.clear()
             return
 
         await message.reply_text(
@@ -213,11 +211,21 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
         )
         logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
 
+        # Clear context after submission
+        context.user_data.clear()
+        logger.info(f"Cleared context for user {user_id} after withdrawal submission")
+        return
+
+    # If the user sends a message out of sequence
+    await message.reply_text("Please start the withdrawal process again with /withdraw.")
+    logger.info(f"User {user_id} sent message out of sequence, step: {current_step}")
+    context.user_data.clear()
+
 async def handle_admin_receipt(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     data = query.data
-    logger.info(f"handle_admin_receipt triggered with data: {data}, context: {context.user_data}")
+    logger.info(f"Admin receipt callback for user {query.from_user.id}, data: {data}")
 
     try:
         if data.startswith("approve_withdrawal_"):
@@ -273,21 +281,16 @@ async def handle_admin_receipt(update: Update, context: CallbackContext):
                         chat_id=user_id,
                         text=f"Your withdrawal of {amount} {CURRENCY} has been approved! Your new balance is {new_balance} {CURRENCY}."
                     )
-                    # Send announcement to the group
                     username = user.get("username", user["name"])
                     mention = f"@{username}" if username else user["name"]
                     group_message = f"{mention} သူက ငွေ {amount} ကျပ်ထုတ်ခဲ့သည် ချိုချဉ်ယ်စားပါ"
-                    try:
-                        await context.bot.send_message(
-                            chat_id=GROUP_CHAT_ID,
-                            text=group_message
-                        )
-                        logger.info(f"Sent withdrawal announcement to group {GROUP_CHAT_ID} for user {user_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send announcement to group {GROUP_CHAT_ID}: {str(e)}")
-                    logger.info(f"Notified user {user_id} of withdrawal approval")
+                    await context.bot.send_message(
+                        chat_id=GROUP_CHAT_ID,
+                        text=group_message
+                    )
+                    logger.info(f"Sent withdrawal announcement to group {GROUP_CHAT_ID} for user {user_id}")
                 except Exception as e:
-                    logger.error(f"Failed to notify user {user_id} of withdrawal approval: {e}")
+                    logger.error(f"Failed to notify user {user_id} or send group announcement: {e}")
             else:
                 logger.error(f"Failed to update user {user_id} for withdrawal approval")
                 await query.message.reply_text("Error approving withdrawal. Please try again.")
