@@ -34,6 +34,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Starting withdrawal process for user {user_id}, clearing context: {context.user_data}")
     context.user_data.clear()
     context.user_data["step"] = STEP_AMOUNT
+    context.user_data["user_id"] = user_id  # Store user_id in context to maintain session
     logger.info(f"Initialized withdrawal step for user {user_id}: {context.user_data}")
 
     # Prompt for withdrawal amount
@@ -51,9 +52,9 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
     data = query.data
     logger.info(f"Payment method callback for user {user_id}, data: {data}, context: {context.user_data}")
 
-    if context.user_data.get("step") != STEP_PAYMENT_METHOD:
+    if context.user_data.get("step") != STEP_PAYMENT_METHOD or context.user_data.get("user_id") != user_id:
         await query.message.reply_text("Please enter the withdrawal amount first. Start again with /withdraw.")
-        logger.info(f"User {user_id} tried to select payment method out of sequence")
+        logger.info(f"User {user_id} tried to select payment method out of sequence or wrong session")
         context.user_data.clear()
         return
 
@@ -110,10 +111,10 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
     current_step = context.user_data.get("step", None)
     logger.info(f"Handling withdrawal details for user {user_id}, step: {current_step}, context: {context.user_data}, message text: {message.text}")
 
-    # Ensure we're in the correct step
-    if not current_step:
+    # Ensure we're in the correct step and session
+    if not current_step or context.user_data.get("user_id") != user_id:
         await message.reply_text("Please start the withdrawal process with /withdraw.")
-        logger.info(f"User {user_id} has no step in context, resetting")
+        logger.info(f"User {user_id} has no step or wrong session in context, resetting")
         context.user_data.clear()
         return
 
