@@ -15,6 +15,9 @@ STEP_PAYMENT_METHOD = "awaiting_payment_method"
 STEP_DETAILS = "awaiting_details"
 STEP_DONE = "done"
 
+# Define the log channel ID
+LOG_CHANNEL_ID = "-1002555129360"
+
 # Handle /withdraw command and "ထုတ်ယူရန်" button
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -167,14 +170,14 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
         context.user_data["step"] = STEP_PAYMENT_METHOD
         logger.info(f"User {user_id} entered valid amount {amount}, updated context: {context.user_data}")
 
-        # Show payment method selection buttons
-        keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
+        # Show payment method selection buttons (KBZ Pay, Wave Pay, Phone Bill)
+        keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in ["KBZ Pay", "Wave Pay", "Phone Bill"]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await message.reply_text(
             "Please select a payment method: 💳",
             reply_markup=reply_markup
         )
-        logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
+        logger.info(f"User {user_id} prompted for payment method selection with buttons: ['KBZ Pay', 'Wave Pay', 'Phone Bill']")
         return
 
     elif current_step == STEP_DETAILS:
@@ -202,24 +205,23 @@ async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAUL
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         try:
-            for admin_id in ADMIN_IDS:
-                if admin_id:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=(
-                            f"Withdrawal Request:\n"
-                            f"User ID: {user_id}\n"
-                            f"User: @{update.effective_user.username or 'N/A'}\n"
-                            f"Amount: {amount} {CURRENCY} 💸\n"
-                            f"Payment Method: {payment_method}\n"
-                            f"Details: {payment_details}\n"
-                            f"Status: PENDING ⏳"
-                        ),
-                        reply_markup=reply_markup
-                    )
-                    logger.info(f"Sent withdrawal request to admin {admin_id} for user {user_id}")
+            # Send the withdrawal request to the log channel
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=(
+                    f"Withdrawal Request:\n"
+                    f"User ID: {user_id}\n"
+                    f"User: @{update.effective_user.username or 'N/A'}\n"
+                    f"Amount: {amount} {CURRENCY} 💸\n"
+                    f"Payment Method: {payment_method}\n"
+                    f"Details: {payment_details}\n"
+                    f"Status: PENDING ⏳"
+                ),
+                reply_markup=reply_markup
+            )
+            logger.info(f"Sent withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}")
         except Exception as e:
-            logger.error(f"Failed to send withdrawal request to admins for user {user_id}: {e}")
+            logger.error(f"Failed to send withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}: {e}")
             await message.reply_text("Error submitting withdrawal request. Please try again later.")
             context.user_data.clear()
             return
