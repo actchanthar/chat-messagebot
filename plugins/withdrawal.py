@@ -26,40 +26,46 @@ LOG_CHANNEL_ID = "-1002555129360"
 # Define payment methods
 PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
 
-# Handle /withdraw command and "ထုတ်ယူရန်" button
+# Entry point for /withdraw command and inline button
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user = await db.get_user(str(user_id))
+    chat_id = update.effective_chat.id
+    logger.info(f"Withdraw function called for user {user_id} in chat {chat_id}")
 
+    # Ensure this is a private chat
+    if update.effective_chat.type != "private":
+        logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
+        await update.effective_message.reply_text("Please use the /withdraw command in a private chat.")
+        return ConversationHandler.END
+
+    user = await db.get_user(str(user_id))
     if not user:
-        await update.effective_message.reply_text("User not found. Please start with /start.")
         logger.error(f"User {user_id} not found in database")
+        await update.effective_message.reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
 
     if user.get("banned", False):
-        await update.effective_message.reply_text("You are banned from using this bot.")
         logger.info(f"User {user_id} is banned")
+        await update.effective_message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
-    # Clear previous state and initialize withdrawal process
-    logger.info(f"Starting withdrawal process for user {user_id}, clearing context: {context.user_data}")
+    # Clear previous state
+    logger.info(f"Clearing context for user {user_id}: {context.user_data}")
     context.user_data.clear()
-    context.user_data["user_id"] = user_id  # Store user_id in context to maintain session
-    logger.info(f"Initialized withdrawal step for user {user_id}: {context.user_data}")
 
     # Prompt for withdrawal amount
+    logger.info(f"Prompting user {user_id} for withdrawal amount")
     await update.effective_message.reply_text(
         f"Please enter the amount you wish to withdraw (minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}). 💸\n"
         f"ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
     )
-    logger.info(f"User {user_id} prompted for withdrawal amount")
     return STEP_AMOUNT
 
 # Handle withdrawal amount input
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message
-    logger.info(f"User {user_id} entered amount: {message.text}")
+    logger.info(f"Handling amount input for user {user_id}: {message.text}")
 
     # Validate the amount
     amount = None
@@ -69,27 +75,27 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raise ValueError("Amount must be a number")
         amount = int(amount_text)
     except (ValueError, TypeError) as e:
-        await message.reply_text(f"Please enter a valid amount (e.g., {WITHDRAWAL_THRESHOLD}).")
         logger.info(f"User {user_id} entered invalid amount: {message.text}, error: {e}")
+        await message.reply_text(f"Please enter a valid amount (e.g., {WITHDRAWAL_THRESHOLD}).")
         return STEP_AMOUNT
 
     user = await db.get_user(str(user_id))
     if not user:
-        await message.reply_text("User not found. Please start with /start.")
         logger.error(f"User {user_id} not found in database")
+        await message.reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
 
     # Check minimum withdrawal amount
     if amount < WITHDRAWAL_THRESHOLD:
-        await message.reply_text(f"Minimum withdrawal amount is {WITHDRAWAL_THRESHOLD} {CURRENCY}.")
         logger.info(f"User {user_id} entered amount {amount} below minimum {WITHDRAWAL_THRESHOLD}")
+        await message.reply_text(f"Minimum withdrawal amount is {WITHDRAWAL_THRESHOLD} {CURRENCY}.")
         return STEP_AMOUNT
 
     # Check balance
     balance = user.get("balance", 0)
     if amount > balance:
-        await message.reply_text("Insufficient balance for this withdrawal.")
         logger.info(f"User {user_id} has insufficient balance. Requested: {amount}, Balance: {balance}")
+        await message.reply_text("Insufficient balance for this withdrawal.")
         return STEP_AMOUNT
 
     # Check daily withdrawal limit
@@ -102,15 +108,15 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         current_date = current_time.date()
         if last_withdrawal_date == current_date:
             if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                await message.reply_text(f"Daily withdrawal limit is {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. You've already withdrawn {withdrawn_today} {CURRENCY} today.")
                 logger.info(f"User {user_id} exceeded daily limit. Withdrawn today: {withdrawn_today}, Requested: {amount}")
+                await message.reply_text(f"Daily withdrawal limit is {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. You've already withdrawn {withdrawn_today} {CURRENCY} today.")
                 return STEP_AMOUNT
         else:
             withdrawn_today = 0
 
-    # Amount is valid, update context
+    # Amount is valid, store in context
     context.user_data["withdrawal_amount"] = amount
-    logger.info(f"User {user_id} entered valid amount {amount}, updated context: {context.user_data}")
+    logger.info(f"User {user_id} entered valid amount {amount}, context: {context.user_data}")
 
     # Show payment method selection buttons
     keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
@@ -128,26 +134,26 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
     await query.answer()
     user_id = update.effective_user.id
     data = query.data
-    logger.info(f"Payment method callback for user {user_id}, data: {data}, context: {context.user_data}")
+    logger.info(f"Handling payment method selection for user {user_id}, data: {data}, context: {context.user_data}")
 
     if not data.startswith("payment_"):
-        await query.message.reply_text("Invalid payment method. Please start again with /withdraw.")
         logger.error(f"Invalid payment method callback data for user {user_id}: {data}")
+        await query.message.reply_text("Invalid payment method. Please start again with /withdraw.")
         return ConversationHandler.END
 
     if not context.user_data.get("withdrawal_amount"):
-        await query.message.reply_text("Withdrawal amount not found. Please start again with /withdraw.")
         logger.error(f"User {user_id} has no withdrawal amount in context")
+        await query.message.reply_text("Withdrawal amount not found. Please start again with /withdraw.")
         return ConversationHandler.END
 
     method = data.replace("payment_", "")
     if method not in PAYMENT_METHODS:
-        await query.message.reply_text("Invalid payment method selected. Please try again.")
         logger.info(f"User {user_id} selected invalid payment method: {method}")
+        await query.message.reply_text("Invalid payment method selected. Please try again.")
         return STEP_PAYMENT_METHOD
 
     context.user_data["payment_method"] = method
-    logger.info(f"User {user_id} selected payment method {method}, updated context: {context.user_data}")
+    logger.info(f"User {user_id} selected payment method {method}, context: {context.user_data}")
 
     if method == "KBZ Pay":
         await query.message.reply_text(
@@ -172,18 +178,18 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message
-    logger.info(f"User {user_id} entered account details: {message.text}")
+    logger.info(f"Handling account details for user {user_id}: {message.text}")
 
     amount = context.user_data.get("withdrawal_amount")
     payment_method = context.user_data.get("payment_method")
     if not amount or not payment_method:
-        await message.reply_text("Error: Withdrawal amount or payment method not found. Please start again with /withdraw.")
         logger.error(f"User {user_id} missing amount or payment method in context: {context.user_data}")
+        await message.reply_text("Error: Withdrawal amount or payment method not found. Please start again with /withdraw.")
         return ConversationHandler.END
 
     payment_details = message.text if message.text else "No details provided"
     context.user_data["withdrawal_details"] = payment_details
-    logger.info(f"User {user_id} submitted account details, updated context: {context.user_data}")
+    logger.info(f"User {user_id} submitted account details, context: {context.user_data}")
 
     keyboard = [
         [
@@ -340,9 +346,9 @@ def register_handlers(application: Application):
             CallbackQueryHandler(withdraw, pattern="^withdraw$"),
         ],
         states={
-            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
+            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_amount)],
             STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
-            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
+            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_details)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
