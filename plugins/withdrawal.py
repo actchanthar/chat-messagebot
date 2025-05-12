@@ -27,7 +27,7 @@ async def withdraw(update: Update, context: CallbackContext):
             await update.callback_query.message.reply_text("You are banned from using this bot.")
         return
 
-    # Clear previous state to avoid loops
+    # Clear previous state to avoid loops, including any residual keys
     context.user_data.clear()
     context.user_data["awaiting_withdrawal_amount"] = True
     context.user_data["awaiting_payment_method"] = False
@@ -55,11 +55,17 @@ async def handle_payment_method_selection(update: Update, context: CallbackConte
 
     if not data.startswith("payment_"):
         logger.error(f"Invalid payment method callback data: {data}")
+        await query.message.reply_text("Invalid callback data. Please start the withdrawal process again with /withdraw.")
         return
 
     if not context.user_data.get("awaiting_payment_method"):
-        await query.message.reply_text("Please start the withdrawal process again with /withdraw.")
+        await query.message.reply_text("Please enter the withdrawal amount first. Start the process again with /withdraw.")
         logger.info(f"User {user_id} tried to select payment method without proper context")
+        return
+
+    if not context.user_data.get("withdrawal_amount"):
+        await query.message.reply_text("Withdrawal amount not found. Please start the withdrawal process again with /withdraw.")
+        logger.info(f"User {user_id} tried to select payment method without a withdrawal amount")
         return
 
     method = data.replace("payment_", "")
@@ -106,7 +112,7 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
         try:
             amount = int(message.text)
         except (ValueError, TypeError):
-            await message.reply_text("Please enter a valid amount (e.g., 100).")
+            await message.reply_text(f"Please enter a valid amount (e.g., {WITHDRAWAL_THRESHOLD}).")
             logger.info(f"User {user_id} entered invalid amount: {message.text}")
             return
 
