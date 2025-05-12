@@ -68,7 +68,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     logger.info(f"Received /help command from user {user_id} in chat {chat_id}")
 
-    await update.message.reply_text(
+    # Determine how to reply based on whether this is a command or callback
+    if update.message:
+        reply_func = update.message.reply_text
+    elif update.callback_query:
+        reply_func = update.callback_query.message.reply_text
+    else:
+        logger.error(f"No valid message or callback query for user {user_id}")
+        return
+
+    await reply_func(
         "တစ်စာတိုလျှင် ၁ ကျပ်ရရှိမည်။\n"
         "ထုတ်ယူရန်အတွက် ကျွန်ုပ်တို့၏ချန်နယ်သို့ဝင်ရောက်ပါ။\n\n"
         "အမိန့်များ:\n"
@@ -88,11 +97,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Button callback for user {user_id}, data: {data}")
 
     if data == "withdraw":
+        from plugins.withdrawal import withdraw  # Import here to avoid circular imports
         await withdraw(update, context)
     elif data == "balance":
-        await balance(update, context)  # Assuming balance function exists in balance.py
+        from plugins.balance import balance
+        await balance(update, context)
     elif data == "top":
-        await top(update, context)  # Assuming top function exists in top.py
+        from plugins.top import top
+        await top(update, context)
     elif data == "help":
         await help_command(update, context)
 
