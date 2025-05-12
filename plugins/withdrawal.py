@@ -1,6 +1,6 @@
 # plugins/withdrawal.py
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ContextTypes
+from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, Application, ContextTypes, filters
 from config import ADMIN_IDS, GROUP_CHAT_ID, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, PAYMENT_METHODS
 from database.database import db
 import logging
@@ -346,3 +346,5 @@ def register_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(withdraw, pattern="^withdraw$"))
     application.add_handler(CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_"))
     application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_"))
+    # Add a message handler to capture the amount input
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_withdrawal_details))
