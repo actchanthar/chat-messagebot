@@ -12,8 +12,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     logger.info(f"Received /start command from user {user_id} in chat {chat_id}")
 
-    # Clear any existing withdrawal state to prevent interference
+    # Clear any existing state
+    logger.info(f"Clearing context.user_data for user {user_id}: {context.user_data}")
     context.user_data.clear()
+
+    # Register user in the database if not already present
+    user = await db.get_user(user_id)
+    if not user:
+        await db.create_user(user_id, update.effective_user.first_name)
+        user = await db.get_user(user_id)
+        logger.info(f"Created new user {user_id} in database")
 
     try:
         top_users = await db.get_top_users()
@@ -60,7 +68,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     logger.info(f"Received /help command from user {user_id} in chat {chat_id}")
 
-    # Clear any existing withdrawal state to prevent interference
+    # Clear any existing state
+    logger.info(f"Clearing context.user_data for user {user_id}: {context.user_data}")
     context.user_data.clear()
 
     try:
