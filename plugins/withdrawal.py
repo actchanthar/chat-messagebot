@@ -1,6 +1,6 @@
 # plugins/withdrawal.py
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import CallbackContext, CallbackQueryHandler
+from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ContextTypes
 from config import ADMIN_IDS, GROUP_CHAT_ID, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, PAYMENT_METHODS
 from database.database import db
 import logging
@@ -15,7 +15,8 @@ STEP_PAYMENT_METHOD = "awaiting_payment_method"
 STEP_DETAILS = "awaiting_details"
 STEP_DONE = "done"
 
-async def withdraw(update: Update, context: CallbackContext):
+# Handle /withdraw command and "ထုတ်ယူရန်" button
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = await db.get_user(str(user_id))
 
@@ -42,7 +43,8 @@ async def withdraw(update: Update, context: CallbackContext):
     )
     logger.info(f"User {user_id} prompted for withdrawal amount")
 
-async def handle_payment_method_selection(update: Update, context: CallbackContext):
+# Handle payment method selection
+async def handle_payment_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
@@ -94,7 +96,8 @@ async def handle_payment_method_selection(update: Update, context: CallbackConte
         )
     logger.info(f"User {user_id} prompted for {method} account details")
 
-async def handle_withdrawal_details(update: Update, context: CallbackContext):
+# Handle withdrawal amount and details input
+async def handle_withdrawal_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user = await db.get_user(str(user_id))
     if not user:
@@ -107,12 +110,11 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
     current_step = context.user_data.get("step")
     logger.info(f"Handling withdrawal details for user {user_id}, step: {current_step}, context: {context.user_data}, message text: {message.text}")
 
-    # Step 1: Handle the withdrawal amount
     if current_step == STEP_AMOUNT:
         logger.info(f"User {user_id} entered amount: {message.text}")
         amount = None
         try:
-            amount = int(message.text)
+            amount = int(message.text.strip())  # Strip whitespace to avoid parsing issues
         except (ValueError, TypeError):
             await message.reply_text(f"Please enter a valid amount (e.g., {WITHDRAWAL_THRESHOLD}).")
             logger.info(f"User {user_id} entered invalid amount: {message.text}")
@@ -158,8 +160,7 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
         logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
         return
 
-    # Step 2: Handle the account details (after payment method selection)
-    if current_step == STEP_DETAILS:
+    elif current_step == STEP_DETAILS:
         logger.info(f"User {user_id} entered account details: {message.text}")
         amount = context.user_data.get("withdrawal_amount")
         payment_method = context.user_data.get("payment_method")
@@ -221,7 +222,8 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
     logger.info(f"User {user_id} sent message out of sequence, step: {current_step}")
     context.user_data.clear()
 
-async def handle_admin_receipt(update: Update, context: CallbackContext):
+# Handle admin approval/rejection
+async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
@@ -319,8 +321,8 @@ async def handle_admin_receipt(update: Update, context: CallbackContext):
         logger.error(f"Error in handle_admin_receipt: {e}")
         await query.message.reply_text("Error processing withdrawal request. Please try again.")
 
-# Register callback handler for the withdraw button
-def register_handlers(application):
+# Register all handlers
+def register_handlers(application: Application):
     logger.info("Registering withdrawal handlers")
     application.add_handler(CommandHandler("withdraw", withdraw))
     application.add_handler(CallbackQueryHandler(withdraw, pattern="^withdraw$"))
