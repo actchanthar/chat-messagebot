@@ -10,7 +10,7 @@ from telegram.ext import (
 from database.database import db
 import config
 import logging
-from plugins.withdrawal import withdraw  # Import the new withdraw function
+from plugins.withdrawal import withdraw, handle_withdrawal_details, handle_admin_receipt, handle_payment_method_selection  # Import the new handler
 
 logger = logging.getLogger(__name__)
 
@@ -164,11 +164,12 @@ async def debug_unhandled_message(update: Update, context: ContextTypes.DEFAULT_
 
 def register_handlers(application):
     # Register new commands
-    from plugins.withdrawal import withdraw, handle_withdrawal_details, handle_admin_receipt  # Import new handlers
+    from plugins.withdrawal import withdraw, handle_withdrawal_details, handle_admin_receipt, handle_payment_method_selection
     application.add_handler(CommandHandler("withdraw", withdraw))
     application.add_handler(CommandHandler("reset", reset))
     application.add_handler(CommandHandler("debug", debug))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_withdrawal_details))
+    application.add_handler(CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_.*$"))
     application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve_withdrawal_|reject_withdrawal_)"))
     
     # Register /start command
@@ -180,4 +181,4 @@ def register_handlers(application):
     # Fallback handler to debug unhandled messages
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, debug_unhandled_message), group=3)
     
-    logger.info("Registered start command, withdrawal handlers, button callbacks, reset, debug, and debug handler")
+    logger.info("Registered start command, withdrawal handlers, payment method handler, button callbacks, reset, debug, and debug handler")
