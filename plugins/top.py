@@ -1,3 +1,4 @@
+# plugins/top.py
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 from database.database import db
@@ -8,24 +9,21 @@ logger = logging.getLogger(__name__)
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    chat_id = str(update.effective_chat.id)
-    logger.info(f"Received /top command from user {user_id} in chat {chat_id}")
+    logger.info(f"User {user_id} requested top users")
 
-    try:
-        top_users = await db.get_top_users()
-        top_text = "ထိပ်တန်းအသုံးပြုသူ ၁၀ ဦး:\n"
-        if not top_users:
-            top_text += "အဆင့်သတ်မှတ်ချက်မရှိသေးပါ။\n"
-        else:
-            for i, user in enumerate(top_users, 1):
-                top_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user['balance']} {config.CURRENCY}\n"
+    top_users = await db.get_top_users()
+    if not top_users:
+        await update.message.reply_text("No top users found.")
+        logger.info(f"No top users found for user {user_id}")
+        return
 
-        await update.message.reply_text(top_text)
-        logger.info(f"Sent /top response to user {user_id}")
-    except Exception as e:
-        logger.error(f"Failed to process /top for user {user_id} in chat {chat_id}: {e}")
-        raise
+    top_users_text = "ထိပ်တန်းအသုံးပြုသူ ၁၀ ဦး:\n"
+    for i, user in enumerate(top_users, 1):
+        top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user['balance']} {config.CURRENCY}\n"
+
+    await update.message.reply_text(top_users_text)
+    logger.info(f"Sent top users to user {user_id}")
 
 def register_handlers(application):
-    logger.info("Registering top handler")
+    logger.info("Registering top handlers")
     application.add_handler(CommandHandler("top", top))
