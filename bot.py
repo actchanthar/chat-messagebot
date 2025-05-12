@@ -1,3 +1,4 @@
+# bot.py
 import logging
 from telegram.ext import Application
 import config
@@ -6,7 +7,7 @@ from plugins.balance import register_handlers as register_balance_handlers
 from plugins.top import register_handlers as register_top_handlers
 from plugins.admin import register_handlers as register_admin_handlers
 from plugins.start import register_handlers as register_start_handlers
-from plugins.callbacks import register_handlers as register_callbacks_handlers
+from plugins.withdrawal import register_handlers as register_withdrawal_handlers  # Add this import
 
 # Set up logging
 logging.basicConfig(
@@ -25,7 +26,7 @@ def main():
     register_balance_handlers(application)
     register_top_handlers(application)
     register_admin_handlers(application)
-    register_callbacks_handlers(application)
+    register_withdrawal_handlers(application)  # Add this line to register withdrawal handlers
 
     # Start the bot
     logger.info("Bot is running")
