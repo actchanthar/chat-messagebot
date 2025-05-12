@@ -1,3 +1,4 @@
+# plugins/start.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, ContextTypes
 from database.database import db
@@ -10,6 +11,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
     logger.info(f"Received /start command from user {user_id} in chat {chat_id}")
+
+    # Clear any existing withdrawal state to prevent interference
+    context.user_data.clear()
 
     try:
         top_users = await db.get_top_users()
@@ -40,8 +44,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"{top_users_text}\n"
                 "အမိန့်များ:\n"
                 "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
-                "/top -ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
-                "ထုတ်ယူရန်တောင်းဆိုရန်\n"
+                "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
+                "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
                 "/help - ဤစာကိုပြရန်"
             ),
             reply_markup=reply_markup
@@ -55,6 +59,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
     logger.info(f"Received /help command from user {user_id} in chat {chat_id}")
+
+    # Clear any existing withdrawal state to prevent interference
+    context.user_data.clear()
 
     try:
         await update.message.reply_text(
