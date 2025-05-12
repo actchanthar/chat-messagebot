@@ -1,8 +1,8 @@
 # plugins/withdrawal.py
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CallbackContext
-from config import ADMIN_IDS, GROUP_CHAT_ID, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY
-from database.database import db  # Adjusted to use your existing db
+from config import ADMIN_IDS, GROUP_CHAT_ID, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, PAYMENT_METHODS
+from database.database import db
 import logging
 from datetime import datetime, timezone
 
@@ -11,10 +11,9 @@ logger = logging.getLogger(__name__)
 
 async def withdraw(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
-    user = await db.get_user(str(user_id))  # Adjusted to use db.get_user and convert user_id to string
+    user = await db.get_user(str(user_id))
 
     if not user:
-        # Handle response based on update type
         if update.message:
             await update.message.reply_text("User not found. Please start with /start.")
         elif update.callback_query:
@@ -29,10 +28,12 @@ async def withdraw(update: Update, context: CallbackContext):
         return
 
     # Clear previous state to avoid loops
-    context.user_data.clear()  # Clear all previous data to ensure a fresh start
+    context.user_data.clear()
     context.user_data["awaiting_withdrawal_amount"] = True
+    context.user_data["awaiting_payment_method"] = False
     context.user_data["awaiting_withdrawal_details"] = False
-    context.user_data["withdrawal_amount"] = None  # Reset amount
+    context.user_data["withdrawal_amount"] = None
+    context.user_data["payment_method"] = None
 
     # Send the withdrawal prompt based on update type
     if update.message:
@@ -45,9 +46,53 @@ async def withdraw(update: Update, context: CallbackContext):
         )
     logger.info(f"User {user_id} prompted for withdrawal amount")
 
+async def handle_payment_method_selection(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    data = query.data
+    logger.info(f"Payment method callback received: user {user_id}, data: {data}, context: {context.user_data}")
+
+    if not data.startswith("payment_"):
+        logger.error(f"Invalid payment method callback data: {data}")
+        return
+
+    if not context.user_data.get("awaiting_payment_method"):
+        await query.message.reply_text("Please start the withdrawal process again with /withdraw.")
+        logger.info(f"User {user_id} tried to select payment method without proper context")
+        return
+
+    method = data.replace("payment_", "")
+    if method not in PAYMENT_METHODS:
+        await query.message.reply_text("Invalid payment method selected. Please try again.")
+        logger.info(f"User {user_id} selected invalid payment method: {method}")
+        return
+
+    context.user_data["payment_method"] = method
+    context.user_data["awaiting_payment_method"] = False
+    context.user_data["awaiting_withdrawal_details"] = True
+
+    if method == "KBZ Pay":
+        await query.message.reply_text(
+            "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW). 💳"
+        )
+    elif method == "Wave Pay":
+        await query.message.reply_text(
+            "Please provide your Wave Pay account details (e.g., phone number and name). 💳"
+        )
+    elif method == "Phone Bill":
+        await query.message.reply_text(
+            "Please provide your phone number for Phone Bill payment. 💳"
+        )
+    else:
+        await query.message.reply_text(
+            f"Please provide your {method} account details. 💳"
+        )
+    logger.info(f"User {user_id} selected payment method {method} and prompted for details")
+
 async def handle_withdrawal_details(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
-    user = await db.get_user(str(user_id))  # Adjusted to use db.get_user and convert user_id to string
+    user = await db.get_user(str(user_id))
     if not user:
         await update.message.reply_text("User not found. Please start with /start.")
         return
@@ -61,11 +106,11 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
         try:
             amount = int(message.text)
         except (ValueError, TypeError):
-            await message.reply_text("Please enter a valid amount (e.g., 1000).")
+            await message.reply_text("Please enter a valid amount (e.g., 100).")
             logger.info(f"User {user_id} entered invalid amount: {message.text}")
             return
 
-        if amount < WITHDRAWAL_THRESHOLD:  # Adjusted to use WITHDRAWAL_THRESHOLD from config
+        if amount < WITHDRAWAL_THRESHOLD:
             await message.reply_text(f"Minimum withdrawal amount is {WITHDRAWAL_THRESHOLD} {CURRENCY}.")
             logger.info(f"User {user_id} entered amount {amount} below minimum {WITHDRAWAL_THRESHOLD}")
             return
@@ -93,21 +138,26 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
 
         context.user_data["withdrawal_amount"] = amount
         context.user_data["awaiting_withdrawal_amount"] = False
-        context.user_data["awaiting_withdrawal_details"] = True
+        context.user_data["awaiting_payment_method"] = True
 
+        # Show payment method selection buttons
+        keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await message.reply_text(
-            "Please provide your withdrawal details (e.g., payment method, account number). 💳 \n\n အကောင့်နံဘတ် အကောင့်နာမည်တို့ကိုပို့ပေးပါဗျာ Eg., KBZ Pay 09123456789 ZAYAR KO KO MIN ZAW"
+            "Please select a payment method: 💳",
+            reply_markup=reply_markup
         )
-        logger.info(f"User {user_id} prompted for withdrawal details after entering amount {amount}")
+        logger.info(f"User {user_id} prompted for payment method selection after entering amount {amount}")
         return
 
-    # Step 2: Handle the withdrawal details
+    # Step 2: Handle the withdrawal details (after payment method selection)
     if context.user_data.get("awaiting_withdrawal_details"):
         logger.info(f"User {user_id} entered withdrawal details: {message.text}")
         amount = context.user_data.get("withdrawal_amount")
-        if not amount:
-            await message.reply_text("Error: Withdrawal amount not found. Please start the withdrawal process again with /withdraw.")
-            logger.error(f"User {user_id} has no withdrawal amount in context")
+        payment_method = context.user_data.get("payment_method")
+        if not amount or not payment_method:
+            await message.reply_text("Error: Withdrawal amount or payment method not found. Please start the withdrawal process again with /withdraw.")
+            logger.error(f"User {user_id} has no withdrawal amount or payment method in context")
             return
 
         payment_details = message.text if message.text else "No details provided"
@@ -134,6 +184,7 @@ async def handle_withdrawal_details(update: Update, context: CallbackContext):
                             f"User ID: {user_id}\n"
                             f"User: @{update.effective_user.username or 'N/A'}\n"
                             f"Amount: {amount} {CURRENCY} 💸\n"
+                            f"Payment Method: {payment_method}\n"
                             f"Details: {payment_details}\n"
                             f"Status: PENDING ⏳"
                         ),
@@ -167,7 +218,7 @@ async def handle_admin_receipt(update: Update, context: CallbackContext):
             user_id = int(user_id)
             amount = int(amount)
 
-            user = await db.get_user(str(user_id))  # Adjusted to use db.get_user
+            user = await db.get_user(str(user_id))
             if not user:
                 logger.error(f"User {user_id} not found for withdrawal approval")
                 await query.message.reply_text("User not found.")
@@ -196,7 +247,7 @@ async def handle_admin_receipt(update: Update, context: CallbackContext):
 
             new_balance = balance - amount
             new_withdrawn_today = withdrawn_today + amount
-            success = await db.update_user(str(user_id), {  # Adjusted to use db.update_user
+            success = await db.update_user(str(user_id), {
                 "balance": new_balance,
                 "last_withdrawal": current_time,
                 "withdrawn_today": new_withdrawn_today
