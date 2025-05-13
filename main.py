@@ -1,10 +1,10 @@
 # main.py
 from telegram.ext import Application
 from plugins import start, withdrawal, balance, top, help, message_handler
+from config import BOT_TOKEN
 
 def main():
-    # Replace with your bot token
-    application = Application.builder().token("7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo").build()
+    application = Application.builder().token(BOT_TOKEN).build()
 
     # Register handlers
     start.register_handlers(application)
