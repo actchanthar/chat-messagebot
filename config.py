@@ -1,28 +1,21 @@
 # config.py
+# Bot token
+BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"  # Replace with your actual bot token
 
-import os
+# MongoDB settings
+MONGODB_NAME = "actchat1"  # Replace with your MongoDB database name
+MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
 
-# Bot token from environment variable
-BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+# Withdrawal settings
+WITHDRAWAL_THRESHOLD = 100  # Minimum withdrawal amount
+DAILY_WITHDRAWAL_LIMIT = 1000  # Daily withdrawal limit
+CURRENCY = "kyat"
 
-# Channel ID and username for subscription check from environment variables
-CHANNEL_ID = os.environ.get("CHANNEL_ID")
-CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME")
+# Group chat ID for announcements
+GROUP_CHAT_ID = "-1002061898677"  # Replace with your actual group chat ID if different
 
-# Group chat ID for sending withdrawal announcements
-GROUP_CHAT_ID = "-1002061898677"  # Already set in your config
-
-# Admin IDs from environment variable (comma-separated string converted to list)
-ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")
-
-# Currency for display
-CURRENCY = "kyat"  # Already set in your config
-
-# Minimum withdrawal threshold
-WITHDRAWAL_THRESHOLD = 100  # Already set in your config, updated to 100
-
-# Daily withdrawal limit
-DAILY_WITHDRAWAL_LIMIT = int(os.environ.get("DAILY_WITHDRAWAL_LIMIT", 5000))  # Default to 5000 if not set
+# Log channel ID for withdrawal requests
+LOG_CHANNEL_ID = "-1002555129360"  # Replace with your actual log channel ID if different
 
 # Payment methods
-PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]  # Already set in your config
+PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
