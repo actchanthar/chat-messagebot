@@ -194,28 +194,28 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Send the withdrawal request to the log channel
         await context.bot.send_message(
-            chat_id=config.LOG_CHANNEL_ID,
+            chat_id=LOG_CHANNEL_ID,
             text=(
                 f"Withdrawal Request:\n"
                 f"User ID: {user_id}\n"
                 f"User: @{update.effective_user.username or 'N/A'}\n"
-                f"Amount: {amount} {config.CURRENCY} 💸\n"
+                f"Amount: {amount} {CURRENCY} 💸\n"
                 f"Payment Method: {payment_method}\n"
                 f"Details: {payment_details}\n"
                 f"Status: PENDING ⏳"
             ),
             reply_markup=reply_markup
         )
-        logger.info(f"Sent withdrawal request to log channel {config.LOG_CHANNEL_ID} for user {user_id}")
+        logger.info(f"Sent withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}")
     except Exception as e:
-        logger.error(f"Failed to send withdrawal request to log channel {config.LOG_CHANNEL_ID} for user {user_id}: {e}")
+        logger.error(f"Failed to send withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}: {e}")
         await message.reply_text("Error submitting withdrawal request. Please try again later.")
         return ConversationHandler.END
 
     await message.reply_text(
-        f"Your withdrawal request for {amount} {config.CURRENCY} has been submitted. Please wait for admin approval. ⏳"
+        f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Please wait for admin approval. ⏳"
     )
-    logger.info(f"User {user_id} submitted withdrawal request for {amount} {config.CURRENCY}")
+    logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
 
     # Clear context after submission
     context.user_data.clear()
@@ -332,9 +332,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Register all handlers
 def register_handlers(application):
     logger.info("Registering withdrawal handlers")
-    # Register all handlers
-def register_handlers(application):
-    logger.info("Registering withdrawal handlers")
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("withdraw", withdraw),
@@ -348,12 +345,5 @@ def register_handlers(application):
         fallbacks=[CommandHandler("cancel", cancel)],
         per_message=True,  # Explicitly set to match CallbackQueryHandler behavior
     )
-    application.add_handler(conv_handler)
-    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_"))
-        fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=True,  # Explicitly set to match CallbackQueryHandler behavior
-    )
-    application.add_handler(conv_handler)
-    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_"))
     application.add_handler(conv_handler)
     application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_"))
