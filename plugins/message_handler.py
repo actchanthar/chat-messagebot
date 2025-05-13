@@ -4,7 +4,7 @@ from telegram.ext import MessageHandler, ContextTypes, filters
 from database.database import db
 import config
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
