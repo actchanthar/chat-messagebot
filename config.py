@@ -4,7 +4,7 @@ BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"  # Replace with you
 
 # MongoDB settings
 MONGODB_NAME = "actchat1"  # Replace with your MongoDB database name
-MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 # Withdrawal settings
 WITHDRAWAL_THRESHOLD = 100  # Minimum withdrawal amount
