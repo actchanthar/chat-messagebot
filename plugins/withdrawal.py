@@ -4,12 +4,11 @@ from telegram.ext import (
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
-    Application,
     ContextTypes,
     filters,
     ConversationHandler,
 )
-from config import GROUP_CHAT_ID, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY
+from config import GROUP_CHAT_ID, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID
 from database.database import db
 import logging
 from datetime import datetime, timezone
@@ -19,9 +18,6 @@ logger = logging.getLogger(__name__)
 
 # Define withdrawal steps
 STEP_AMOUNT, STEP_PAYMENT_METHOD, STEP_DETAILS = range(3)
-
-# Define the log channel ID
-LOG_CHANNEL_ID = "-1002555129360"
 
 # Define payment methods
 PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
@@ -48,10 +44,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"User {user_id} is banned")
         await update.effective_message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
-
-    # Clear previous state
-    logger.info(f"Clearing context for user {user_id}: {context.user_data}")
-    context.user_data.clear()
 
     # Prompt for withdrawal amount
     logger.info(f"Prompting user {user_id} for withdrawal amount")
@@ -202,28 +194,28 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         # Send the withdrawal request to the log channel
         await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
+            chat_id=config.LOG_CHANNEL_ID,
             text=(
                 f"Withdrawal Request:\n"
                 f"User ID: {user_id}\n"
                 f"User: @{update.effective_user.username or 'N/A'}\n"
-                f"Amount: {amount} {CURRENCY} 💸\n"
+                f"Amount: {amount} {config.CURRENCY} 💸\n"
                 f"Payment Method: {payment_method}\n"
                 f"Details: {payment_details}\n"
                 f"Status: PENDING ⏳"
             ),
             reply_markup=reply_markup
         )
-        logger.info(f"Sent withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}")
+        logger.info(f"Sent withdrawal request to log channel {config.LOG_CHANNEL_ID} for user {user_id}")
     except Exception as e:
-        logger.error(f"Failed to send withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}: {e}")
+        logger.error(f"Failed to send withdrawal request to log channel {config.LOG_CHANNEL_ID} for user {user_id}: {e}")
         await message.reply_text("Error submitting withdrawal request. Please try again later.")
         return ConversationHandler.END
 
     await message.reply_text(
-        f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Please wait for admin approval. ⏳"
+        f"Your withdrawal request for {amount} {config.CURRENCY} has been submitted. Please wait for admin approval. ⏳"
     )
-    logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
+    logger.info(f"User {user_id} submitted withdrawal request for {amount} {config.CURRENCY}")
 
     # Clear context after submission
     context.user_data.clear()
@@ -338,7 +330,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # Register all handlers
-def register_handlers(application: Application):
+def register_handlers(application):
     logger.info("Registering withdrawal handlers")
     conv_handler = ConversationHandler(
         entry_points=[
