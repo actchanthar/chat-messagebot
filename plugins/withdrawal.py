@@ -57,7 +57,13 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message
-    logger.info(f"Handling amount input for user {user_id}: {message.text}")
+    logger.info(f"Received message for amount input from user {user_id} in chat {update.effective_chat.id}: {message.text}")
+
+    # Validate the chat type
+    if update.effective_chat.type != "private":
+        logger.info(f"User {user_id} sent amount in non-private chat {update.effective_chat.id}")
+        await message.reply_text("Please send the amount in a private chat.")
+        return ConversationHandler.END
 
     # Validate the amount
     amount = None
@@ -338,9 +344,21 @@ def register_handlers(application):
             CallbackQueryHandler(withdraw, pattern="^withdraw$"),
         ],
         states={
-            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_amount)],
-            STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
-            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_details)],
+            STEP_AMOUNT: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+                    handle_amount
+                )
+            ],
+            STEP_PAYMENT_METHOD: [
+                CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")
+            ],
+            STEP_DETAILS: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+                    handle_details
+                )
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         per_message=True,  # Explicitly set to match CallbackQueryHandler behavior
