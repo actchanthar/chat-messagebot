@@ -332,7 +332,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Register all handlers
 def register_handlers(application):
     logger.info("Registering withdrawal handlers")
-    def register_handlers(application):
+    # Register all handlers
+def register_handlers(application):
     logger.info("Registering withdrawal handlers")
     conv_handler = ConversationHandler(
         entry_points=[
@@ -344,6 +345,11 @@ def register_handlers(application):
             STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
             STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_details)],
         },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        per_message=True,  # Explicitly set to match CallbackQueryHandler behavior
+    )
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_"))
         fallbacks=[CommandHandler("cancel", cancel)],
         per_message=True,  # Explicitly set to match CallbackQueryHandler behavior
     )
