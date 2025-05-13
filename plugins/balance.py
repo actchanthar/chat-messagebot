@@ -13,11 +13,11 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = await db.get_user(user_id)
     if not user:
+        logger.error(f"User {user_id} not found in database")
         if update.message:
             await update.message.reply_text("User not found. Please start with /start.")
         elif update.callback_query:
             await update.callback_query.message.reply_text("User not found. Please start with /start.")
-        logger.error(f"User {user_id} not found in database")
         return
 
     balance = user.get("balance", 0)
