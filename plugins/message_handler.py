@@ -10,8 +10,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Registered groups for message counting
-REGISTERED_GROUPS = ["-1002061898677"]
-
+REGISTERED_GROUPS = ["-1002061898677", "-1002502926465"]
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user_id = str(update.effective_user.id)
