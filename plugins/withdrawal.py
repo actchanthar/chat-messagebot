@@ -46,7 +46,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     # Prompt for withdrawal amount
-    logger.info(f"Prompting user {user_id} for withdrawal amount")
+    logger.info(f"Prompting user {user_id} for withdrawal amount in chat {chat_id}")
     await update.effective_message.reply_text(
         f"Please enter the amount you wish to withdraw (minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}). 💸\n"
         f"ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
@@ -56,14 +56,21 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Handle withdrawal amount input
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
     message = update.message
-    logger.info(f"Received message for amount input from user {user_id} in chat {update.effective_chat.id}: {message.text}")
+    logger.info(f"Received message for amount input from user {user_id} in chat {chat_id}: {message.text if message else 'No message'}")
+
+    # Verify conversation state
+    if STEP_AMOUNT not in context.user_data.get('conversation_state', {}):
+        logger.error(f"Unexpected state for user {user_id} in chat {chat_id}, expected STEP_AMOUNT")
+        await message.reply_text("Error: Invalid state. Please start again with /withdraw.")
+        return ConversationHandler.END
 
     # Validate the chat type
     if update.effective_chat.type != "private":
-        logger.info(f"User {user_id} sent amount in non-private chat {update.effective_chat.id}")
+        logger.info(f"User {user_id} sent amount in non-private chat {chat_id}")
         await message.reply_text("Please send the amount in a private chat.")
-        return ConversationHandler.END
+        return STEP_AMOUNT
 
     # Validate the amount
     amount = None
@@ -346,7 +353,7 @@ def register_handlers(application):
         states={
             STEP_AMOUNT: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+                    filters.TEXT & ~filters.COMMAND,
                     handle_amount
                 )
             ],
@@ -355,13 +362,13 @@ def register_handlers(application):
             ],
             STEP_DETAILS: [
                 MessageHandler(
-                    filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+                    filters.TEXT & ~filters.COMMAND,
                     handle_details
                 )
             ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=True,  # Explicitly set to match CallbackQueryHandler behavior
+        per_message=True,
     )
     application.add_handler(conv_handler)
     application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_"))
