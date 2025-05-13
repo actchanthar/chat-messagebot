@@ -1,75 +1,92 @@
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler,
+)
+from config import GROUP_CHAT_ID, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID
+from database.database import db
 import logging
+from datetime import datetime, timezone
 
-# Set up logging to debug issues
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define states for the conversation
+# Define withdrawal steps
 STEP_AMOUNT = 0
 
-# Start the withdrawal process
-async def withdraw(update, context):
+# Entry point for /withdraw command
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+    logger.info(f"Withdraw function called for user {user_id} in chat {chat_id}")
+
+    # Ensure this is a private chat
+    if update.effective_chat.type != "private":
+        logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
+        await update.message.reply_text("Please use the /withdraw command in a private chat.")
+        return ConversationHandler.END
+
+    logger.info(f"Prompting user {user_id} for withdrawal amount in chat {chat_id}")
     await update.message.reply_text(
-        "Please enter the amount you wish to withdraw (minimum: 100 kyat). 💸\n"
-        "ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ အနည်းဆုံး 100 ပြည့်မှထုတ်လို့ရမှာပါ"
+        f"Please enter the amount you wish to withdraw (minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}). 💸\n"
+        f"ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
     )
     return STEP_AMOUNT
 
-# Handle the amount input
-async def handle_amount(update, context):
+# Handle withdrawal amount input
+async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    amount_text = update.message.text
-
-    # Log the input to confirm it’s received
-    logger.info(f"User {user_id} in chat {chat_id} entered amount: {amount_text}")
+    message = update.message
+    logger.info(f"Received message for amount input from user {user_id} in chat {chat_id}: {message.text}")
 
     try:
-        amount = int(amount_text)
-        if amount < 100:
-            await update.message.reply_text(
-                "The amount must be at least 100 kyat. Please enter a valid amount.\n"
-                "ပမာဏသည် အနည်းဆုံး 100 ကျပ်ဖြစ်ရမည်။ မှန်ကန်သောပမာဏကို ထည့်ပါ။"
+        amount = int(message.text.strip())
+        if amount < WITHDRAWAL_THRESHOLD:
+            await message.reply_text(
+                f"Minimum withdrawal amount is {WITHDRAWAL_THRESHOLD} {CURRENCY}. Please try again.\n"
+                f"အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} ထုတ်နိုင်ပါသည်။ ထပ်စမ်းကြည့်ပါ။"
             )
             return STEP_AMOUNT
-        else:
-            await update.message.reply_text(
-                f"You entered: {amount} kyat. Processing your withdrawal...\n"
-                f"သင်ထည့်ထားသော ပမာဏ - {amount} ကျပ်။ ငွေထုတ်မှုကို ဆောင်ရွက်နေပါသည်..."
-            )
-            return ConversationHandler.END  # Exit the conversation for now
+
+        user = await db.get_user(str(user_id))
+        if not user or user.get("balance", 0) < amount:
+            await message.reply_text("Insufficient balance or user not found. Please check your balance with /balance.")
+            return ConversationHandler.END
+
+        # For now, simulate processing (expand with payment steps later)
+        await message.reply_text(
+            f"You entered: {amount} {CURRENCY}. Withdrawal request submitted! (Processing simulated)\n"
+            f"သင်ထည့်ထားသော ပမာဏ - {amount} {CURRENCY}။ ငွေထုတ်မှု တင်ပြခဲ့ပါသည်။ (လုပ်ဆောင်မှု နောက်မှ ထည့်မည်)"
+        )
+        return ConversationHandler.END
+
     except ValueError:
-        await update.message.reply_text(
+        await message.reply_text(
             "Please enter a valid number (e.g., 100).\n"
-            "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်တစ်ခု ထည့်ပါ (ဥပမာ 100)။"
+            "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
         )
         return STEP_AMOUNT
 
-# Cancel the process if needed
-async def cancel(update, context):
-    await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါပြီ။")
+# Cancel the withdrawal process
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = update.effective_user.id
+    logger.info(f"User {user_id} canceled the withdrawal process")
+    await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
     return ConversationHandler.END
 
-# Set up the bot
-def main():
-    # Replace "YOUR_TOKEN" with your actual bot token
-    application = Application.builder().token("YOUR_TOKEN").build()
-
-    # Define the conversation handler
+# Register handlers for the application
+def register_handlers(application: Application):
+    logger.info("Registering withdrawal handlers")
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("withdraw", withdraw)],
         states={
-            STEP_AMOUNT: [MessageHandler(filters.TEXT, handle_amount)],
+            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
-
-    # Add the handler to the application
     application.add_handler(conv_handler)
-
-    # Start the bot
-    application.run_polling()
-
-if __name__ == "__main__":
-    main()
