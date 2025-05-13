@@ -8,11 +8,11 @@ from config import GROUP_CHAT_ID
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Registered groups for message counting
+# Registered groups for message counting (start with existing groups)
 REGISTERED_GROUPS = ["-1002061898677", "-1002502926465"]
 
-# Toggle for message counting
-COUNTING_ENABLED = True
+# Toggle for message counting (default to off for all groups)
+COUNTING_ENABLED = False
 
 # Command to turn on message counting
 async def turn_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -20,14 +20,14 @@ async def turn_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
-    # Restrict to admins or specific users (optional)
-    if str(user_id) != "5062124930":  # Replace with your admin user ID
+    # Restrict to admins (replace with your admin user ID)
+    if str(user_id) != "5062124930":
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
     COUNTING_ENABLED = True
     logger.info(f"Message counting turned ON by user {user_id} in chat {chat_id}")
-    await update.message.reply_text("Message counting is now ON.")
+    await update.message.reply_text("Message counting is now ON for all registered groups.")
 
 # Command to turn off message counting
 async def turn_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -35,14 +35,36 @@ async def turn_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
-    # Restrict to admins or specific users (optional)
-    if str(user_id) != "5062124930":  # Replace with your admin user ID
+    # Restrict to admins
+    if str(user_id) != "5062124930":
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
     COUNTING_ENABLED = False
     logger.info(f"Message counting turned OFF by user {user_id} in chat {chat_id}")
-    await update.message.reply_text("Message counting is now OFF.")
+    await update.message.reply_text("Message counting is now OFF for all registered groups.")
+
+# Command to add a new group
+async def add_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = str(update.effective_chat.id)
+
+    # Allow users to add groups only in group chats
+    if update.effective_chat.type not in ["group", "supergroup"]:
+        await update.message.reply_text("This command can only be used in a group chat.")
+        return
+
+    # Check if the group is already registered
+    if chat_id in REGISTERED_GROUPS:
+        await update.message.reply_text("This group is already registered for message counting.")
+        return
+
+    # Add the new group to the registered list
+    REGISTERED_GROUPS.append(chat_id)
+    logger.info(f"User {user_id} added group {chat_id} to registered groups: {REGISTERED_GROUPS}")
+    await update.message.reply_text(
+        f"Group {chat_id} has been added for message counting. Note: Counting is currently {'ON' if COUNTING_ENABLED else 'OFF'}."
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -119,3 +141,4 @@ def register_handlers(application):
     ))
     application.add_handler(CommandHandler("on", turn_on))
     application.add_handler(CommandHandler("off", turn_off))
+    application.add_handler(CommandHandler("addgroup", add_group))
