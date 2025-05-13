@@ -8,10 +8,10 @@ from config import GROUP_CHAT_ID
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Registered groups for message counting (start with existing groups)
+# Registered groups for message counting
 REGISTERED_GROUPS = ["-1002061898677", "-1002502926465"]
 
-# Toggle for message counting (default to off for all groups)
+# Toggle for message counting (default to off)
 COUNTING_ENABLED = False
 
 # Command to turn on message counting
@@ -20,7 +20,7 @@ async def turn_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
-    # Restrict to admins (replace with your admin user ID)
+    # Restrict to admins
     if str(user_id) != "5062124930":
         await update.message.reply_text("You are not authorized to use this command.")
         return
