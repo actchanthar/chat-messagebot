@@ -29,8 +29,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # If triggered by a button, answer the callback query
     if update.callback_query:
         await update.callback_query.answer()
-        # Store the chat context to ensure the next message is linked
-        context.user_data["conversation_chat_id"] = chat_id
+        # Initialize conversation state for button-initiated flow
+        context.user_data["is_button_initiated"] = True
 
     # Ensure this is a private chat
     if update.effective_chat.type != "private":
@@ -79,12 +79,9 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     message = update.message
     logger.info(f"Received message for amount input from user {user_id} in chat {chat_id}: {message.text}")
 
-    # Ensure this is the correct chat context (especially for button-initiated conversations)
-    expected_chat_id = context.user_data.get("conversation_chat_id")
-    if expected_chat_id and chat_id != expected_chat_id:
-        logger.info(f"Message from wrong chat {chat_id}, expected {expected_chat_id}")
-        await message.reply_text("Please respond in the same chat where you started the withdrawal.")
-        return ConversationHandler.END
+    # Check if this is part of an ongoing conversation (button or command)
+    is_button_initiated = context.user_data.get("is_button_initiated", False)
+    logger.info(f"Conversation initiated by button: {is_button_initiated}")
 
     try:
         amount = int(message.text.strip())
@@ -118,6 +115,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Store amount in context
         context.user_data["withdrawal_amount"] = amount
         context.user_data["withdrawn_today"] = withdrawn_today
+        context.user_data.pop("is_button_initiated", None)  # Clear button flag after use
 
         # Show payment method selection buttons
         keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
