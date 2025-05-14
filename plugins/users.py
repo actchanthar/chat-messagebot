@@ -21,16 +21,20 @@ async def users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     try:
-        # Fetch all users from the database
+        # Test database connectivity
+        logger.info("Attempting to fetch all users from the database")
         all_users = await db.get_all_users()
-        user_count = len(all_users)
-        logger.info(f"Retrieved {user_count} users from the database")
+        if all_users is None:
+            logger.error("db.get_all_users() returned None, possible database issue")
+            await update.message.reply_text("Error: Database returned no data. Please contact support.")
+            return
 
-        # Reply with the user count
+        user_count = len(all_users)
+        logger.info(f"Retrieved {user_count} users from the database: {all_users}")
         await update.message.reply_text(f"There are currently {user_count} users in the bot's database.")
     except Exception as e:
-        logger.error(f"Failed to retrieve user count: {e}")
-        await update.message.reply_text("Error retrieving user count. Please try again later.")
+        logger.error(f"Failed to retrieve user count: {str(e)}", exc_info=True)
+        await update.message.reply_text(f"Error retrieving user count: {str(e)}. Please try again later.")
 
 def register_handlers(application: Application):
     logger.info("Registering users handlers")
