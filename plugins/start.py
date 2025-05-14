@@ -66,11 +66,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     logger.info(f"Button callback for user {user_id}, data: {data}")
 
-    if data == "withdraw":
-        from plugins.withdrawal import withdraw
-        logger.info(f"Triggering withdraw for user {user_id} via inline button")
-        return await withdraw(update, context)
-    elif data == "balance":
+    # Handle non-withdrawal buttons directly
+    if data == "balance":
         from plugins.balance import balance
         await balance(update, context)
     elif data == "top":
@@ -79,8 +76,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "help":
         from plugins.help import help_command
         await help_command(update, context)
+    # Let withdrawal.py handle the "withdraw" callback natively
+    # Do nothing here; withdrawal.py's CallbackQueryHandler will take over
 
 def register_handlers(application):
     logger.info("Registering start handlers")
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(withdraw|balance|top|help)$"))
+    application.add_handler(CallbackQueryHandler(button_callback, pattern="^(balance|top|help)$"))  # Remove "withdraw" from this pattern
