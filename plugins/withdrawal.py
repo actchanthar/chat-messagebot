@@ -414,4 +414,19 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 # Register handlers for the application
-def 
+def register_handlers(application: Application):
+    logger.info("Registering withdrawal handlers")
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("withdraw", withdraw),
+            CallbackQueryHandler(withdraw, pattern="^withdraw$"),
+        ],
+        states={
+            STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
+            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
+            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_|post_approval_"))
