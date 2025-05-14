@@ -139,11 +139,11 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             return STEP_AMOUNT
 
         user = await db.get_user(str(user_id))
-        if not user or user.get("balance", 0) < amount:
-            await message.reply_text("Insufficient balance or user not found. Please check your balance with /balance.")
+        if not user:
+            await message.reply_text("User not found. Please start again with /start.")
             return ConversationHandler.END
 
-        # Check daily withdrawal limit
+        # Check daily withdrawal limit here and show to user
         last_withdrawal = user.get("last_withdrawal")
         withdrawn_today = user.get("withdrawn_today", 0)
         current_time = datetime.now(timezone.utc)
@@ -153,10 +153,19 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             if last_withdrawal_date == current_date:
                 if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
                     logger.info(f"User {user_id} exceeded daily limit. Withdrawn today: {withdrawn_today}, Requested: {amount}")
-                    await message.reply_text(f"Daily withdrawal limit is {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. You've already withdrawn {withdrawn_today} {CURRENCY} today.")
+                    await message.reply_text(
+                        f"User has exceeded the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. "
+                        f"You've already withdrawn {withdrawn_today} {CURRENCY} today.\n"
+                        f"သင်သည် နေ့စဉ်ထုတ်ယူနိုင်မှု ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ကို ကျော်လွန်သွားပါသည်။ "
+                        f"သင်သည် ယနေ့အတွက် {withdrawn_today} {CURRENCY} ထုတ်ယူပြီးပါသည်။"
+                    )
                     return STEP_AMOUNT
             else:
                 withdrawn_today = 0
+
+        if user.get("balance", 0) < amount:
+            await message.reply_text("Insufficient balance. Please check your balance with /balance.")
+            return ConversationHandler.END
 
         # Store amount in context
         context.user_data["withdrawal_amount"] = amount
@@ -223,9 +232,9 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Format the log message with bold payment method and specified fields
+    # Format the log message with correct username and specified fields
     user_first_name = user.get("name", update.effective_user.first_name or "Unknown")
-    username = update.effective_user.username or "N/A"
+    username = update.effective_user.username or user.get("username", "N/A")  # Use stored username if available
     log_message = (
         f"Withdrawal Request:\n"
         f"{user_first_name}\n"
@@ -378,7 +387,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
 
             username = user.get("username", user.get("name", "Unknown"))
-            mention = f"@{username}" if username else user["name"]
+            mention = f"@{username}" if username and not username.isdigit() else user["name"]
             group_message = f"{mention} သူက ငွေ {amount} ကျပ်ထုတ်ခဲ့သည် ချိုချဉ်ယ်စားပါ"
 
             try:
