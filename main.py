@@ -1,21 +1,18 @@
 # main.py
 from telegram.ext import Application
-from plugins import start, withdrawal, balance, top, help, message_handler
-from config import BOT_TOKEN
+from plugins import start, withdrawal, balance, top, help, message_handler, broadcast  # Add broadcast
+from config import BOT_TOKEN as TOKEN
 
 def main():
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Register handlers
+    application = Application.builder().token(TOKEN).build()
     start.register_handlers(application)
     withdrawal.register_handlers(application)
     balance.register_handlers(application)
     top.register_handlers(application)
     help.register_handlers(application)
     message_handler.register_handlers(application)
-
-    # Start the bot
-    application.run_polling(allowed_updates=["message", "callback_query"])
+    broadcast.register_handlers(application)  # Register the broadcast plugin
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
