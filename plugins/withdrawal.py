@@ -29,6 +29,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # If triggered by a button, answer the callback query
     if update.callback_query:
         await update.callback_query.answer()
+        # Store the chat context to ensure the next message is linked
+        context.user_data["conversation_chat_id"] = chat_id
 
     # Ensure this is a private chat
     if update.effective_chat.type != "private":
@@ -76,6 +78,13 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     chat_id = update.effective_chat.id
     message = update.message
     logger.info(f"Received message for amount input from user {user_id} in chat {chat_id}: {message.text}")
+
+    # Ensure this is the correct chat context (especially for button-initiated conversations)
+    expected_chat_id = context.user_data.get("conversation_chat_id")
+    if expected_chat_id and chat_id != expected_chat_id:
+        logger.info(f"Message from wrong chat {chat_id}, expected {expected_chat_id}")
+        await message.reply_text("Please respond in the same chat where you started the withdrawal.")
+        return ConversationHandler.END
 
     try:
         amount = int(message.text.strip())
