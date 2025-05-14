@@ -49,11 +49,14 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
 
     success_count = 0
     fail_count = 0
+    skip_count = 0
 
     # Broadcast the message to each user and pin it
     for user in users:
         user_id = user.get("_id")
         try:
+            # Check if the bot can message the user by fetching chat info
+            await context.bot.get_chat(chat_id=user_id)
             # Send the message
             sent_message = await context.bot.send_message(
                 chat_id=user_id,
@@ -68,16 +71,21 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
             success_count += 1
             logger.info(f"Successfully broadcasted and pinned message to user {user_id}")
         except Exception as e:
-            fail_count += 1
-            logger.error(f"Failed to broadcast or pin message to user {user_id}: {e}")
+            if "chat not found" in str(e) or "bot can't initiate conversation" in str(e):
+                skip_count += 1
+                logger.info(f"Skipped broadcasting to user {user_id}: User has not initiated conversation with the bot")
+            else:
+                fail_count += 1
+                logger.error(f"Failed to broadcast or pin message to user {user_id}: {e}")
 
     # Notify the admin of the result
     await update.message.reply_text(
         f"Broadcast completed!\n"
         f"Successfully sent to {success_count} users.\n"
+        f"Skipped {skip_count} users (they haven't started a chat with the bot).\n"
         f"Failed to send to {fail_count} users."
     )
-    logger.info(f"Broadcast completed: {success_count} successes, {fail_count} failures")
+    logger.info(f"Broadcast completed: {success_count} successes, {skip_count} skips, {fail_count} failures")
 
     return ConversationHandler.END
 
