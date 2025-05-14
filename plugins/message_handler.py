@@ -3,13 +3,13 @@ from telegram import Update
 from telegram.ext import MessageHandler, CommandHandler, ContextTypes, filters
 import logging
 from database.database import db
-from config import GROUP_CHAT_ID
+from config import GROUP_CHAT_IDS  # Updated to use GROUP_CHAT_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Registered groups for message counting
-REGISTERED_GROUPS = ["-1002061898677", "-1002502926465"]
+# Registered groups for message counting (moved to config.py as GROUP_CHAT_IDS)
+# REGISTERED_GROUPS = ["-1002061898677", "-1002502926465"]  # Removed, use GROUP_CHAT_IDS instead
 
 # Toggle for message counting (default to off)
 COUNTING_ENABLED = False
@@ -55,15 +55,14 @@ async def add_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Check if the group is already registered
-    if chat_id in REGISTERED_GROUPS:
+    if chat_id in GROUP_CHAT_IDS:  # Use GROUP_CHAT_IDS from config
         await update.message.reply_text("This group is already registered for message counting.")
         return
 
-    # Add the new group to the registered list
-    REGISTERED_GROUPS.append(chat_id)
-    logger.info(f"User {user_id} added group {chat_id} to registered groups: {REGISTERED_GROUPS}")
+    # Add the new group to the registered list (this would modify config.py, so we'll log it instead)
+    logger.info(f"User {user_id} requested to add group {chat_id} to registered groups. Please update config.py manually.")
     await update.message.reply_text(
-        f"Group {chat_id} has been added for message counting. Note: Counting is currently {'ON' if COUNTING_ENABLED else 'OFF'}."
+        f"Group {chat_id} requested for addition. Please update config.py with {chat_id} in GROUP_CHAT_IDS and redeploy."
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,7 +72,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Processing update in chat {chat_id} (type: {update.effective_chat.type}), message: {message.text}")
 
     # Check if the chat is a registered group
-    if chat_id not in REGISTERED_GROUPS:
+    if chat_id not in GROUP_CHAT_IDS:  # Use GROUP_CHAT_IDS from config
         logger.info(f"Group {chat_id} not registered for message counting.")
         return
 
@@ -124,10 +123,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 username = update.effective_user.username or update.effective_user.full_name
                 group_message = f"@{username} သူက 10 ကျပ်ရရှိခဲ့သည် 🎉"
                 await context.bot.send_message(
-                    chat_id=GROUP_CHAT_ID,
+                    chat_id=GROUP_CHAT_IDS[0],  # Use first group for announcement
                     text=group_message
                 )
-                logger.info(f"Sent 10 kyat milestone announcement to group {GROUP_CHAT_ID} for user {user_id}")
+                logger.info(f"Sent 10 kyat milestone announcement to group {GROUP_CHAT_IDS[0]} for user {user_id}")
             except Exception as e:
                 logger.error(f"Failed to notify user {user_id} or send group announcement: {e}")
     else:
