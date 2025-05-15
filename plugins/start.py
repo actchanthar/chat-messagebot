@@ -51,7 +51,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("Withdraw 💸", callback_data="withdraw"),
         ],
         [
-            InlineKeyboardButton("It Dev 💻", url="https://t.me/YourUsername"),  # Replace YourUsername with your actual Telegram username
+            InlineKeyboardButton("It Dev 💻", url="https://t.me/When_the_night_falls_my_soul_se"),  # Replace YourUsername with your actual Telegram username
             InlineKeyboardButton("Earnings Group 👥", url="https://t.me/+yuVWepSGgZQ4ZWY1"),
         ]
     ]
