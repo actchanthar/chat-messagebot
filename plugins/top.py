@@ -1,36 +1,30 @@
-# plugins/top.py
 from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
-import config
 import logging
 
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     logger.info(f"User {user_id} requested top users")
 
+    # Get top users
     top_users = await db.get_top_users()
     if not top_users:
-        reply_text = "No top users found."
-        if update.message:
-            await update.message.reply_text(reply_text)
-        elif update.callback_query:
-            await update.callback_query.message.reply_text(reply_text)
-        logger.info(f"No top users found for user {user_id}")
+        await update.message.reply_text("No top users available yet.")
+        logger.warning("No top users found or error retrieving top users")
         return
 
-    top_users_text = "ထိပ်တန်းအသုံးပြုသူ ၁၀ ဦး:\n"
+    # Build the top users message
+    top_users_text = "🏆 Top Users:\n"
     for i, user in enumerate(top_users, 1):
-        top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user['balance']} {config.CURRENCY}\n"
+        top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user.get('balance', 0)} {config.CURRENCY}\n"
 
-    if update.message:
-        await update.message.reply_text(top_users_text)
-    elif update.callback_query:
-        await update.callback_query.message.reply_text(top_users_text)
-    logger.info(f"Sent top users to user {user_id}")
+    await update.message.reply_text(top_users_text)
+    logger.info(f"Sent top users list to user {user_id}")
 
-def register_handlers(application):
+def register_handlers(application: Application):
     logger.info("Registering top handlers")
     application.add_handler(CommandHandler("top", top))
