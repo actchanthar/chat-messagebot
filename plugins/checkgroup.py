@@ -31,10 +31,9 @@ async def checkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.info(f"Invalid group ID {group_id} provided by user {user_id}")
         return
 
-    # Check if the group is approved
-    approved_groups = await db.get_approved_groups()
-    if group_id not in approved_groups:
-        await update.message.reply_text(f"Group {group_id} is not approved for message counting.")
+    # Check if the group is approved (only -1002061898677 is counted now)
+    if group_id != "-1002061898677":
+        await update.message.reply_text(f"Only group -1002061898677 is approved for message counting.")
         logger.info(f"Group {group_id} not approved, checked by user {user_id}")
         return
 
@@ -42,14 +41,15 @@ async def checkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     total_messages = await db.get_group_message_count(group_id)
     await update.message.reply_text(
         f"Group {group_id} is approved for message counting.\n"
-        f"Total messages counted: {total_messages}"
+        f"Total messages counted: {total_messages}\n"
+        f"Earning rate: 1 message = 1 kyat"
     )
     logger.info(f"Checked group {group_id} for user {user_id}: {total_messages} messages")
 
     # Log to admin channel
     await context.bot.send_message(
         chat_id=LOG_CHANNEL_ID,
-        text=f"Admin checked group {group_id}: {total_messages} messages counted."
+        text=f"Admin checked group {group_id}: {total_messages} messages counted. Earning rate: 1 message = 1 kyat."
     )
 
 def register_handlers(application: Application):
