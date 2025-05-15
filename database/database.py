@@ -52,8 +52,11 @@ class Database:
         try:
             result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
             if result.modified_count > 0:
-                updated_user = await self.users.find_one({"user_id": user_id})
-                logger.info(f"Updated user {user_id}: {updates}")
+                # Simplify logging of updates to avoid truncation
+                updates_log = {k: v for k, v in updates.items()}
+                if "message_timestamps" in updates_log:
+                    updates_log["message_timestamps"] = f"[{len(updates['message_timestamps'])} timestamps]"
+                logger.info(f"Updated user {user_id}: {updates_log}")
                 return True
             logger.info(f"No changes made to user {user_id}")
             return False
@@ -64,7 +67,7 @@ class Database:
     async def get_all_users(self):
         try:
             users = await self.users.find().to_list(length=None)
-            logger.info(f"Retrieved all users: {users}")
+            logger.info(f"Retrieved all users: {len(users)} users")
             return users
         except Exception as e:
             logger.error(f"Error retrieving all users: {e}")
