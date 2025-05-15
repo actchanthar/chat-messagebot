@@ -12,6 +12,11 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Top command initiated by user {user_id} in chat {chat_id}")
 
+    # Check and award weekly rewards
+    if await db.award_weekly_rewards():
+        await update.message.reply_text("Weekly rewards of 100 kyat awarded to the top 3 users!")
+        logger.info(f"Weekly rewards processed for user {user_id}")
+
     # Fetch all users and sort by messages in -1002061898677
     users = await db.get_all_users()
     if not users:
@@ -19,7 +24,6 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"No users found for user {user_id}")
         return
 
-    # Sort users by message count in -1002061898677
     target_group = "-1002061898677"
     sorted_users = sorted(
         users,
@@ -32,13 +36,16 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"No messages in target group for user {user_id}")
         return
 
-    top_message = "🏆 Top Users (by messages in group -1002061898677):\n"
+    top_message = "🏆 Top Users (by messages in group -1002061898677) (၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို ၁၀၀ ကျပ်ပေးပါတယ်):\n"
     for i, user in enumerate(sorted_users, 1):
         group_messages = user.get("group_messages", {}).get(target_group, 0)
         balance = user.get("balance", 0)
-        top_message += f"{i}. {user['name']} - {group_messages} messages, {balance} {CURRENCY}\n"
+        if i <= 3:
+            top_message += f"{i}. <b>{user['name']}</b> - {group_messages} messages, {balance} {CURRENCY}\n"
+        else:
+            top_message += f"{i}. {user['name']} - {group_messages} messages, {balance} {CURRENCY}\n"
 
-    await update.message.reply_text(top_message)
+    await update.message.reply_text(top_message, parse_mode="HTML")
     logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
 
 async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -46,19 +53,16 @@ async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Rest command initiated by user {user_id} in chat {chat_id}")
 
-    # Check if the user is an admin (e.g., user_id 5062124930)
     if user_id != "5062124930":
         await update.message.reply_text("You are not authorized to use this command.")
         logger.info(f"Unauthorized rest attempt by user {user_id}")
         return
 
-    # Reset messages to 0 for all users, keeping balance intact
     result = await db.users.update_many({}, {"$set": {"messages": 0}})
     if result.modified_count > 0:
         await update.message.reply_text("Leaderboard has been reset. Messages set to 0, balances preserved.")
         logger.info(f"Reset messages for {result.modified_count} users by admin {user_id}")
 
-        # Log the action to the admin channel
         current_top = await db.get_top_users()
         log_message = "Leaderboard reset by admin:\n🏆 Top Users (before reset):\n"
         for i, user in enumerate(current_top, 1):
