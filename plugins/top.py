@@ -1,6 +1,7 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
+from config import CURRENCY  # Already correctly imported
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -20,7 +21,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Build the top users message
     top_users_text = "🏆 Top Users:\n"
     for i, user in enumerate(top_users, 1):
-        top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user.get('balance', 0)} {config.CURRENCY}\n"
+        top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user.get('balance', 0)} {CURRENCY}\n"  # Fix: Use CURRENCY instead of config.CURRENCY
 
     await update.message.reply_text(top_users_text)
     logger.info(f"Sent top users list to user {user_id}")
