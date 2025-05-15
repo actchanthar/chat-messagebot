@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         self.client = AsyncIOMotorClient(MONGODB_URL)
-        self.db = self.client[MONGODB_NAME]  # Set to 'actchat1' via config
+        self.db = self.client[MONGODB_NAME]
         self.users = self.db.users
 
     async def get_user(self, user_id):
@@ -62,7 +62,7 @@ class Database:
             logger.error(f"Error retrieving all users: {e}")
             return None
 
-    async def get_top_users(self, limit=10):  # Changed to 10 to match your expected list
+    async def get_top_users(self, limit=10):
         try:
             top_users = await self.users.find(
                 {"banned": False},
