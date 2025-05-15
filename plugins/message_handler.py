@@ -10,12 +10,13 @@ logger = logging.getLogger(__name__)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Message received from user {user_id} in chat {chat_id}")
+    message_text = update.message.text
+    logger.info(f"Message received from user {user_id} in chat {chat_id}: {message_text}")
 
-    # Check rate limit
-    if await db.check_rate_limit(user_id):
-        await update.message.reply_text("Please wait before sending another message. Rate limit exceeded.")
-        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
+    # Check rate limit and duplicates
+    if await db.check_rate_limit(user_id, message_text):
+        await update.message.reply_text("Please wait or avoid sending duplicate messages. Rate limit exceeded.")
+        logger.warning(f"Rate limit or duplicate enforced for user {user_id} in chat {chat_id}")
         return
 
     # Check if message counting is enabled
