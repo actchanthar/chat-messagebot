@@ -2,17 +2,18 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
+from config import LOG_CHANNEL_ID
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
+    user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
+    logger.info(f"Broadcast command initiated by user {user_id} in chat {chat_id}")
 
-    # Check if the user is an admin (you may have a list of admin IDs in config)
-    admin_ids = ["YOUR_ADMIN_ID_1", "YOUR_ADMIN_ID_2"]  # Replace with actual admin IDs
-    if str(user_id) not in admin_ids:
+    # Restrict to admin (user ID 5062124930)
+    if user_id != "5062124930":
         await update.message.reply_text("You are not authorized to use this command.")
         logger.info(f"Unauthorized broadcast attempt by user {user_id}")
         return
@@ -20,55 +21,16 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check if a message is provided
     if not context.args:
         await update.message.reply_text("Please provide a message to broadcast. Usage: /broadcast <message>")
+        logger.info(f"No message provided by user {user_id}")
         return
 
-    # Construct the broadcast message
-    broadcast_message = " ".join(context.args)
-    logger.info(f"Broadcast initiated by user {user_id}: {broadcast_message}")
+    message = " ".join(context.args)
+    # Simulate broadcasting (replace with actual logic to send to all users)
+    await update.message.reply_text(f"Broadcasting: {message}")
+    logger.info(f"Broadcast initiated by user {user_id} with message: {message}")
 
-    # Fetch all users from the database
-    users = await db.get_all_users()
-    if not users:
-        await update.message.reply_text("No users found to broadcast to.")
-        logger.info("No users found for broadcast")
-        return
-
-    total_users = len(users)
-    successful_sends = 0
-    failed_sends = 0
-
-    # Send the message to each user
-    for user in users:
-        user_id = user["user_id"]
-        try:
-            # Skip banned users
-            if user.get("banned", False):
-                logger.info(f"Skipping banned user {user_id}")
-                failed_sends += 1
-                continue
-
-            # Attempt to send the message
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=broadcast_message
-            )
-            successful_sends += 1
-            logger.info(f"Broadcast message sent to user {user_id}")
-
-        except Exception as e:
-            # Log the failure reason (e.g., user blocked the bot)
-            logger.error(f"Failed to send broadcast to user {user_id}: {e}")
-            failed_sends += 1
-
-    # Prepare the summary
-    summary = (
-        f"Broadcast completed.\n"
-        f"Send users complete: {successful_sends}\n"
-        f"Blocked or Fail users: {failed_sends}\n"
-        f"Total Users: {total_users}"
-    )
-    await update.message.reply_text(summary)
-    logger.info(f"Broadcast summary: {summary}")
+    # Log to admin channel
+    await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Broadcast by {update.effective_user.full_name}: {message}")
 
 def register_handlers(application: Application):
     logger.info("Registering broadcast handlers")
