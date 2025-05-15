@@ -26,11 +26,9 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     source = "command" if update.message else "button"
     logger.info(f"Withdraw function called for user {user_id} in chat {chat_id} via {source}")
 
-    # If triggered by a button, answer the callback query
     if update.callback_query:
         await update.callback_query.answer()
 
-    # Ensure this is a private chat
     if update.effective_chat.type != "private":
         logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
         if update.message:
@@ -56,11 +54,9 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.callback_query.message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
-    # Clear any existing conversation data to start fresh
     context.user_data.clear()
     logger.info(f"Cleared user_data for user {user_id} before starting withdrawal process")
 
-    # Show payment method selection buttons first
     keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if update.message:
@@ -98,7 +94,6 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
     context.user_data["payment_method"] = method
     logger.info(f"User {user_id} selected payment method {method}, context: {context.user_data}")
 
-    # If Phone Bill is selected, set amount to 1000 and skip amount input
     if method == "Phone Bill":
         context.user_data["withdrawal_amount"] = 1000
         await query.message.reply_text(
@@ -109,7 +104,6 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
         logger.info(f"User {user_id} selected Phone Bill, fixed amount to 1000 kyat")
         return STEP_DETAILS
 
-    # For other methods, prompt for amount
     await query.message.reply_text(
         f"Please enter the amount you wish to withdraw (minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}). 💸\n"
         f"ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
@@ -143,7 +137,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await message.reply_text("User not found. Please start again with /start.")
             return ConversationHandler.END
 
-        # Check daily withdrawal limit here and show to user
+        # Check daily withdrawal limit
         last_withdrawal = user.get("last_withdrawal")
         withdrawn_today = user.get("withdrawn_today", 0)
         current_time = datetime.now(timezone.utc)
@@ -163,16 +157,15 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             else:
                 withdrawn_today = 0
 
+        # Strict balance check
         if user.get("balance", 0) < amount:
             await message.reply_text("Insufficient balance. Please check your balance with /balance.")
             return ConversationHandler.END
 
-        # Store amount in context
         context.user_data["withdrawal_amount"] = amount
         context.user_data["withdrawn_today"] = withdrawn_today
         logger.info(f"Stored withdrawal amount {amount} for user {user_id}, context: {context.user_data}")
 
-        # Prompt for payment details based on method
         if payment_method == "KBZ Pay":
             await message.reply_text(
                 "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW). 💳\n"
@@ -223,7 +216,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["withdrawal_details"] = payment_details
     logger.info(f"User {user_id} submitted account details, context: {context.user_data}")
 
-    # Send withdrawal request to admin log channel
     keyboard = [
         [
             InlineKeyboardButton("Approve ✅", callback_data=f"approve_withdrawal_{user_id}_{amount}"),
@@ -232,7 +224,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Format the log message with correct username and specified fields
     user_first_name = user.get("name", update.effective_user.first_name or "Unknown")
     username = update.effective_user.username or user.get("username", "N/A")
     log_message = (
@@ -253,7 +244,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
-        # Pin the message in the log channel
         await context.bot.pin_chat_message(
             chat_id=LOG_CHANNEL_ID,
             message_id=log_msg.message_id,
@@ -298,7 +288,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 return
 
             balance = user.get("balance", 0)
-            if amount > balance:
+            if balance < amount:
                 logger.error(f"Insufficient balance for user {user_id}. Requested: {amount}, Balance: {balance}")
                 await query.message.reply_text("User has insufficient balance for this withdrawal.")
                 return
@@ -343,7 +333,6 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     logger.info(f"Notified user {user_id} of withdrawal approval")
                 except Exception as e:
                     logger.error(f"Failed to notify user {user_id} of withdrawal approval: {e}")
-
             else:
                 logger.error(f"Failed to update user {user_id} for withdrawal approval")
                 await query.message.reply_text("Error approving withdrawal. Please try again.")
@@ -392,7 +381,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 
             try:
                 await context.bot.send_message(
-                    chat_id=GROUP_CHAT_IDS[0],  # Use first group for announcement
+                    chat_id=GROUP_CHAT_IDS[0],
                     text=group_message
                 )
                 await query.message.reply_text(f"Posted withdrawal announcement to group {GROUP_CHAT_IDS[0]}.")
@@ -413,7 +402,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.clear()
     return ConversationHandler.END
 
-# Register handlers for the application
 def register_handlers(application: Application):
     logger.info("Registering withdrawal handlers")
     conv_handler = ConversationHandler(
