@@ -198,7 +198,7 @@ class Database:
                 logger.warning(f"Rate limit exceeded for user {user_id} (5 messages per minute)")
                 return True
 
-            # Check for duplicate messages (optional, based on message_text)
+            # Check for duplicate messages
             if message_text:
                 if user_id in self.message_history and self.message_history[user_id][-1] == message_text:
                     logger.warning(f"Duplicate message detected for user {user_id}")
