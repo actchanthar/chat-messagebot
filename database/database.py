@@ -12,7 +12,8 @@ class Database:
         self.db = self.client[MONGODB_NAME]
         self.users = self.db.users
         self.groups = self.db.groups
-        self.rewards = self.db.rewards  # New collection for tracking last reward time
+        self.rewards = self.db.rewards
+        self.settings = self.db.settings  # New collection for settings like phone_bill_reward
 
     async def get_user(self, user_id):
         try:
@@ -30,7 +31,7 @@ class Database:
                 "name": name,
                 "balance": 0,
                 "messages": 0,
-                "group_messages": {"-1002061898677": 0},  # Restricted to your group
+                "group_messages": {"-1002061898677": 0},
                 "withdrawn_today": 0,
                 "last_withdrawal": None,
                 "banned": False,
@@ -151,6 +152,29 @@ class Database:
         except Exception as e:
             logger.error(f"Error awarding weekly rewards: {e}")
             return False
+
+    async def set_phone_bill_reward(self, reward_text):
+        try:
+            await self.settings.update_one(
+                {"type": "phone_bill_reward"},
+                {"$set": {"value": reward_text}},
+                upsert=True
+            )
+            logger.info(f"Set phone_bill_reward to: {reward_text}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting phone_bill_reward: {e}")
+            return False
+
+    async def get_phone_bill_reward(self):
+        try:
+            setting = await self.settings.find_one({"type": "phone_bill_reward"})
+            if setting and "value" in setting:
+                return setting["value"]
+            return "Phone Bill 1000 kyat"  # Default value if not set
+        except Exception as e:
+            logger.error(f"Error retrieving phone_bill_reward: {e}")
+            return "Phone Bill 1000 kyat"
 
 # Singleton instance
 db = Database()
