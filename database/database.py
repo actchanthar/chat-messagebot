@@ -11,7 +11,7 @@ class Database:
         self.client = AsyncIOMotorClient(MONGODB_URL)
         self.db = self.client[MONGODB_NAME]
         self.users = self.db.users
-        self.groups = self.db.groups  # New collection for admin-approved groups
+        self.groups = self.db.groups
 
     async def get_user(self, user_id):
         try:
@@ -77,11 +77,17 @@ class Database:
 
     async def add_group(self, group_id):
         try:
+            # Check if group already exists
+            existing_group = await self.groups.find_one({"group_id": group_id})
+            if existing_group:
+                logger.info(f"Group {group_id} already exists in approved groups")
+                return "exists"
+            
             result = await self.groups.insert_one({"group_id": group_id})
             logger.info(f"Added group {group_id} to approved groups")
             return True
         except Exception as e:
-            logger.error(f"Error adding group {group_id}: {e}")
+            logger.error(f"Error adding group {group_id}: {str(e)}")
             return False
 
     async def get_approved_groups(self):
