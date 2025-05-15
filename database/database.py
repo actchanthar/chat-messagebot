@@ -2,6 +2,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
+from collections import deque
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ class Database:
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
+        self.message_history = {}  # In-memory cache for duplicate checking (per user)
 
     async def get_user(self, user_id):
         try:
@@ -36,7 +38,8 @@ class Database:
                 "last_withdrawal": None,
                 "banned": False,
                 "notified_10kyat": False,
-                "last_activity": datetime.utcnow()  # New field for rate limiting
+                "last_activity": datetime.utcnow(),
+                "message_timestamps": deque(maxlen=5)  # Track last 5 message times for 1-minute limit
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created new user {user_id} with name {name}")
@@ -177,18 +180,31 @@ class Database:
             logger.error(f"Error retrieving phone_bill_reward: {e}")
             return "Phone Bill 1000 kyat"
 
-    async def check_rate_limit(self, user_id):
+    async def check_rate_limit(self, user_id, message_text=None):
         try:
             user = await self.get_user(user_id)
             if not user:
                 return False
 
-            last_activity = user.get("last_activity", datetime.utcnow() - timedelta(seconds=2))
             current_time = datetime.utcnow()
-            if current_time < last_activity + timedelta(seconds=1):  # 1 message/command per second
-                logger.warning(f"Rate limit exceeded for user {user_id}")
+            if user_id not in self.message_history:
+                self.message_history[user_id] = deque(maxlen=5)  # Store last 5 timestamps
+
+            # Check 5 messages per minute limit
+            timestamps = user.get("message_timestamps", deque(maxlen=5))
+            timestamps.append(current_time)
+            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
+            if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
+                logger.warning(f"Rate limit exceeded for user {user_id} (5 messages per minute)")
                 return True
-            await self.update_user(user_id, {"last_activity": current_time})
+
+            # Check for duplicate messages (optional, based on message_text)
+            if message_text:
+                if user_id in self.message_history and self.message_history[user_id][-1] == message_text:
+                    logger.warning(f"Duplicate message detected for user {user_id}")
+                    return True
+                self.message_history[user_id] = message_text
+
             return False
         except Exception as e:
             logger.error(f"Error checking rate limit for user {user_id}: {e}")
