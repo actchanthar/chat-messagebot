@@ -1,6 +1,6 @@
 from telegram.ext import Application
 from config import BOT_TOKEN
-from plugins import start, withdrawal, balance, top, help, message_handler, broadcast, users, addgroup, checkgroup
+from plugins import start, withdrawal, balance, top, help, message_handler, broadcast, users, addgroup, checkgroup, setphonebill
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -15,7 +15,8 @@ def main():
     broadcast.register_handlers(application)
     users.register_handlers(application)
     addgroup.register_handlers(application)
-    checkgroup.register_handlers(application)  # Added
+    checkgroup.register_handlers(application)
+    setphonebill.register_handlers(application)  # Added
 
     # Start the bot
     application.run_polling()
