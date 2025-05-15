@@ -13,11 +13,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     message_text = update.message.text
     logger.info(f"Message received from user {user_id} in chat {chat_id}: {message_text}")
 
-    # Check rate limit and duplicates
+    # Check rate limit and duplicates silently
     if await db.check_rate_limit(user_id, message_text):
-        await update.message.reply_text("Please wait or avoid sending duplicate messages. Rate limit exceeded.")
         logger.warning(f"Rate limit or duplicate enforced for user {user_id} in chat {chat_id}")
-        return
+        return  # Do not reply, just skip processing
 
     # Check if message counting is enabled
     if not COUNT_MESSAGES:
