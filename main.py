@@ -1,3 +1,4 @@
+from telegram import Update  # Add this import
 from telegram.ext import Application
 from plugins import start, withdrawal, balance, top, help, message_handler, broadcast, users
 
@@ -7,7 +8,7 @@ def main() -> None:
     # Register all handlers
     start.register_handlers(application)
     withdrawal.register_handlers(application)
-    balance.register_handlers(application)  # Ensure this line is present
+    balance.register_handlers(application)
     top.register_handlers(application)
     help.register_handlers(application)
     message_handler.register_handlers(application)
