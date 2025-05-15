@@ -12,6 +12,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = str(update.effective_chat.id)
     logger.info(f"Message received from user {user_id} in chat {chat_id}")
 
+    # Check rate limit
+    if await db.check_rate_limit(user_id):
+        await update.message.reply_text("Please wait before sending another message. Rate limit exceeded.")
+        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
+        return
+
     # Check if message counting is enabled
     if not COUNT_MESSAGES:
         logger.info(f"Message counting is disabled. Skipping update in chat {chat_id}.")
@@ -27,11 +33,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name)
 
-    # Update total messages
     new_messages = user.get("messages", 0) + 1
-    new_balance = user.get("balance", 0) + 1  # 1 kyat per message
+    new_balance = user.get("balance", 0) + 1
 
-    # Update group-specific messages
     group_messages = user.get("group_messages", {})
     current_group_messages = group_messages.get(chat_id, 0) + 1
     group_messages[chat_id] = current_group_messages
