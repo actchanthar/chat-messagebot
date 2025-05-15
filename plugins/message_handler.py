@@ -17,10 +17,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"Message counting is disabled. Skipping update in chat {chat_id}.")
         return
 
-    # Check if the chat is in the admin-approved groups
-    approved_groups = await db.get_approved_groups()
-    if chat_id not in approved_groups:
-        logger.info(f"Chat {chat_id} not in approved groups for counting. Skipping update.")
+    # Only count messages in -1002061898677
+    if chat_id != "-1002061898677":
+        logger.info(f"Chat {chat_id} is not the target group (-1002061898677). Skipping update.")
         return
 
     # Update message count and balance
