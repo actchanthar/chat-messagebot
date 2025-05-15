@@ -25,12 +25,39 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     message = " ".join(context.args)
-    # Simulate broadcasting (replace with actual logic to send to all users)
-    await update.message.reply_text(f"Broadcasting: {message}")
     logger.info(f"Broadcast initiated by user {user_id} with message: {message}")
 
+    # Fetch all users from the database
+    users = await db.get_all_users()
+    if not users:
+        await update.message.reply_text("No users found to broadcast to.")
+        logger.warning(f"No users found for broadcast by user {user_id}")
+        return
+
+    # Broadcast to each user
+    success_count = 0
+    failure_count = 0
+    for user in users:
+        try:
+            target_user_id = user["user_id"]
+            # Send the message to the user's chat (user_id acts as chat_id for direct messages)
+            await context.bot.send_message(chat_id=target_user_id, text=message, parse_mode="HTML")
+            success_count += 1
+            logger.info(f"Successfully broadcasted message to user {target_user_id}")
+        except Exception as e:
+            failure_count += 1
+            logger.error(f"Failed to broadcast to user {target_user_id}: {str(e)}")
+
+    # Reply to the admin with the result
+    result_message = f"Broadcast completed: Sent to {success_count} users, failed for {failure_count} users."
+    await update.message.reply_text(result_message)
+    logger.info(f"Broadcast result for user {user_id}: {result_message}")
+
     # Log to admin channel
-    await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Broadcast by {update.effective_user.full_name}: {message}")
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=f"Broadcast by {update.effective_user.full_name}: {message}\n{result_message}"
+    )
 
 def register_handlers(application: Application):
     logger.info("Registering broadcast handlers")
