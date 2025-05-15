@@ -12,11 +12,10 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Top command initiated by user {user_id} in chat {chat_id}")
 
-    # Check rate limit
+    # Check rate limit silently
     if await db.check_rate_limit(user_id):
-        await update.message.reply_text("Please wait before using this command again. Rate limit exceeded.")
         logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
-        return
+        return  # Do not reply, just skip processing
 
     # Check and award weekly rewards
     if await db.award_weekly_rewards():
@@ -67,9 +66,8 @@ async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if await db.check_rate_limit(user_id):
-        await update.message.reply_text("Please wait before using this command again. Rate limit exceeded.")
         logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
-        return
+        return  # Do not reply, just skip processing
 
     result = await db.users.update_many({}, {"$set": {"messages": 0}})
     if result.modified_count > 0:
