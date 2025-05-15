@@ -11,7 +11,8 @@ WITHDRAWAL_THRESHOLD = 100
 DAILY_WITHDRAWAL_LIMIT = 2500
 CURRENCY = "kyat"
 
-# Group chat IDs for announcements and message counting
+# Message counting and group settings
+COUNT_MESSAGES = True  # Added this line
 GROUP_CHAT_IDS = ["-1002061898677", "-1002217915135"]
 
 # Log channel ID for withdrawal requests
