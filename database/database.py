@@ -29,6 +29,7 @@ class Database:
                 "name": name,
                 "balance": 0,
                 "messages": 0,
+                "group_messages": {},  # New field: {group_id: message_count}
                 "withdrawn_today": 0,
                 "last_withdrawal": None,
                 "banned": False,
@@ -75,30 +76,4 @@ class Database:
             logger.error(f"Error retrieving top users: {e}")
             return []
 
-    async def add_group(self, group_id):
-        try:
-            # Check if group already exists
-            existing_group = await self.groups.find_one({"group_id": group_id})
-            if existing_group:
-                logger.info(f"Group {group_id} already exists in approved groups")
-                return "exists"
-            
-            result = await self.groups.insert_one({"group_id": group_id})
-            logger.info(f"Added group {group_id} to approved groups")
-            return True
-        except Exception as e:
-            logger.error(f"Error adding group {group_id}: {str(e)}")
-            return False
-
-    async def get_approved_groups(self):
-        try:
-            groups = await self.groups.find({}, {"group_id": 1, "_id": 0}).to_list(length=None)
-            group_ids = [group["group_id"] for group in groups]
-            logger.info(f"Retrieved approved groups: {group_ids}")
-            return group_ids
-        except Exception as e:
-            logger.error(f"Error retrieving approved groups: {e}")
-            return []
-
-# Singleton instance
-db = Database()
+    async
