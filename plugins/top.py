@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import CURRENCY, LOG_CHANNEL_ID
+from config import CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,7 +14,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Check and award weekly rewards
     if await db.award_weekly_rewards():
-        await update.message.reply_text("Weekly rewards of 100 kyat awarded to the top 3 users! (Lucky Draw ကျပ်ပေးပါတယ်)")
+        await update.message.reply_text("Weekly rewards of 100 kyat awarded to the top 3 users! (Can be withdrawn via Phone Bill မဲဖောက်ပေးပါတယ်)")
         logger.info(f"Weekly rewards processed for user {user_id}")
 
     # Fetch all users and sort by messages in -1002061898677
@@ -36,8 +36,8 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"No messages in target group for user {user_id}")
         return
 
-    # Updated header without "by messages in group -1002061898677"
-    top_message = "🏆 Top Users:\n\n(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို custom amount or မဲဖောက်ပေးပါတယ် Lucky Draw ကျပ်ပေးပါတယ်):\n\n"
+    # Updated header with Phone Bill reward
+    top_message = "🏆 Top Users:\n\n(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို {Phone_Bill} မဲဖောက်ပေးပါတယ်):\n\n"
     for i, user in enumerate(sorted_users, 1):
         group_messages = user.get("group_messages", {}).get(target_group, 0)
         balance = user.get("balance", 0)
