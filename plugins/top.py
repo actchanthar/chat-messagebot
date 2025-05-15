@@ -1,7 +1,6 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
-from config import CURRENCY  # Already correctly imported
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -9,22 +8,23 @@ logger = logging.getLogger(__name__)
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    logger.info(f"User {user_id} requested top users")
+    chat_id = update.effective_chat.id
+    logger.info(f"Top command initiated by user {user_id} in chat {chat_id}")
 
-    # Get top users
     top_users = await db.get_top_users()
     if not top_users:
         await update.message.reply_text("No top users available yet.")
-        logger.warning("No top users found or error retrieving top users")
+        logger.warning(f"No top users found for user {user_id}")
         return
 
-    # Build the top users message
-    top_users_text = "🏆 Top Users:\n"
+    top_message = "🏆 Top Users:\n"
     for i, user in enumerate(top_users, 1):
-        top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user.get('balance', 0)} {CURRENCY}\n"  # Fix: Use CURRENCY instead of config.CURRENCY
+        messages = user.get("messages", 0)
+        balance = user.get("balance", 0)
+        top_message += f"{i}. {user['name']}: {messages} စာတို၊ {balance} kyat\n"
 
-    await update.message.reply_text(top_users_text)
-    logger.info(f"Sent top users list to user {user_id}")
+    await update.message.reply_text(top_message)
+    logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
 
 def register_handlers(application: Application):
     logger.info("Registering top handlers")
