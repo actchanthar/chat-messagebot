@@ -12,6 +12,12 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Top command initiated by user {user_id} in chat {chat_id}")
 
+    # Check rate limit
+    if await db.check_rate_limit(user_id):
+        await update.message.reply_text("Please wait before using this command again. Rate limit exceeded.")
+        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
+        return
+
     # Check and award weekly rewards
     if await db.award_weekly_rewards():
         phone_bill_reward = await db.get_phone_bill_reward()
@@ -37,7 +43,6 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"No messages in target group for user {user_id}")
         return
 
-    # Get the dynamic Phone Bill reward text
     phone_bill_reward = await db.get_phone_bill_reward()
     top_message = f"🏆 Top Users:\n\n(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို {phone_bill_reward} မဲဖောက်ပေးပါတယ်):\n\n"
     for i, user in enumerate(sorted_users, 1):
@@ -59,6 +64,11 @@ async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user_id != "5062124930":
         await update.message.reply_text("You are not authorized to use this command.")
         logger.info(f"Unauthorized rest attempt by user {user_id}")
+        return
+
+    if await db.check_rate_limit(user_id):
+        await update.message.reply_text("Please wait before using this command again. Rate limit exceeded.")
+        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
         return
 
     result = await db.users.update_many({}, {"$set": {"messages": 0}})
