@@ -194,65 +194,6 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         return STEP_AMOUNT
 
-        user = await db.get_user(str(user_id))
-        if not user:
-            await message.reply_text("User not found. Please start again with /start.")
-            return ConversationHandler.END
-
-        # Check daily withdrawal limit
-        last_withdrawal = user.get("last_withdrawal")
-        withdrawn_today = user.get("withdrawn_today", 0)
-        current_time = datetime.now(timezone.utc)
-        if last_withdrawal:
-            last_withdrawal_date = last_withdrawal.date()
-            current_date = current_time.date()
-            if last_withdrawal_date == current_date:
-                if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                    logger.info(f"User {user_id} exceeded daily limit. Withdrawn today: {withdrawn_today}, Requested: {amount}")
-                    await message.reply_text(
-                        f"User has exceeded the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. "
-                        f"You've already withdrawn {withdrawn_today} {CURRENCY} today.\n"
-                        f"သင်သည် နေ့စဉ်ထုတ်ယူနိုင်မှု ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ကို ကျော်လွန်သွားပါသည်။ "
-                        f"သင်သည် ယနေ့အတွက် {withdrawn_today} {CURRENCY} ထုတ်ယူပြီးပါသည်။"
-                    )
-                    return STEP_AMOUNT
-            else:
-                withdrawn_today = 0
-
-        # Strict balance check
-        if user.get("balance", 0) < amount:
-            await message.reply_text("Insufficient balance. Please check your balance with /balance.")
-            return ConversationHandler.END
-
-        context.user_data["withdrawal_amount"] = amount
-        context.user_data["withdrawn_today"] = withdrawn_today
-        logger.info(f"Stored withdrawal amount {amount} for user {user_id}, context: {context.user_data}")
-
-        if payment_method == "KBZ Pay":
-            await message.reply_text(
-                "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW). 💳\n"
-                "ကျေးဇူးပြု၍ သင်၏ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။"
-            )
-        elif payment_method == "Wave Pay":
-            await message.reply_text(
-                "Please provide your Wave Pay account details (e.g., phone number and name). 💳\n"
-                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ ဖုန်းနံပါတ်နှင့် နာမည်)။"
-            )
-        else:
-            await message.reply_text(
-                f"Please provide your {payment_method} account details. 💳\n"
-                f"ကျေးဇူးပြု၍ သင်၏ {payment_method} အကောင့်အသေးစိတ်ကို ပေးပါ။"
-            )
-        logger.info(f"User {user_id} prompted for {payment_method} account details")
-        return STEP_DETAILS
-
-    except ValueError:
-        await message.reply_text(
-            "Please enter a valid number (e.g., 100).\n"
-            "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
-        )
-        return STEP_AMOUNT
-
 # Handle account details input
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id
@@ -476,4 +417,7 @@ def register_handlers(application: Application):
             STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
             STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
         },
-        fallbacks=[CommandHandler
+        fallbacks=[CommandHandler("cancel", cancel)],  # Fixed: Added closing bracket
+    )
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_|post_approval_"))
