@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, ConversationHandler
 from database.database import db
 import logging
+import asyncio  # Import asyncio for adding delays
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,12 +61,15 @@ async def handle_broadcast_message(update: Update, context: ContextTypes.DEFAULT
             logger.info(f"Successfully broadcasted and pinned message to user {user_id}")
             successful += 1
         except Exception as e:
-            if "chat not found" in str(e).lower() or "bot can't initiate conversation" in str(e).lower():
+            error_str = str(e).lower()
+            if "chat not found" in error_str or "bot can't initiate conversation" in error_str or "forbidden" in error_str:
                 logger.info(f"Skipped broadcasting to user {user_id}: {e}")
                 skipped += 1
             else:
                 logger.error(f"Failed to broadcast or pin message to user {user_id}: {e}")
                 failed += 1
+        # Add a small delay to avoid rate limits (Telegram allows ~30 messages per second)
+        await asyncio.sleep(0.05)  # 50ms delay between sends
 
     # Send completion report
     report = (
