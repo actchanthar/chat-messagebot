@@ -76,4 +76,44 @@ class Database:
             logger.error(f"Error retrieving top users: {e}")
             return []
 
-    async
+    async def add_group(self, group_id):
+        try:
+            existing_group = await self.groups.find_one({"group_id": group_id})
+            if existing_group:
+                logger.info(f"Group {group_id} already exists in approved groups")
+                return "exists"
+            
+            result = await self.groups.insert_one({"group_id": group_id})
+            logger.info(f"Added group {group_id} to approved groups")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding group {group_id}: {str(e)}")
+            return False
+
+    async def get_approved_groups(self):
+        try:
+            groups = await self.groups.find({}, {"group_id": 1, "_id": 0}).to_list(length=None)
+            group_ids = [group["group_id"] for group in groups]
+            logger.info(f"Retrieved approved groups: {group_ids}")
+            return group_ids
+        except Exception as e:
+            logger.error(f"Error retrieving approved groups: {e}")
+            return []
+
+    async def get_group_message_count(self, group_id):
+        try:
+            # Aggregate total messages for the group from all users
+            pipeline = [
+                {"$match": {f"group_messages.{group_id}": {"$exists": True}}},
+                {"$group": {"_id": None, "total_messages": {"$sum": f"$group_messages.{group_id}"}}}
+            ]
+            result = await self.users.aggregate(pipeline).to_list(length=None)
+            total_messages = result[0]["total_messages"] if result else 0
+            logger.info(f"Total messages in group {group_id}: {total_messages}")
+            return total_messages
+        except Exception as e:
+            logger.error(f"Error retrieving message count for group {group_id}: {e}")
+            return 0
+
+# Singleton instance
+db = Database()
