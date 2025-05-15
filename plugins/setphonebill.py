@@ -12,11 +12,10 @@ async def setphonebill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat_id = update.effective_chat.id
     logger.info(f"SetPhoneBill command initiated by user {user_id} in chat {chat_id}")
 
-    # Check rate limit
+    # Check rate limit silently
     if await db.check_rate_limit(user_id):
-        await update.message.reply_text("Please wait before using this command again. Rate limit exceeded.")
         logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
-        return
+        return  # Do not reply, just skip processing
 
     # Restrict to admin (user ID 5062124930)
     if user_id != "5062124930":
