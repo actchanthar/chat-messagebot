@@ -32,8 +32,11 @@ async def addgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # Add the group to the database
-    success = await db.add_group(group_id)
-    if success:
+    result = await db.add_group(group_id)
+    if result == "exists":
+        await update.message.reply_text(f"Group {group_id} is already added for message counting.")
+        logger.info(f"Group {group_id} already exists, no action taken by admin {user_id}")
+    elif result:
         await update.message.reply_text(f"Group {group_id} has been added for message counting.")
         logger.info(f"Group {group_id} added by admin {user_id}")
 
@@ -44,7 +47,7 @@ async def addgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     else:
         await update.message.reply_text("Failed to add the group. Please try again.")
-        logger.error(f"Failed to add group {group_id} by user {user_id}")
+        logger.error(f"Failed to add group {group_id} by user {user_id} - check logs for details")
 
 def register_handlers(application: Application):
     logger.info("Registering addgroup handlers")
