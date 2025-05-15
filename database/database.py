@@ -13,7 +13,7 @@ class Database:
         self.users = self.db.users
         self.groups = self.db.groups
         self.rewards = self.db.rewards
-        self.settings = self.db.settings  # New collection for settings like phone_bill_reward
+        self.settings = self.db.settings
 
     async def get_user(self, user_id):
         try:
@@ -35,7 +35,8 @@ class Database:
                 "withdrawn_today": 0,
                 "last_withdrawal": None,
                 "banned": False,
-                "notified_10kyat": False
+                "notified_10kyat": False,
+                "last_activity": datetime.utcnow()  # New field for rate limiting
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created new user {user_id} with name {name}")
@@ -140,7 +141,7 @@ class Database:
                 return False
 
             top_users = await self.get_top_users(3)
-            reward_amount = 100  # 100 kyat bonus
+            reward_amount = 100
             for user in top_users:
                 user_id = user["user_id"]
                 current_balance = user.get("balance", 0)
@@ -171,10 +172,27 @@ class Database:
             setting = await self.settings.find_one({"type": "phone_bill_reward"})
             if setting and "value" in setting:
                 return setting["value"]
-            return "Phone Bill 1000 kyat"  # Default value if not set
+            return "Phone Bill 1000 kyat"
         except Exception as e:
             logger.error(f"Error retrieving phone_bill_reward: {e}")
             return "Phone Bill 1000 kyat"
+
+    async def check_rate_limit(self, user_id):
+        try:
+            user = await self.get_user(user_id)
+            if not user:
+                return False
+
+            last_activity = user.get("last_activity", datetime.utcnow() - timedelta(seconds=2))
+            current_time = datetime.utcnow()
+            if current_time < last_activity + timedelta(seconds=1):  # 1 message/command per second
+                logger.warning(f"Rate limit exceeded for user {user_id}")
+                return True
+            await self.update_user(user_id, {"last_activity": current_time})
+            return False
+        except Exception as e:
+            logger.error(f"Error checking rate limit for user {user_id}: {e}")
+            return False
 
 # Singleton instance
 db = Database()
