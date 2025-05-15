@@ -12,17 +12,31 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Top command initiated by user {user_id} in chat {chat_id}")
 
-    top_users = await db.get_top_users()
-    if not top_users:
-        await update.message.reply_text("No top users available yet.")
-        logger.warning(f"No top users found for user {user_id}")
+    # Fetch all users and sort by messages in -1002061898677
+    users = await db.get_all_users()
+    if not users:
+        await update.message.reply_text("No users available yet.")
+        logger.warning(f"No users found for user {user_id}")
         return
 
-    top_message = "🏆 Top Users:\n"
-    for i, user in enumerate(top_users, 1):
-        messages = user.get("messages", 0)
+    # Sort users by message count in -1002061898677
+    target_group = "-1002061898677"
+    sorted_users = sorted(
+        users,
+        key=lambda x: x.get("group_messages", {}).get(target_group, 0),
+        reverse=True
+    )[:10]
+
+    if not sorted_users or sorted_users[0].get("group_messages", {}).get(target_group, 0) == 0:
+        await update.message.reply_text("No messages recorded in the target group yet.")
+        logger.warning(f"No messages in target group for user {user_id}")
+        return
+
+    top_message = "🏆 Top Users (by messages in group -1002061898677):\n"
+    for i, user in enumerate(sorted_users, 1):
+        group_messages = user.get("group_messages", {}).get(target_group, 0)
         balance = user.get("balance", 0)
-        top_message += f"{i}. {user['name']}: {messages} စာတို၊ {balance} {CURRENCY}\n"
+        top_message += f"{i}. {user['name']} - {group_messages} messages, {balance} {CURRENCY}\n"
 
     await update.message.reply_text(top_message)
     logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
