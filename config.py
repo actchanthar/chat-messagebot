@@ -8,7 +8,7 @@ MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retry
 
 # Withdrawal settings
 WITHDRAWAL_THRESHOLD = 100
-DAILY_WITHDRAWAL_LIMIT = 1000
+DAILY_WITHDRAWAL_LIMIT = 2500
 CURRENCY = "kyat"
 
 # Group chat IDs for announcements and message counting
