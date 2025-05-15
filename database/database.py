@@ -66,7 +66,7 @@ class Database:
             # Fetch top users sorted by messages in descending order
             top_users = await self.users.find(
                 {"banned": False},  # Exclude banned users
-                {"user_id": 1, "name": 1, "messages": 1, "_id": 0}  # Projection to include only necessary fields
+                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "_id": 0}  # Include balance
             ).sort("messages", -1).limit(limit).to_list(length=limit)
             logger.info(f"Retrieved top {limit} users: {top_users}")
             return top_users
