@@ -14,7 +14,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Check and award weekly rewards
     if await db.award_weekly_rewards():
-        await update.message.reply_text("Weekly rewards of 100 kyat awarded to the top 3 users!")
+        await update.message.reply_text("Weekly rewards of 100 kyat awarded to the top 3 users! (Lucky Draw ကျပ်ပေးပါတယ်)")
         logger.info(f"Weekly rewards processed for user {user_id}")
 
     # Fetch all users and sort by messages in -1002061898677
@@ -36,7 +36,8 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"No messages in target group for user {user_id}")
         return
 
-    top_message = "🏆 Top Users (by messages in group -1002061898677) (၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို ၁၀၀ ကျပ်ပေးပါတယ်):\n"
+    # Updated header without "by messages in group -1002061898677"
+    top_message = "🏆 Top Users:\n\n(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို custom amount or မဲဖောက်ပေးပါတယ် Lucky Draw ကျပ်ပေးပါတယ်):\n\n"
     for i, user in enumerate(sorted_users, 1):
         group_messages = user.get("group_messages", {}).get(target_group, 0)
         balance = user.get("balance", 0)
@@ -64,10 +65,10 @@ async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(f"Reset messages for {result.modified_count} users by admin {user_id}")
 
         current_top = await db.get_top_users()
-        log_message = "Leaderboard reset by admin:\n🏆 Top Users (before reset):\n"
+        log_message = "Leaderboard reset by admin:\n🏆 Top Users:\n"
         for i, user in enumerate(current_top, 1):
             balance = user.get("balance", 0)
-            log_message += f"{i}. {user['name']}: 0 စာတို၊ {balance} {CURRENCY}\n"
+            log_message += f"{i}. {user['name']}: 0 messages, {balance} {CURRENCY}\n"
         await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=log_message)
     else:
         await update.message.reply_text("No users found to reset.")
