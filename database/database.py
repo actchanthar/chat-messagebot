@@ -1,7 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -12,6 +12,7 @@ class Database:
         self.db = self.client[MONGODB_NAME]
         self.users = self.db.users
         self.groups = self.db.groups
+        self.rewards = self.db.rewards  # New collection for tracking last reward time
 
     async def get_user(self, user_id):
         try:
@@ -29,7 +30,7 @@ class Database:
                 "name": name,
                 "balance": 0,
                 "messages": 0,
-                "group_messages": {},  # New field: {group_id: message_count}
+                "group_messages": {"-1002061898677": 0},  # Restricted to your group
                 "withdrawn_today": 0,
                 "last_withdrawal": None,
                 "banned": False,
@@ -68,7 +69,7 @@ class Database:
         try:
             top_users = await self.users.find(
                 {"banned": False},
-                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "_id": 0}
+                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "_id": 0}
             ).sort("messages", -1).limit(limit).to_list(length=limit)
             logger.info(f"Retrieved top {limit} users: {top_users}")
             return top_users
@@ -82,7 +83,6 @@ class Database:
             if existing_group:
                 logger.info(f"Group {group_id} already exists in approved groups")
                 return "exists"
-            
             result = await self.groups.insert_one({"group_id": group_id})
             logger.info(f"Added group {group_id} to approved groups")
             return True
@@ -102,7 +102,6 @@ class Database:
 
     async def get_group_message_count(self, group_id):
         try:
-            # Aggregate total messages for the group from all users
             pipeline = [
                 {"$match": {f"group_messages.{group_id}": {"$exists": True}}},
                 {"$group": {"_id": None, "total_messages": {"$sum": f"$group_messages.{group_id}"}}}
@@ -114,6 +113,44 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving message count for group {group_id}: {e}")
             return 0
+
+    async def get_last_reward_time(self):
+        try:
+            reward = await self.rewards.find_one({"type": "weekly"})
+            if not reward:
+                await self.rewards.insert_one({"type": "weekly", "last_reward": datetime.utcnow()})
+                return datetime.utcnow()
+            return reward["last_reward"]
+        except Exception as e:
+            logger.error(f"Error retrieving last reward time: {e}")
+            return datetime.utcnow()
+
+    async def update_reward_time(self):
+        try:
+            await self.rewards.update_one({"type": "weekly"}, {"$set": {"last_reward": datetime.utcnow()}})
+            logger.info("Updated weekly reward time")
+        except Exception as e:
+            logger.error(f"Error updating reward time: {e}")
+
+    async def award_weekly_rewards(self):
+        try:
+            last_reward = await self.get_last_reward_time()
+            if datetime.utcnow() < last_reward + timedelta(days=7):
+                return False
+
+            top_users = await self.get_top_users(3)
+            reward_amount = 100  # 100 kyat bonus
+            for user in top_users:
+                user_id = user["user_id"]
+                current_balance = user.get("balance", 0)
+                await db.update_user(user_id, {"balance": current_balance + reward_amount})
+                logger.info(f"Awarded {reward_amount} kyat to user {user_id}")
+
+            await self.update_reward_time()
+            return True
+        except Exception as e:
+            logger.error(f"Error awarding weekly rewards: {e}")
+            return False
 
 # Singleton instance
 db = Database()
