@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
@@ -11,48 +11,58 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
 
-    # Check if user exists, create if not
     user = await db.get_user(user_id)
     if not user:
-        user_name = update.effective_user.first_name or "Unknown"
-        user = await db.create_user(user_id, user_name)
-        if not user:
-            await update.message.reply_text("Failed to create user. Please try again later.")
-            logger.error(f"Failed to create user {user_id}")
-            return
+        logger.info(f"User {user_id} not found, creating new user")
+        user = await db.create_user(user_id, update.effective_user.full_name)
+    else:
+        # Update user name in case it has changed
+        await db.update_user(user_id, {"name": update.effective_user.full_name})
 
-    # Prepare the inline keyboard
+    if user.get("banned", False):
+        logger.info(f"User {user_id} is banned")
+        await update.message.reply_text("You are banned from using this bot.")
+        return
+
+    # Get top users for the leaderboard
+    top_users = await db.get_top_users()
+    if not top_users:
+        logger.warning("No top users found or error retrieving top users")
+        leaderboard = "No top users available yet."
+    else:
+        leaderboard = "🏆 Top Users (by messages):\n"
+        for i, top_user in enumerate(top_users, 1):
+            leaderboard += f"{i}. {top_user['name']} - {top_user['messages']} messages\n"
+
+    # Create the welcome message
+    welcome_message = (
+        f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
+        "Earn money by sending messages in the group!\n"
+        f"အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
+        f"{leaderboard}\n\n"
+        "Use the buttons below to check your balance, withdraw your earnings, or join our group.\n"
+        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+    )
+
+    # Add buttons for balance, withdraw, developer contact, and earnings group
     keyboard = [
         [
             InlineKeyboardButton("Check Balance 💰", callback_data="balance"),
-            InlineKeyboardButton("Withdraw 🌸", callback_data="withdraw")
+            InlineKeyboardButton("Withdraw 💸", callback_data="withdraw"),
+        ],
+        [
+            InlineKeyboardButton("It Dev 💻", url="https://t.me/+5062124930"),  # Links to the user's Telegram profile
+            InlineKeyboardButton("Earnings Group 👥", url="https://t.me/+yuVWepSGgZQ4ZWY1"),  # Links to the group
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Prepare the welcome message with additional text below buttons
-    welcome_message = (
-        "👋 Hello! Welcome to the bot!\n"
-        "မင်္ဂလာပါ! ဘော့တ်သို့ ကြိုဆိုပါတယ်!\n\n"
-        "It Dev 5062124930\n"
-        "Earnings Group https://t.me/+yuVWepSGgZQ4ZWY1"
-    )
-
-    # Send the message with the keyboard
-    await update.message.reply_text(
-        welcome_message,
-        reply_markup=reply_markup
-    )
-    logger.info(f"Sent /start response to user {user_id} in chat {chat_id}")
-
-    # Optionally, fetch and display top users (if integrated with /top)
-    top_users = await db.get_top_users()
-    if top_users:
-        top_users_text = "🏆 Top Users:\n"
-        for i, user in enumerate(top_users, 1):
-            top_users_text += f"{i}. {user['name']}: {user['messages']} စာတို၊ {user.get('balance', 0)} kyat\n"
-        await update.message.reply_text(top_users_text)
-        logger.info(f"Sent top users list to user {user_id}")
+    try:
+        await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+        logger.info(f"Sent /start response to user {user_id} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send /start response to user {user_id} in chat {chat_id}: {e}")
+        await update.message.reply_text("Error sending welcome message. Please try again later.")
 
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
