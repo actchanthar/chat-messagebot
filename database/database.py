@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         self.client = AsyncIOMotorClient(MONGODB_URL)
-        self.db = self.client[MONGODB_NAME]
+        self.db = self.client[MONGODB_NAME]  # Set to 'actchat1' via config
         self.users = self.db.users
 
     async def get_user(self, user_id):
@@ -62,12 +62,11 @@ class Database:
             logger.error(f"Error retrieving all users: {e}")
             return None
 
-    async def get_top_users(self, limit=5):
+    async def get_top_users(self, limit=10):  # Changed to 10 to match your expected list
         try:
-            # Fetch top users sorted by messages in descending order
             top_users = await self.users.find(
-                {"banned": False},  # Exclude banned users
-                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "_id": 0}  # Include balance
+                {"banned": False},
+                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "_id": 0}
             ).sort("messages", -1).limit(limit).to_list(length=limit)
             logger.info(f"Retrieved top {limit} users: {top_users}")
             return top_users
