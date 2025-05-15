@@ -23,18 +23,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"Chat {chat_id} not in approved groups for counting. Skipping update.")
         return
 
-    # Update message count and balance (1 kyat per message)
+    # Update message count and balance
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name)
 
+    # Update total messages
     new_messages = user.get("messages", 0) + 1
     new_balance = user.get("balance", 0) + 1  # 1 kyat per message
+
+    # Update group-specific messages
+    group_messages = user.get("group_messages", {})
+    current_group_messages = group_messages.get(chat_id, 0) + 1
+    group_messages[chat_id] = current_group_messages
+
     await db.update_user(user_id, {
         "messages": new_messages,
-        "balance": new_balance
+        "balance": new_balance,
+        "group_messages": group_messages
     })
-    logger.info(f"Updated messages to {new_messages} and balance to {new_balance} for user {user_id}")
+    logger.info(f"Updated messages to {new_messages} and balance to {new_balance} for user {user_id} in group {chat_id}")
 
 def register_handlers(application: Application):
     logger.info("Registering message handlers")
