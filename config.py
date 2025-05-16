@@ -27,8 +27,8 @@ DEFAULT_REQUIRED_INVITES = 15
 
 # Force-subscription settings
 FORCE_SUB_CHANNEL_LINKS = {
-    "-1002097823468": "https://t.me/+YJ0U3GLV9ws2MGJl"  # In-memory mapping, updated via /addchnl and /delchnl
+    "-1002171798406": "https://t.me/+placeholder_link"  # Replace with actual invite link for -1002171798406
 }
 FORCE_SUB_CHANNEL_NAMES = {
-    "-1002097823468": "My Channel"  # Display name for the channel in buttons
+    "-1002171798406": "New Channel"  # Replace with actual channel name
 }
