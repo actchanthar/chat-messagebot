@@ -8,7 +8,7 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
-from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS
+from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS, ADMIN_IDS
 from database.database import db
 import logging
 from datetime import datetime, timezone
@@ -80,15 +80,16 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.callback_query.message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
-    # Check invite requirement
-    can_withdraw, reason = await db.can_withdraw(user_id)
-    if not can_withdraw:
-        logger.info(f"User {user_id} cannot withdraw: {reason}")
-        if update.message:
-            await update.message.reply_text(reason)
-        else:
-            await update.callback_query.message.reply_text(reason)
-        return ConversationHandler.END
+    # Check invite requirement only for non-admins
+    if str(user_id) not in ADMIN_IDS:
+        can_withdraw, reason = await db.can_withdraw(user_id)
+        if not can_withdraw:
+            logger.info(f"User {user_id} cannot withdraw: {reason}")
+            if update.message:
+                await update.message.reply_text(reason)
+            else:
+                await update.callback_query.message.reply_text(reason)
+            return ConversationHandler.END
 
     context.user_data.clear()
     logger.info(f"Cleared user_data for user {user_id} before starting withdrawal process")
