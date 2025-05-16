@@ -91,6 +91,18 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 await update.callback_query.message.reply_text(reason)
             return ConversationHandler.END
 
+    # Check for pending withdrawals
+    pending_withdrawals = user.get("pending_withdrawals", [])
+    if pending_withdrawals:
+        logger.info(f"User {user_id} has a pending withdrawal: {pending_withdrawals}")
+        if update.message:
+            await update.message.reply_text("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
+                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
+        else:
+            await update.callback_query.message.reply_text("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
+                                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
+        return ConversationHandler.END
+
     context.user_data.clear()
     logger.info(f"Cleared user_data for user {user_id} before starting withdrawal process")
 
@@ -252,7 +264,34 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("User not found. Please start again with /start.")
         return ConversationHandler.END
 
+    # Deduct amount immediately and store as pending
+    balance = user.get("balance", 0)
+    if balance < amount:
+        await message.reply_text(
+            "Insufficient balance. Please check your balance with /balance.\n"
+            "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေးဇူးပြု၍ သင့်လက်ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
+        )
+        return ConversationHandler.END
+
+    new_balance = balance - amount
     payment_details = message.text if message.text else "No details provided"
+    pending_withdrawal = {
+        "amount": amount,
+        "payment_method": payment_method,
+        "payment_details": payment_details,
+        "status": "pending",
+        "requested_at": datetime.now(timezone.utc)
+    }
+    result = await db.update_user(user_id, {
+        "balance": new_balance,
+        "pending_withdrawals": [pending_withdrawal]  # Store as a list for potential future multiple pending withdrawals
+    })
+    if not result:
+        logger.error(f"Failed to deduct amount for user {user_id} during withdrawal request")
+        await message.reply_text("Error submitting request. Please try again later.")
+        return ConversationHandler.END
+
+    logger.info(f"Deducted {amount} from user {user_id}'s balance. New balance: {new_balance}")
     context.user_data["withdrawal_details"] = payment_details
     logger.info(f"User {user_id} submitted account details, context: {context.user_data}")
 
@@ -296,13 +335,18 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.chat_data['log_message_ids'][user_id] = log_msg.message_id
         logger.info(f"Sent and pinned withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id} with message ID {log_msg.message_id}")
     except Exception as e:
+        # Refund the amount if we can't send the request to the log channel
+        await db.update_user(user_id, {
+            "balance": balance,
+            "pending_withdrawals": []
+        })
         logger.error(f"Failed to send or pin withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}: {e}")
         await message.reply_text("Error submitting request. Please try again later.")
         return ConversationHandler.END
 
     await message.reply_text(
-        f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Please wait for admin approval. ⏳\n"
-        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ကျေးဇူးပြု၍ အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ပါ။"
+        f"Your withdrawal request for {amount} {CURRENCY} has been submitted. The amount has been deducted from your balance and will be processed by an admin. Your new balance is {new_balance} {CURRENCY}. ⏳\n"
+        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
     )
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
 
@@ -332,39 +376,23 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.message.reply_text("User not found.")
                 return
 
-            balance = user.get("balance", 0)
-            if balance < amount:
-                logger.error(f"Insufficient balance for user {user_id}. Requested: {amount}, Balance: {balance}")
-                await query.message.reply_text("User has insufficient balance for this withdrawal.")
-                return
+            # Clear the pending withdrawal since the amount was already deducted
+            result = await db.update_user(user_id, {
+                "pending_withdrawals": [],
+                "last_withdrawal": datetime.now(timezone.utc),
+                "withdrawn_today": user.get("withdrawn_today", 0) + amount
+            })
+            logger.info(f"db.update_user returned: {result} for user {user_id} on approval")
 
-            last_withdrawal = user.get("last_withdrawal")
-            withdrawn_today = user.get("withdrawn_today", 0)
-            current_time = datetime.now(timezone.utc)
+            # Check if the update was successful (handling both boolean and UpdateResult)
+            success = False
+            if isinstance(result, bool):
+                success = result
+            elif hasattr(result, "modified_count"):
+                success = result.modified_count > 0
 
-            if last_withdrawal:
-                last_withdrawal_date = last_withdrawal.date()
-                current_date = current_time.date()
-                if last_withdrawal_date == current_date:
-                    if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                        logger.error(f"User {user_id} exceeded daily withdrawal limit. Withdrawn today: {withdrawn_today}, Requested: {amount}")
-                        await query.message.reply_text(f"User has exceeded the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}.")
-                        return
-                else:
-                    withdrawn_today = 0
-
-            new_balance = balance - amount
-            new_withdrawn_today = withdrawn_today + amount
-            update_data = {
-                "balance": new_balance,
-                "last_withdrawal": current_time,
-                "withdrawn_today": new_withdrawn_today
-            }
-            result = await db.update_user(user_id, update_data)
-            logger.info(f"db.update_user returned: {result} for user {user_id} with data {update_data}")
-
-            if result is True:  # Explicitly check for True
-                logger.info(f"Withdrawal approved for user {user_id}. Amount: {amount}, New balance: {new_balance}")
+            if success:
+                logger.info(f"Withdrawal approved for user {user_id}. Amount: {amount}")
                 # Update log channel message
                 message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
                 if message_id:
@@ -396,8 +424,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text=f"Your withdrawal of {amount} {CURRENCY} has been approved! Your new balance is {new_balance} {CURRENCY}.\n"
-                             f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+                        text=f"Your withdrawal of {amount} {CURRENCY} has been approved!\n"
+                             f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။"
                     )
                     logger.info(f"Notified user {user_id} of withdrawal approval")
                 except Exception as e:
@@ -407,7 +435,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.message.reply_text("Approve done ✅")
                 logger.info(f"Confirmed approval to admin for user {user_id}")
             else:
-                logger.error(f"Failed to update user {user_id} for withdrawal approval. Result: {result}")
+                logger.error(f"Failed to clear pending withdrawal for user {user_id} on approval. Result: {result}")
                 await query.message.reply_text("Error approving withdrawal. Please try again.")
 
         elif data.startswith("reject_withdrawal_"):
@@ -420,12 +448,26 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             user_id = user_id
             amount = int(amount)
 
+            user = await db.get_user(user_id)
+            if not user:
+                logger.error(f"User {user_id} not found for withdrawal rejection")
+                await query.message.reply_text("User not found.")
+                return
+
+            # Refund the amount since the withdrawal is rejected
+            balance = user.get("balance", 0)
+            new_balance = balance + amount
+            result = await db.update_user(user_id, {
+                "balance": new_balance,
+                "pending_withdrawals": []
+            })
+            logger.info(f"db.update_user returned: {result} for user {user_id} on rejection")
+
             # Update log channel message
             message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
             if message_id:
-                user = await db.get_user(user_id)
-                user_first_name = user.get("name", "Unknown") if user else "Unknown"
-                username = user.get("username", "N/A") if user else "N/A"
+                user_first_name = user.get("name", "Unknown")
+                username = user.get("username", "N/A")
                 updated_message = (
                     f"Withdrawal Request:\n"
                     f"{user_first_name}\n"
@@ -434,7 +476,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     f"Amount: {amount} {CURRENCY} 💸\n"
                     f"Payment Method: **{context.user_data.get('payment_method', 'N/A')}**\n"
                     f"Details: {context.user_data.get('withdrawal_details', 'N/A')}\n"
-                    f"Invited Users: {user.get('invited_users', 0) if user else 0}\n"
+                    f"Invited Users: {user.get('invited_users', 0)}\n"
                     f"Status: Rejected ❌"
                 )
                 try:
@@ -448,13 +490,13 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 except Exception as e:
                     logger.error(f"Failed to edit log channel message {message_id} for user {user_id}: {e}")
 
-            logger.info(f"Withdrawal rejected for user {user_id}. Amount: {amount}")
+            logger.info(f"Withdrawal rejected for user {user_id}. Amount: {amount}, Refunded balance: {new_balance}")
             await query.message.reply_text(f"Withdrawal rejected for user {user_id}. Amount: {amount} {CURRENCY}.")
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. If there are any problems or you wish to appeal, please contact @actanibot.\n"
-                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                    text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. If there are any problems or you wish to appeal, please contact @actanibot.\n"
+                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
                 )
                 logger.info(f"Notified user {user_id} of withdrawal rejection")
             except Exception as e:
@@ -499,7 +541,26 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     logger.info(f"User {user_id} canceled the withdrawal process")
-    await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
+
+    # Refund any deducted amount if the user cancels
+    user = await db.get_user(user_id)
+    pending_withdrawals = user.get("pending_withdrawals", [])
+    if pending_withdrawals:
+        amount = pending_withdrawals[0]["amount"]
+        balance = user.get("balance", 0)
+        new_balance = balance + amount
+        await db.update_user(user_id, {
+            "balance": new_balance,
+            "pending_withdrawals": []
+        })
+        logger.info(f"Refunded {amount} to user {user_id} on cancellation. New balance: {new_balance}")
+        await update.message.reply_text(
+            f"Withdrawal canceled. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
+            f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+        )
+    else:
+        await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
+
     context.user_data.clear()
     return ConversationHandler.END
 
