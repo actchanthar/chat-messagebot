@@ -41,7 +41,7 @@ async def addchnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await db.update_user(user_id, {"subscribed_channels": subscribed_channels})
     logger.info(f"db.update_user returned: {result} for user {user_id}")
 
-    if result and (isinstance(result, bool) or (hasattr(result, 'modified_count') and result.modified_count > 0)):
+    if result is None or (isinstance(result, bool) and result) or (hasattr(result, 'modified_count') and result.modified_count > 0):
         await update.message.reply_text(f"Added channel {channel_id} to subscribed channels.")
     else:
         await update.message.reply_text("Error adding channel. Please try again.")
@@ -74,7 +74,7 @@ async def delchnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     result = await db.update_user(user_id, {"subscribed_channels": subscribed_channels})
     logger.info(f"db.update_user returned: {result} for user {user_id}")
 
-    if result and (isinstance(result, bool) or (hasattr(result, 'modified_count') and result.modified_count > 0)):
+    if result is None or (isinstance(result, bool) and result) or (hasattr(result, 'modified_count') and result.modified_count > 0):
         await update.message.reply_text(f"Removed channel {channel_id} from subscribed channels.")
     else:
         await update.message.reply_text("Error removing channel. Please try again.")
