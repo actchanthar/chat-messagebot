@@ -376,24 +376,15 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.message.reply_text("User not found.")
                 return
 
-            # Clear the pending withdrawal since the amount was already deducted
             result = await db.update_user(user_id, {
                 "pending_withdrawals": [],
                 "last_withdrawal": datetime.now(timezone.utc),
                 "withdrawn_today": user.get("withdrawn_today", 0) + amount
             })
-            logger.info(f"db.update_user returned: {result} for user {user_id} on approval")
+            logger.info(f"db.update_user returned: {result}")
 
-            # Check if the update was successful (handling both boolean and UpdateResult)
-            success = False
-            if isinstance(result, bool):
-                success = result
-            elif hasattr(result, "modified_count"):
-                success = result.modified_count > 0
-
-            if success:
+            if result and (isinstance(result, bool) or (hasattr(result, 'modified_count') and result.modified_count > 0)):
                 logger.info(f"Withdrawal approved for user {user_id}. Amount: {amount}")
-                # Update log channel message
                 message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
                 if message_id:
                     user_first_name = user.get("name", "Unknown")
@@ -420,7 +411,6 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     except Exception as e:
                         logger.error(f"Failed to edit log channel message {message_id} for user {user_id}: {e}")
 
-                # Notify user
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
@@ -431,11 +421,10 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 except Exception as e:
                     logger.error(f"Failed to notify user {user_id} of withdrawal approval: {e}")
 
-                # Confirm approval to admin
                 await query.message.reply_text("Approve done ✅")
                 logger.info(f"Confirmed approval to admin for user {user_id}")
             else:
-                logger.error(f"Failed to clear pending withdrawal for user {user_id} on approval. Result: {result}")
+                logger.error(f"Failed to clear pending withdrawal for user {user_id}. Result: {result}")
                 await query.message.reply_text("Error approving withdrawal. Please try again.")
 
         elif data.startswith("reject_withdrawal_"):
