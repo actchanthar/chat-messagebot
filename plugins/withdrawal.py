@@ -19,48 +19,75 @@ logger = logging.getLogger(__name__)
 # Define withdrawal steps
 STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-# Add /balance command
+# Handle /balance command and Check Balance button
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"Balance command initiated by user {user_id} in chat {chat_id} at {update.message.date}")
+    logger.info(f"Balance function called for user {user_id} in chat {chat_id} via {'button' if update.callback_query else 'command'}")
+
+    if update.callback_query:
+        await update.callback_query.answer()
 
     user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
-        await update.message.reply_text("User not found. Please start with /start.")
+        message = "User not found. Please start with /start."
+        if update.callback_query:
+            await update.callback_query.message.reply_text(message)
+        else:
+            await update.message.reply_text(message)
         return
 
     balance = user.get("balance", 0)
-    await update.message.reply_text(f"Your balance: {balance} {CURRENCY}")
+    message = f"Your balance: {balance} {CURRENCY}"
+    if update.callback_query:
+        await update.callback_query.message.reply_text(message)
+    else:
+        await update.message.reply_text(message)
 
-# Entry point for /withdraw command
+# Entry point for /withdraw command and Withdraw button
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"Withdraw command called for user {user_id} in chat {chat_id}")
+    source = "command" if update.message else "button"
+    logger.info(f"Withdraw function called for user {user_id} in chat {chat_id} via {source}")
+
+    if update.callback_query:
+        await update.callback_query.answer()
 
     if update.effective_chat.type != "private":
         logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
-        await update.message.reply_text("Please use the /withdraw command in a private chat.")
+        if update.message:
+            await update.message.reply_text("Please use the /withdraw command in a private chat.")
+        else:
+            await update.callback_query.message.reply_text("Please use /withdraw in a private chat.")
         return ConversationHandler.END
 
     user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
-        await update.message.reply_text("User not found. Please start with /start.")
+        if update.message:
+            await update.message.reply_text("User not found. Please start with /start.")
+        else:
+            await update.callback_query.message.reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
 
     if user.get("banned", False):
         logger.info(f"User {user_id} is banned")
-        await update.message.reply_text("You are banned from using this bot.")
+        if update.message:
+            await update.message.reply_text("You are banned from using this bot.")
+        else:
+            await update.callback_query.message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
     # Check invite requirement
     can_withdraw, reason = await db.can_withdraw(user_id)
     if not can_withdraw:
         logger.info(f"User {user_id} cannot withdraw: {reason}")
-        await update.message.reply_text(reason)
+        if update.message:
+            await update.message.reply_text(reason)
+        else:
+            await update.callback_query.message.reply_text(reason)
         return ConversationHandler.END
 
     context.user_data.clear()
@@ -68,10 +95,16 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
-        reply_markup=reply_markup
-    )
+    if update.message:
+        await update.message.reply_text(
+            "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
+            reply_markup=reply_markup
+        )
+    else:
+        await update.callback_query.message.reply_text(
+            "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
+            reply_markup=reply_markup
+        )
     logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
     return STEP_PAYMENT_METHOD
 
@@ -414,6 +447,7 @@ def register_handlers(application: Application):
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("withdraw", withdraw),
+            CallbackQueryHandler(withdraw, pattern="^start_withdraw$"),
         ],
         states={
             STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
@@ -428,4 +462,5 @@ def register_handlers(application: Application):
 
     application.add_handler(conv_handler)
     application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve_withdrawal_|reject_withdrawal_|post_approval_)"))
-    application.add_handler(CommandHandler("balance", balance))  # Register /balance command
+    application.add_handler(CommandHandler("balance", balance))
+    application.add_handler(CallbackQueryHandler(balance, pattern="^check_balance$"))
