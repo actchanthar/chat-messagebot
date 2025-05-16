@@ -136,14 +136,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             welcome_message += top_message
 
     welcome_message += (
-        "\nCommands to manage your earnings:\n"
-        "💰 /balance - Check your balance\n"
-        "💸 /withdraw - Withdraw your earnings\n\n"
+        "\nManage your earnings:\n"
         f"Your Invite Link: https://t.me/{context.bot.username}?start=referrer={user_id}\n"
         "Your Channel"
     )
 
+    # Extract bot username from BOT_TOKEN (assuming format like "bot<token>")
+    bot_username = BOT_TOKEN.split(":")[0].replace("bot", "")
     keyboard = [
+        [
+            InlineKeyboardButton("💰 Check Balance", url=f"tg://resolve?domain={bot_username}&start=/balance"),
+            InlineKeyboardButton("💸 Withdraw", url=f"tg://resolve?domain={bot_username}&start=/withdraw")
+        ],
         [
             InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
             InlineKeyboardButton("Earnings Group", url="https://t.me/stranger77777777777")
