@@ -18,14 +18,13 @@ async def manage_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("Only admins can manage channels.")
         return
 
-    # Example channel management logic
     channels = await db.get_force_sub_channels()
     if not channels:
         await update.message.reply_text("No force-subscription channels configured.")
         return
 
     keyboard = [
-        [InlineKeyboardButton(f"Check {FORCE_SUB_CHANNEL_NAMES.get(cid, 'Channel')}", callback_data=f"check_{cid}")]
+        [InlineKeyboardButton(f"Check {FORCE_SUB_CHANNEL_NAMES.get(cid, 'Channel')}", callback_data=f"check_channel_{cid}")]
         for cid in channels
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -34,7 +33,7 @@ async def manage_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def handle_channel_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    channel_id = query.data.replace("check_", "")
+    channel_id = query.data.replace("check_channel_", "")
     user_id = str(update.effective_user.id)
     logger.info(f"Checking channel {channel_id} for user {user_id}")
 
@@ -42,10 +41,10 @@ async def handle_channel_check(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.message.reply_text("Only admins can perform this action.")
         return
 
-    is_valid = await db.check_channel_status(channel_id)  # Hypothetical function
-    await query.message.reply_text(f"Channel {channel_id} status: {'Valid' if is_valid else 'Invalid'}")
+    # Placeholder response (replace with actual channel management logic if needed)
+    await query.message.reply_text(f"Channel {channel_id} status: Not implemented yet.")
 
 def register_handlers(application: Application):
     logger.info("Registering channel management handlers")
     application.add_handler(CommandHandler("manage_channels", manage_channels))
-    application.add_handler(CallbackQueryHandler(handle_channel_check, pattern="^check_"))
+    application.add_handler(CallbackQueryHandler(handle_channel_check, pattern="^check_channel_"))
