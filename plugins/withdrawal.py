@@ -196,11 +196,13 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await message.reply_text("User not found. Please start again with /start.")
             return ConversationHandler.END
 
-        # Bypass daily limit for admins
+        # Initialize withdrawn_today for all users
+        withdrawn_today = user.get("withdrawn_today", 0)
+        last_withdrawal = user.get("last_withdrawal")
+        current_time = datetime.now(timezone.utc)
+
+        # Check daily withdrawal limit only for non-admins
         if str(user_id) not in ADMIN_IDS:
-            last_withdrawal = user.get("last_withdrawal")
-            withdrawn_today = user.get("withdrawn_today", 0)
-            current_time = datetime.now(timezone.utc)
             if last_withdrawal:
                 last_withdrawal_date = last_withdrawal.date()
                 current_date = current_time.date()
@@ -230,12 +232,12 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         context.user_data["withdrawn_today"] = withdrawn_today
         logger.info(f"Stored withdrawal amount {amount} for user {user_id}, context: {context.user_data}")
 
-        if method == "KBZ Pay":
+        if payment_method == "KBZ Pay":
             await message.reply_text(
                 "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW). 💳\n"
                 "ကျေးဇူးပြု၍ သင်၏ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။"
             )
-        elif method == "Wave Pay":
+        elif payment_method == "Wave Pay":
             await message.reply_text(
                 "Please provide your Wave Pay account details (e.g., phone number and name). 💳\n"
                 "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ ဖုန်းနံပါတ်နှင့် နာမည်)။"
@@ -294,15 +296,20 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "status": "pending",
         "requested_at": datetime.now(timezone.utc)
     }
-    result = await db.update_user(user_id, {
+    # Update withdrawn_today only for non-admins
+    update_data = {
         "balance": new_balance,
         "pending_withdrawals": [pending_withdrawal]
-    })
+    }
+    if str(user_id) not in ADMIN_IDS:
+        update_data["withdrawn_today"] = withdrawn_today + amount
+        update_data["last_withdrawal"] = datetime.now(timezone.utc)
+    result = await db.update_user(user_id, update_data)
     logger.info(f"db.update_user returned: {result} for user {user_id}")
 
     if result is None:
         logger.warning(f"db.update_user returned None for user {user_id}, assuming success based on log")
-        success = True  # Temporary workaround
+        success = True
     elif isinstance(result, bool):
         success = result
     elif hasattr(result, 'modified_count'):
@@ -354,7 +361,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             message_id=log_msg.message_id,
             disable_notification=True
         )
-        # Store the message ID in context for later editing
         if 'log_message_ids' not in context.chat_data:
             context.chat_data['log_message_ids'] = {}
         context.chat_data['log_message_ids'][user_id] = log_msg.message_id
@@ -363,7 +369,8 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Refund the amount if we can't send the request to the log channel
         await db.update_user(user_id, {
             "balance": balance,
-            "pending_withdrawals": []
+            "pending_withdrawals": [],
+            "withdrawn_today": withdrawn_today if str(user_id) not in ADMIN_IDS else user.get("withdrawn_today", 0)
         })
         logger.error(f"Failed to send or pin withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}: {e}")
         await message.reply_text("Error submitting request. Please try again later.")
@@ -374,10 +381,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
     )
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
-
-    # Update withdrawn_today for non-admins
-    if str(user_id) not in ADMIN_IDS:
-        await db.update_user(user_id, {"withdrawn_today": withdrawn_today + amount, "last_withdrawal": datetime.now(timezone.utc)})
 
     return ConversationHandler.END
 
@@ -539,10 +542,10 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                         text=(
                             f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. "
                             f"The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. "
-                            "If there are any problems or you wish to appeal, please contact @actanibot.\n"
+                            f"If there are any problems or you wish to appeal, please contact @actanibot.\n"
                             f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ "
                             f"ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ "
-                            "ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                            f"ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
                         )
                     )
                     logger.info(f"Notified user {user_id} of withdrawal rejection")
