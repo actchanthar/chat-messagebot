@@ -196,26 +196,27 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await message.reply_text("User not found. Please start again with /start.")
             return ConversationHandler.END
 
-        # Check daily withdrawal limit
-        last_withdrawal = user.get("last_withdrawal")
-        withdrawn_today = user.get("withdrawn_today", 0)
-        current_time = datetime.now(timezone.utc)
-        if last_withdrawal:
-            last_withdrawal_date = last_withdrawal.date()
-            current_date = current_time.date()
-            logger.info(f"Checking daily limit for user {user_id}: last_withdrawal_date={last_withdrawal_date}, current_date={current_date}")
-            if last_withdrawal_date == current_date:
-                if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                    logger.info(f"User {user_id} exceeded daily limit. Withdrawn today: {withdrawn_today}, Requested: {amount}")
-                    await message.reply_text(
-                        f"User has exceeded the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. "
-                        f"You've already withdrawn {withdrawn_today} {CURRENCY} today.\n"
-                        f"သင်သည် နေ့စဉ်ထုတ်ယူနိုင်မှု ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ကို ကျော်လွန်သွားပါသည်။ "
-                        f"သင်သည် ယနေ့အတွက် {withdrawn_today} {CURRENCY} ထုတ်ယူပြီးပါသည်။"
-                    )
-                    return STEP_AMOUNT
-            else:
-                withdrawn_today = 0
+        # Bypass daily limit for admins
+        if str(user_id) not in ADMIN_IDS:
+            last_withdrawal = user.get("last_withdrawal")
+            withdrawn_today = user.get("withdrawn_today", 0)
+            current_time = datetime.now(timezone.utc)
+            if last_withdrawal:
+                last_withdrawal_date = last_withdrawal.date()
+                current_date = current_time.date()
+                logger.info(f"Checking daily limit for user {user_id}: last_withdrawal_date={last_withdrawal_date}, current_date={current_date}")
+                if last_withdrawal_date == current_date:
+                    if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
+                        logger.info(f"User {user_id} exceeded daily limit. Withdrawn today: {withdrawn_today}, Requested: {amount}")
+                        await message.reply_text(
+                            f"User has exceeded the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. "
+                            f"You've already withdrawn {withdrawn_today} {CURRENCY} today.\n"
+                            f"သင်သည် နေ့စဉ်ထုတ်ယူနိုင်မှု ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ကို ကျော်လွန်သွားပါသည်။ "
+                            f"သင်သည် ယနေ့အတွက် {withdrawn_today} {CURRENCY} ထုတ်ယူပြီးပါသည်။"
+                        )
+                        return STEP_AMOUNT
+                else:
+                    withdrawn_today = 0
 
         # Strict balance check
         if user.get("balance", 0) < amount:
@@ -229,12 +230,12 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         context.user_data["withdrawn_today"] = withdrawn_today
         logger.info(f"Stored withdrawal amount {amount} for user {user_id}, context: {context.user_data}")
 
-        if payment_method == "KBZ Pay":
+        if method == "KBZ Pay":
             await message.reply_text(
                 "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW). 💳\n"
                 "ကျေးဇူးပြု၍ သင်၏ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။"
             )
-        elif payment_method == "Wave Pay":
+        elif method == "Wave Pay":
             await message.reply_text(
                 "Please provide your Wave Pay account details (e.g., phone number and name). 💳\n"
                 "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ ဖုန်းနံပါတ်နှင့် နာမည်)။"
@@ -374,6 +375,10 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
 
+    # Update withdrawn_today for non-admins
+    if str(user_id) not in ADMIN_IDS:
+        await db.update_user(user_id, {"withdrawn_today": withdrawn_today + amount, "last_withdrawal": datetime.now(timezone.utc)})
+
     return ConversationHandler.END
 
 # Handle admin approval/rejection
@@ -403,7 +408,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             result = await db.update_user(user_id, {
                 "pending_withdrawals": [],
                 "last_withdrawal": datetime.now(timezone.utc),
-                "withdrawn_today": user.get("withdrawn_today", 0) + amount
+                "withdrawn_today": user.get("withdrawn_today", 0) + amount if str(user_id) not in ADMIN_IDS else user.get("withdrawn_today", 0)
             })
             logger.info(f"db.update_user returned: {result}")
 
@@ -531,8 +536,14 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. If there are any problems or you wish to appeal, please contact @actanibot.\n"
-                             f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                        text=(
+                            f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. "
+                            f"The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. "
+                            "If there are any problems or you wish to appeal, please contact @actanibot.\n"
+                            f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ "
+                            f"ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ "
+                            "ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                        )
                     )
                     logger.info(f"Notified user {user_id} of withdrawal rejection")
                 except Exception as e:
