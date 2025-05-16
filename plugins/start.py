@@ -1,3 +1,4 @@
+# plugins/start.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
@@ -9,18 +10,15 @@ logger = logging.getLogger(__name__)
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, channel_id: str) -> bool:
     try:
-        # Verify bot's admin status in the channel
         bot_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=context.bot.id)
         bot_is_admin = bot_member.status in ["administrator", "creator"]
         if not bot_is_admin:
             logger.error(f"Bot is not an admin in channel {channel_id}. Bot status: {bot_member.status}")
             return False
 
-        # Check user membership
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         is_member = member.status in ["member", "administrator", "creator"]
         logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}, user={member.user.username}")
-        # Update subscription status in database
         user = await db.get_user(user_id)
         if user:
             subscribed_channels = user.get("subscribed_channels", [])
@@ -43,7 +41,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id} at {update.message.date}")
 
-    # Check for referral
     referrer_id = None
     if context.args and context.args[0].startswith("referrer="):
         referrer_id = context.args[0].split("referrer=")[1]
@@ -53,11 +50,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = await db.create_user(user_id, update.effective_user.full_name, referrer_id)
         logger.info(f"Created new user {user_id} during start command with referrer {referrer_id}")
 
-    # Check subscription to required channels
     force_sub_channels = await db.get_force_sub_channels()
     logger.info(f"Force-sub channels from database: {force_sub_channels}")
     
-    # If no force-sub channels, skip the check
     if not force_sub_channels:
         logger.info(f"No force-sub channels configured. Skipping subscription check for user {user_id}")
     else:
@@ -87,7 +82,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
 
-    # If user has a referrer, notify the referrer after confirming subscription
     if user.get("referrer_id"):
         referrer_id = user["referrer_id"]
         user_subscribed = not force_sub_channels or all(
@@ -117,7 +111,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
     )
 
-    # Fetch top users
     users = await db.get_all_users()
     if users:
         target_group = "-1002061898677"
@@ -143,17 +136,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             welcome_message += top_message
 
     welcome_message += (
-        "\nUse the buttons below to check your balance, withdraw your earnings.\n"
-        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n\n"
+        "\nCommands to manage your earnings:\n"
+        "💰 /balance - Check your balance\n"
+        "💸 /withdraw - Withdraw your earnings\n\n"
         f"Your Invite Link: https://t.me/{context.bot.username}?start=referrer={user_id}\n"
         "Your Channel"
     )
 
     keyboard = [
-        [
-            InlineKeyboardButton("Check Balance", callback_data="balance"),
-            InlineKeyboardButton("Withdraw", callback_data="withdraw")
-        ],
         [
             InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
             InlineKeyboardButton("Earnings Group", url="https://t.me/stranger77777777777")
