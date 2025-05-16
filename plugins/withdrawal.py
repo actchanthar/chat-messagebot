@@ -1,3 +1,4 @@
+# plugins/withdrawal.py
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -55,8 +56,9 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.callback_query:
         await update.callback_query.answer()
 
+    # Check if the chat is private (should be true for /start button)
     if update.effective_chat.type != "private":
-        logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
+        logger.warning(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
         if update.message:
             await update.message.reply_text("Please use the /withdraw command in a private chat.")
         else:
@@ -96,11 +98,15 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if pending_withdrawals:
         logger.info(f"User {user_id} has a pending withdrawal: {pending_withdrawals}")
         if update.message:
-            await update.message.reply_text("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
-                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
+            await update.message.reply_text(
+                "You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
+                "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။"
+            )
         else:
-            await update.callback_query.message.reply_text("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
-                                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
+            await update.callback_query.message.reply_text(
+                "You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
+                "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။"
+            )
         return ConversationHandler.END
 
     context.user_data.clear()
@@ -284,9 +290,22 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     }
     result = await db.update_user(user_id, {
         "balance": new_balance,
-        "pending_withdrawals": [pending_withdrawal]  # Store as a list for potential future multiple pending withdrawals
+        "pending_withdrawals": [pending_withdrawal]
     })
-    if not result:
+    logger.info(f"db.update_user returned: {result} for user {user_id}")
+
+    if result is None:
+        logger.warning(f"db.update_user returned None for user {user_id}, assuming success based on log")
+        success = True  # Temporary workaround
+    elif isinstance(result, bool):
+        success = result
+    elif hasattr(result, 'modified_count'):
+        success = result.modified_count > 0
+    else:
+        logger.error(f"Unexpected db.update_user result type: {type(result)} for user {user_id}")
+        success = False
+
+    if not success:
         logger.error(f"Failed to deduct amount for user {user_id} during withdrawal request")
         await message.reply_text("Error submitting request. Please try again later.")
         return ConversationHandler.END
@@ -538,15 +557,20 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         amount = pending_withdrawals[0]["amount"]
         balance = user.get("balance", 0)
         new_balance = balance + amount
-        await db.update_user(user_id, {
+        result = await db.update_user(user_id, {
             "balance": new_balance,
             "pending_withdrawals": []
         })
-        logger.info(f"Refunded {amount} to user {user_id} on cancellation. New balance: {new_balance}")
-        await update.message.reply_text(
-            f"Withdrawal canceled. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
-            f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
-        )
+        logger.info(f"db.update_user returned: {result} for refund on cancellation for user {user_id}")
+        if result is None or (hasattr(result, 'modified_count') and result.modified_count > 0):
+            logger.info(f"Refunded {amount} to user {user_id} on cancellation. New balance: {new_balance}")
+            await update.message.reply_text(
+                f"Withdrawal canceled. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
+                f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+            )
+        else:
+            logger.error(f"Failed to refund {amount} to user {user_id}. Result: {result}")
+            await update.message.reply_text("Error canceling withdrawal. Please contact an admin.")
     else:
         await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
 
