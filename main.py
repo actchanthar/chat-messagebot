@@ -8,7 +8,8 @@ from plugins.broadcast import register_handlers as broadcast_handlers
 from plugins.setphonebill import register_handlers as setphonebill_handlers
 from plugins.withdrawal import register_handlers as withdrawal_handlers
 from plugins.setinvite import register_handlers as setinvite_handlers
-from plugins.check_subscription import register_handlers as checksubscription_handlers  # Add this
+from plugins.check_subscription import register_handlers as checksubscription_handlers
+from plugins.channel_management import register_handlers as channel_management_handlers  # Add this
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,7 +25,8 @@ def main() -> None:
     setphonebill_handlers(application)
     withdrawal_handlers(application)
     setinvite_handlers(application)
-    checksubscription_handlers(application)  # Add this
+    checksubscription_handlers(application)
+    channel_management_handlers(application)  # Add this
 
     logger.info("Starting bot")
     application.run_polling(allowed_updates=["message", "callback_query"])
