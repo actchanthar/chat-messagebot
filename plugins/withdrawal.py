@@ -302,7 +302,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await message.reply_text(
         f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Please wait for admin approval. ⏳\n"
-        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ကျေးဇူးပြု၍ အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ပါ�।"
+        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ကျေးဇူးပြု၍ အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ပါ။"
     )
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
 
@@ -355,13 +355,15 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 
             new_balance = balance - amount
             new_withdrawn_today = withdrawn_today + amount
-            success = await db.update_user(user_id, {
+            update_data = {
                 "balance": new_balance,
                 "last_withdrawal": current_time,
                 "withdrawn_today": new_withdrawn_today
-            })
+            }
+            result = await db.update_user(user_id, update_data)
+            logger.info(f"db.update_user returned: {result} for user {user_id} with data {update_data}")
 
-            if success:
+            if result is True:  # Explicitly check for True
                 logger.info(f"Withdrawal approved for user {user_id}. Amount: {amount}, New balance: {new_balance}")
                 # Update log channel message
                 message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
@@ -405,7 +407,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.message.reply_text("Approve done ✅")
                 logger.info(f"Confirmed approval to admin for user {user_id}")
             else:
-                logger.error(f"Failed to update user {user_id} for withdrawal approval")
+                logger.error(f"Failed to update user {user_id} for withdrawal approval. Result: {result}")
                 await query.message.reply_text("Error approving withdrawal. Please try again.")
 
         elif data.startswith("reject_withdrawal_"):
