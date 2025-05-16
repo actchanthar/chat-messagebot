@@ -68,7 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             keyboard = [
                 [InlineKeyboardButton(
                     f"Join {FORCE_SUB_CHANNEL_NAMES.get(channel_id, 'Channel')}",
-                    url=FORCE_SUB_CHANNEL_LINKS.get(channel_id, 'https://t.me/yourchannel')
+                    url=FORCE_SUB_CHANNEL_LINKS.get(channel_id, 'https://t.me/+placeholder_link')
                 )]
                 for channel_id in not_subscribed_channels
             ]
