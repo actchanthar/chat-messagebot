@@ -56,15 +56,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.callback_query:
         await update.callback_query.answer()
 
-    # Check if the chat is private (should be true for /start button)
-    if update.effective_chat.type != "private":
-        logger.warning(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
-        if update.message:
-            await update.message.reply_text("Please use the /withdraw command in a private chat.")
-        else:
-            await update.callback_query.message.reply_text("Please use /withdraw in a private chat.")
-        return ConversationHandler.END
-
     user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
@@ -73,6 +64,26 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             await update.callback_query.message.reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
+
+    # Only check channel join in DMs, not groups
+    if update.effective_chat.type == "private":
+        if not user.get("channels_joined_verified", False):
+            can_withdraw, reason = await db.can_withdraw(user_id)
+            logger.info(f"User {user_id} can_withdraw check: {can_withdraw}, reason: {reason}")
+            if not can_withdraw:
+                if update.message:
+                    await update.message.reply_text(
+                        f"{reason}\nPlease join and use /start again."
+                    )
+                else:
+                    await update.callback_query.message.reply_text(
+                        f"{reason}\nPlease join and use /start again."
+                    )
+                return ConversationHandler.END
+            # Mark as verified after successful check
+            await db.update_user(user_id, {"channels_joined_verified": True})
+    else:
+        logger.info(f"Withdraw in group chat {chat_id} for user {user_id}, skipping channel check")
 
     if user.get("banned", False):
         logger.info(f"User {user_id} is banned")
@@ -87,7 +98,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         can_withdraw, reason = await db.can_withdraw(user_id)
         logger.info(f"User {user_id} can_withdraw check: {can_withdraw}, reason: {reason}")
         if not can_withdraw:
-            logger.info(f"User {user_id} cannot withdraw: {reason}")
             if update.message:
                 await update.message.reply_text(reason)
             else:
