@@ -19,17 +19,21 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, c
         # Check user membership
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         is_member = member.status in ["member", "administrator", "creator"]
-        logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}")
+        logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}, user={member.user.username}")
         await db.update_subscription_status(user_id, channel_id, is_member)
         return is_member
     except Exception as e:
         logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
+        if "user not found" in str(e).lower():
+            logger.info(f"User {user_id} is likely not in channel {channel_id}.")
+        elif "not enough rights" in str(e).lower():
+            logger.error(f"Bot lacks permissions to view members in channel {channel_id}.")
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
+    logger.info(f"Start command initiated by user {user_id} in chat {chat_id} at {update.message.date}")
 
     # Check for referral
     referrer_id = None
@@ -46,8 +50,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Force-sub channels from database: {force_sub_channels}")
     not_subscribed_channels = []
     for channel_id in force_sub_channels:
-        if not await check_subscription(context, user_id, channel_id):
+        is_subscribed = await check_subscription(context, user_id, channel_id)
+        if not is_subscribed:
             not_subscribed_channels.append(channel_id)
+        else:
+            logger.info(f"User {user_id} confirmed subscribed to channel {channel_id}")
 
     if not_subscribed_channels:
         keyboard = [
@@ -67,10 +74,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # If user has a referrer and has joined the channel, notify the referrer
+    # If user has a referrer, notify the referrer after confirming subscription
     if user.get("referrer_id"):
         referrer_id = user["referrer_id"]
-        # Only increment and notify if the user has newly joined all required channels
         user_subscribed = all(
             channel_id in user.get("subscribed_channels", []) for channel_id in force_sub_channels
         )
