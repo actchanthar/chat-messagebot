@@ -141,12 +141,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Your Channel"
     )
 
-    # Extract bot username from BOT_TOKEN (assuming format like "bot<token>")
-    bot_username = BOT_TOKEN.split(":")[0].replace("bot", "")
     keyboard = [
         [
-            InlineKeyboardButton("💰 Check Balance", url=f"tg://resolve?domain={bot_username}&start=/balance"),
-            InlineKeyboardButton("💸 Withdraw", url=f"tg://resolve?domain={bot_username}&start=/withdraw")
+            InlineKeyboardButton("💰 Check Balance", callback_data="check_balance"),
+            InlineKeyboardButton("💸 Withdraw", callback_data="start_withdraw")
         ],
         [
             InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
