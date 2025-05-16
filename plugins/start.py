@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import FORCE_SUB_CHANNEL_LINKS, BOT_TOKEN
+from config import FORCE_SUB_CHANNEL_LINKS, FORCE_SUB_CHANNEL_NAMES, BOT_TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,10 +11,12 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, c
     try:
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         is_member = member.status in ["member", "administrator", "creator"]
+        logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}")
         await db.update_subscription_status(user_id, channel_id, is_member)
         return is_member
     except Exception as e:
-        logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
+        logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
+        # If the bot can't access the channel, log and assume the user isn't a member
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -40,13 +42,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             not_subscribed_channels.append(channel_id)
 
     if not_subscribed_channels:
-        channel_links = "\n".join(
-            [f"- <a href='{FORCE_SUB_CHANNEL_LINKS.get(channel_id, 'https://t.me/yourchannel')}'>Join Channel</a>"
-             for channel_id in not_subscribed_channels]
-        )
+        # Create inline buttons for each channel
+        keyboard = [
+            [InlineKeyboardButton(
+                f"Join {FORCE_SUB_CHANNEL_NAMES.get(channel_id, 'Channel')}",
+                url=FORCE_SUB_CHANNEL_LINKS.get(channel_id, 'https://t.me/yourchannel')
+            )]
+            for channel_id in not_subscribed_channels
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
-            f"🎉 Welcome! To use the bot, please join the following channel(s):\n{channel_links}\n\n"
+            f"🎉 Welcome! To use the bot, please join the following channel(s):\n\n"
             "After joining, use /start again to proceed. 🚀",
+            reply_markup=reply_markup,
             parse_mode="HTML",
             disable_web_page_preview=True
         )
