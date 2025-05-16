@@ -59,7 +59,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     # If no force-sub channels, skip the check
     if not force_sub_channels:
-        logger.info(f"No force-sub channels configured. Skipping subscription check for user {user_id}.")
+        logger.info(f"No force-sub channels configured. Skipping subscription check for user {user_id}")
     else:
         not_subscribed_channels = []
         for channel_id in force_sub_channels:
@@ -143,9 +143,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             welcome_message += top_message
 
     welcome_message += (
-        "\nUse the buttons below to check your balance, withdraw your earnings, or join our group.\n"
-        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n\n"
-        f"Your Invite Link: https://t.me/{context.bot.username}?start=referrer={user_id}"
+        "\nUse the buttons below to check your balance, withdraw your earnings.\n"
+        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n\n"
+        f"Your Invite Link: https://t.me/{context.bot.username}?start=referrer={user_id}\n"
+        "Your Channel"
     )
 
     keyboard = [
@@ -153,7 +154,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("Check Balance", callback_data="balance"),
             InlineKeyboardButton("Withdraw", callback_data="withdraw")
         ],
-        [InlineKeyboardButton("Join Group", url="https://t.me/yourgroup")]
+        [
+            InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
+            InlineKeyboardButton("Earnings Group", url="https://t.me/stranger77777777777")
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
