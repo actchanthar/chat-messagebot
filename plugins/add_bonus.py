@@ -69,10 +69,18 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         current_balance = target_user.get("balance", 0)
         new_balance = current_balance + amount
         result = await db.update_user(target_user_id, {"balance": new_balance})
-        logger.info(f"db.update_user returned: {result} for user {target_user_id}")
+        logger.info(f"db.update_user returned: {result} for user {target_user_id} with new balance {new_balance}")
 
         # Check if the update was successful
-        if result and (isinstance(result, bool) or (hasattr(result, 'modified_count') and result.modified_count > 0)):
+        success = False
+        if isinstance(result, bool):
+            success = result
+        elif hasattr(result, 'modified_count'):
+            success = result.modified_count > 0
+        else:
+            logger.error(f"Unexpected db.update_user result type: {type(result)} for user {target_user_id}")
+
+        if success:
             logger.info(f"Bonus of {amount} {CURRENCY} added to user {target_user_id}. New balance: {new_balance}")
             
             # Notify the admin
