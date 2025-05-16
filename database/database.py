@@ -14,6 +14,9 @@ class Database:
 
     async def get_user(self, user_id: str):
         user = self.db.users.find_one({"user_id": user_id})
+        if user and "message_timestamps" in user:
+            # Convert list back to deque when retrieving
+            user["message_timestamps"] = deque(user["message_timestamps"], maxlen=1000)
         logger.info(f"Retrieved user {user_id} from database: {user}")
         return user
 
@@ -24,7 +27,7 @@ class Database:
             "balance": 0,
             "messages": 0,
             "group_messages": {},
-            "message_timestamps": deque(maxlen=1000),  # Initialize as deque
+            "message_timestamps": [],  # Store as list in MongoDB
             "last_activity": datetime.datetime.utcnow(),
             "referrer_id": referrer_id,
             "invited_users": 0,
@@ -32,11 +35,14 @@ class Database:
         }
         self.db.users.insert_one(user)
         logger.info(f"Created user {user_id} in database")
+        # Convert message_timestamps to deque for in-memory use
+        user["message_timestamps"] = deque([], maxlen=1000)
         return user
 
     async def update_user(self, user_id: str, updates: dict):
-        if "message_timestamps" in updates and isinstance(updates["message_timestamps"], str):
-            updates["message_timestamps"] = deque(updates["message_timestamps"], maxlen=1000)
+        # Convert deque to list before saving to MongoDB
+        if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
+            updates["message_timestamps"] = list(updates["message_timestamps"])
         self.db.users.update_one({"user_id": user_id}, {"$set": updates})
         logger.info(f"Updated user {user_id}: {updates}")
 
@@ -101,6 +107,10 @@ class Database:
 
     async def get_all_users(self):
         users = list(self.db.users.find())
+        # Convert message_timestamps to deque for each user
+        for user in users:
+            if "message_timestamps" in user:
+                user["message_timestamps"] = deque(user["message_timestamps"], maxlen=1000)
         return users
 
     async def get_phone_bill_reward(self):
