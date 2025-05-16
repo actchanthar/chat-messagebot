@@ -275,8 +275,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Payment Method: **{payment_method}**\n"
         f"Details: {payment_details}\n"
         f"Invited Users: {user.get('invited_users', 0)}\n"
-        f"Status: PENDING ⏳\n"
-        f"Message ID: {context._chat_data.get('log_message_id', 'N/A')}"  # Store message ID for editing
+        f"Status: PENDING ⏳"
     )
 
     try:
@@ -303,7 +302,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await message.reply_text(
         f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Please wait for admin approval. ⏳\n"
-        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ကျေးဇူးပြု၍ အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ပါ။"
+        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ကျေးဇူးပြု၍ အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ပါ�।"
     )
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
 
