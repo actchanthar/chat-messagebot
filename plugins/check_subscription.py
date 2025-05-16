@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import FORCE_SUB_CHANNEL_IDS, FORCE_SUB_CHANNEL_LINKS
+from config import FORCE_SUB_CHANNEL_LINKS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,19 +22,21 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     chat_id = update.effective_chat.id
     logger.info(f"CheckSubscription command initiated by user {user_id} in chat {chat_id}")
 
+    force_sub_channels = await db.get_force_sub_channels()
     not_subscribed_channels = []
-    for channel_id in FORCE_SUB_CHANNEL_IDS:
+    for channel_id in force_sub_channels:
         if not await check_subscription(context, user_id, channel_id):
             not_subscribed_channels.append(channel_id)
 
     if not_subscribed_channels:
         channel_links = "\n".join(
-            [f"- <a href='{FORCE_SUB_CHANNEL_LINKS[channel_id]}'>{channel_id}</a>"
+            [f"- <a href='{FORCE_SUB_CHANNEL_LINKS.get(channel_id, 'https://t.me/yourchannel')}'>Join Channel</a>"
              for channel_id in not_subscribed_channels]
         )
         await update.message.reply_text(
-            f"You need to join the following channel(s) to use the bot:\n{channel_links}",
-            parse_mode="HTML"
+            f"🎉 You need to join the following channel(s) to use the bot:\n{channel_links}",
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
     else:
         user = await db.get_user(user_id)
@@ -47,13 +49,14 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     await context.bot.send_message(
                         chat_id=referrer_id,
                         text=f"🎉 User {update.effective_user.full_name} confirmed their subscription to the required channel(s)! "
-                             f"You now have {referrer.get('invited_users', 0) + 1} invites.\n"
-                             f"Share this link to invite more: {new_invite_link}"
+                             f"You now have {referrer.get('invited_users', 0)} invites.\n"
+                             f"Share this link to invite more: {new_invite_link}",
+                        disable_web_page_preview=True
                     )
                     logger.info(f"Notified referrer {referrer_id} of confirmed subscription by user {user_id}")
                 except Exception as e:
                     logger.error(f"Failed to notify referrer {referrer_id}: {e}")
-        await update.message.reply_text("You are subscribed to all required channels! 🎉")
+        await update.message.reply_text("🎉 You are subscribed to all required channels! Enjoy the bot! 🚀", parse_mode="HTML")
 
 def register_handlers(application: Application):
     logger.info("Registering checksubscription handlers")
