@@ -21,7 +21,7 @@ STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
 # Entry point for /withdraw command and button callback
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = update.effective_user.id
+    user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
     source = "command" if update.message else "button"
     logger.info(f"Withdraw function called for user {user_id} in chat {chat_id} via {source}")
@@ -37,7 +37,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.callback_query.message.reply_text("Please use /withdraw in a private chat.")
         return ConversationHandler.END
 
-    user = await db.get_user(str(user_id))
+    user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
         if update.message:
@@ -52,6 +52,16 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text("You are banned from using this bot.")
         else:
             await update.callback_query.message.reply_text("You are banned from using this bot.")
+        return ConversationHandler.END
+
+    # Check invite requirement
+    can_withdraw, reason = await db.can_withdraw(user_id)
+    if not can_withdraw:
+        logger.info(f"User {user_id} cannot withdraw: {reason}")
+        if update.message:
+            await update.message.reply_text(reason)
+        else:
+            await update.callback_query.message.reply_text(reason)
         return ConversationHandler.END
 
     context.user_data.clear()
@@ -76,7 +86,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def handle_payment_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    user_id = update.effective_user.id
+    user_id = str(update.effective_user.id)
     data = query.data
     logger.info(f"Handling payment method selection for user {user_id}, data: {data}")
 
@@ -112,7 +122,7 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
 
 # Handle withdrawal amount input
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = update.effective_user.id
+    user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
     message = update.message
     logger.info(f"Received message for amount input from user {user_id} in chat {chat_id}: {message.text}, context: {context.user_data}")
@@ -132,7 +142,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return STEP_AMOUNT
 
-        user = await db.get_user(str(user_id))
+        user = await db.get_user(user_id)
         if not user:
             await message.reply_text("User not found. Please start again with /start.")
             return ConversationHandler.END
@@ -196,7 +206,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 # Handle account details input
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = update.effective_user.id
+    user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
     message = update.message
     logger.info(f"Handling account details for user {user_id}: {message.text}")
@@ -209,7 +219,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("Error: Withdrawal amount or payment method not found. Please start again with /withdraw.")
         return ConversationHandler.END
 
-    user = await db.get_user(str(user_id))
+    user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
         await message.reply_text("User not found. Please start again with /start.")
@@ -237,6 +247,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Amount: {amount} {CURRENCY} 💸\n"
         f"Payment Method: **{payment_method}**\n"
         f"Details: {payment_details}\n"
+        f"Invited Users: {user.get('invited_users', 0)}\n"
         f"Status: PENDING ⏳"
     )
 
@@ -281,10 +292,10 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.message.reply_text("Error processing withdrawal request.")
                 return
             _, _, user_id, amount = parts
-            user_id = int(user_id)
+            user_id = user_id
             amount = int(amount)
 
-            user = await db.get_user(str(user_id))
+            user = await db.get_user(user_id)
             if not user:
                 logger.error(f"User {user_id} not found for withdrawal approval")
                 await query.message.reply_text("User not found.")
@@ -313,7 +324,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 
             new_balance = balance - amount
             new_withdrawn_today = withdrawn_today + amount
-            success = await db.update_user(str(user_id), {
+            success = await db.update_user(user_id, {
                 "balance": new_balance,
                 "last_withdrawal": current_time,
                 "withdrawn_today": new_withdrawn_today
@@ -347,7 +358,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.message.reply_text("Error processing withdrawal request.")
                 return
             _, _, user_id, amount = parts
-            user_id = int(user_id)
+            user_id = user_id
             amount = int(amount)
 
             logger.info(f"Withdrawal rejected for user {user_id}. Amount: {amount}")
@@ -369,10 +380,10 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await query.message.reply_text("Error processing approval post.")
                 return
             _, _, user_id, amount = parts
-            user_id = int(user_id)
+            user_id = user_id
             amount = int(amount)
 
-            user = await db.get_user(str(user_id))
+            user = await db.get_user(user_id)
             if not user:
                 logger.error(f"User {user_id} not found for approval post")
                 await query.message.reply_text("User not found.")
@@ -399,7 +410,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # Cancel the withdrawal process
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = update.effective_user.id
+    user_id = str(update.effective_user.id)
     logger.info(f"User {user_id} canceled the withdrawal process")
     await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
     context.user_data.clear()
@@ -417,7 +428,11 @@ def register_handlers(application: Application):
             STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
             STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)],  # Fixed: Added closing bracket
+        fallbacks=[
+            CommandHandler("cancel", cancel),
+            MessageHandler(filters.Regex("^(Cancel|cancel)$"), cancel),
+        ],
     )
+
     application.add_handler(conv_handler)
-    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_|post_approval_"))
+    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve_withdrawal_|reject_withdrawal_|post_approval_)"))
