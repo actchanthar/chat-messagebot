@@ -1,3 +1,4 @@
+# database.py
 from pymongo import MongoClient
 from collections import deque
 import datetime
@@ -30,7 +31,7 @@ class Database:
             "last_activity": datetime.datetime.utcnow(),
             "referrer_id": referrer_id,
             "invited_users": 0,
-            "subscribed_channels": []
+            # Removed "subscribed_channels" as it’s no longer needed
         }
         self.db.users.insert_one(user)
         logger.info(f"Created user {user_id} in database")
@@ -62,35 +63,8 @@ class Database:
         await self.update_user(user_id, {"message_timestamps": timestamps})
         return True
 
-    async def get_force_sub_channels(self):
-        settings = self.db.settings.find_one({"type": "force_sub_channels"})
-        channels = settings.get("value", []) if settings else []
-        logger.info(f"Retrieved force-sub channels: {channels}")
-        return channels
-
-    async def set_force_sub_channels(self, channels: list) -> bool:
-        try:
-            self.db.settings.update_one(
-                {"type": "force_sub_channels"},
-                {"$set": {"value": channels}},
-                upsert=True
-            )
-            logger.info(f"Updated force-sub channels: {channels}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating force-sub channels: {e}")
-            return False
-
-    async def update_subscription_status(self, user_id: str, channel_id: str, is_member: bool):
-        user = await self.get_user(user_id)
-        if not user:
-            return
-        subscribed_channels = user.get("subscribed_channels", [])
-        if is_member and channel_id not in subscribed_channels:
-            subscribed_channels.append(channel_id)
-        elif not is_member and channel_id in subscribed_channels:
-            subscribed_channels.remove(channel_id)
-        await self.update_user(user_id, {"subscribed_channels": subscribed_channels})
+    # Removed get_force_sub_channels, set_force_sub_channels, and update_subscription_status
+    # as they are part of the subscription enforcement system
 
     async def increment_invited_users(self, user_id: str):
         self.db.users.update_one(
@@ -113,10 +87,10 @@ class Database:
         user = await self.get_user(user_id)
         if not user:
             return False, "User not found. Please start with /start."
-        
+
         invited_users = user.get("invited_users", 0)
         required_invites = DEFAULT_REQUIRED_INVITES  # From config.py (15 invites)
-        
+
         if invited_users < required_invites:
             return False, (
                 f"You need to invite at least {required_invites} users to withdraw. "
