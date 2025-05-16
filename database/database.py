@@ -2,6 +2,7 @@ from pymongo import MongoClient
 from collections import deque
 import datetime
 import logging
+from config import MONGODB_URL, MONGODB_NAME
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -104,3 +105,6 @@ class Database:
 
     async def get_phone_bill_reward(self):
         return 1000  # Example value
+
+# Initialize and export the db instance
+db = Database(MONGODB_URL, MONGODB_NAME)
