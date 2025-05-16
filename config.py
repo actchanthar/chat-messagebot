@@ -26,9 +26,4 @@ ADMIN_IDS = ["5062124930"]  # List of admin user IDs
 DEFAULT_REQUIRED_INVITES = 15
 
 # Force-subscription settings
-FORCE_SUB_CHANNEL_LINKS = {
-    "-1002171798406": "https://t.me/+placeholder_link"  # Replace with actual invite link for -1002171798406
-}
-FORCE_SUB_CHANNEL_NAMES = {
-    "-1002171798406": "New Channel"  # Replace with actual channel name
-}
+REQUIRED_CHANNELS = ["-1002097823468", "-1002171798406"]  # Replace with actual channel IDs
