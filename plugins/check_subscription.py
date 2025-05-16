@@ -9,6 +9,14 @@ logger = logging.getLogger(__name__)
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, channel_id: str) -> bool:
     try:
+        # Verify bot's admin status in the channel
+        bot_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=context.bot.id)
+        bot_is_admin = bot_member.status in ["administrator", "creator"]
+        if not bot_is_admin:
+            logger.error(f"Bot is not an admin in channel {channel_id}. Bot status: {bot_member.status}")
+            return False
+
+        # Check user membership
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         is_member = member.status in ["member", "administrator", "creator"]
         logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}")
@@ -24,6 +32,7 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     logger.info(f"CheckSubscription command initiated by user {user_id} in chat {chat_id}")
 
     force_sub_channels = await db.get_force_sub_channels()
+    logger.info(f"Force-sub channels from database: {force_sub_channels}")
     not_subscribed_channels = []
     for channel_id in force_sub_channels:
         if not await check_subscription(context, user_id, channel_id):
@@ -56,7 +65,7 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                         chat_id=referrer_id,
                         text=f"🎉 User {update.effective_user.full_name} confirmed their subscription to the required channel(s)! "
                              f"You now have {referrer.get('invited_users', 0)} invites.\n"
-                             f"Share this link to invite more: {new_invite_link}",
+                             f"Share this link to invite more: {new_invate_link}",
                         disable_web_page_preview=True
                     )
                     logger.info(f"Notified referrer {referrer_id} of confirmed subscription by user {user_id}")
