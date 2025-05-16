@@ -28,5 +28,5 @@ DEFAULT_REQUIRED_INVITES = 15
 # Force-subscription settings
 FORCE_SUB_CHANNEL_IDS = ["-1002097823468"]  # Channels users must join to use the bot
 FORCE_SUB_CHANNEL_LINKS = {
-    "-1002097823468": "https://t.me/yourchannel"  # Replace with the actual invite link
+    "-1002097823468": "https://t.me/+YJ0U3GLV9ws2MGJl"  # Replace with the actual invite link
 }
