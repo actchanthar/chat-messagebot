@@ -2,19 +2,73 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
+from config import FORCE_SUB_CHANNEL_IDS, FORCE_SUB_CHANNEL_LINKS, BOT_TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, channel_id: str) -> bool:
+    try:
+        member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        is_member = member.status in ["member", "administrator", "creator"]
+        await db.update_subscription_status(user_id, channel_id, is_member)
+        return is_member
+    except Exception as e:
+        logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
+        return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
 
+    # Check for referral
+    referrer_id = None
+    if context.args and context.args[0].startswith("referrer="):
+        referrer_id = context.args[0].split("referrer=")[1]
+
     user = await db.get_user(user_id)
     if not user:
-        user = await db.create_user(user_id, update.effective_user.full_name)
-        logger.info(f"Created new user {user_id} during start command")
+        user = await db.create_user(user_id, update.effective_user.full_name, referrer_id)
+        logger.info(f"Created new user {user_id} during start command with referrer {referrer_id}")
+
+    # Check subscription to required channels
+    not_subscribed_channels = []
+    for channel_id in FORCE_SUB_CHANNEL_IDS:
+        if not await check_subscription(context, user_id, channel_id):
+            not_subscribed_channels.append(channel_id)
+
+    if not_subscribed_channels:
+        channel_links = "\n".join(
+            [f"- <a href='{FORCE_SUB_CHANNEL_LINKS[channel_id]}'>{channel_id}</a>"
+             for channel_id in not_subscribed_channels]
+        )
+        await update.message.reply_text(
+            f"Please join the following channel(s) to use the bot:\n{channel_links}\n\n"
+            "After joining, use /start again.",
+            parse_mode="HTML"
+        )
+        return
+
+    # If user has a referrer and has joined the channel, notify the referrer
+    if user.get("referrer_id") and all(
+        channel_id in user.get("subscribed_channels", []) for channel_id in FORCE_SUB_CHANNEL_IDS
+    ):
+        referrer_id = user["referrer_id"]
+        await db.increment_invited_users(referrer_id)
+        referrer = await db.get_user(referrer_id)
+        if referrer:
+            new_invite_link = f"https://t.me/{context.bot.username}?start=referrer={referrer_id}"
+            try:
+                await context.bot.send_message(
+                    chat_id=referrer_id,
+                    text=f"🎉 A new user has joined the required channel(s) via your referral! "
+                         f"You now have {referrer.get('invited_users', 0) + 1} invites.\n"
+                         f"Share this link to invite more: {new_invite_link}"
+                )
+                logger.info(f"Notified referrer {referrer_id} of new invite by user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to notify referrer {referrer_id}: {e}")
 
     welcome_message = (
         "စာပို့ရင်း ငွေရှာမယ်:\n"
@@ -23,7 +77,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
     )
 
-    # Fetch top users (same logic as /top)
+    # Fetch top users
     users = await db.get_all_users()
     if users:
         target_group = "-1002061898677"
@@ -50,7 +104,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     welcome_message += (
         "\nUse the buttons below to check your balance, withdraw your earnings, or join our group.\n"
-        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ�。\n\n"
+        f"Your Invite Link: https://t.me/{context.bot.username}?start=referrer={user_id}"
     )
 
     keyboard = [
