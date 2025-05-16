@@ -13,12 +13,12 @@ async def manage_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     chat_id = update.effective_chat.id
     logger.info(f"Manage channels command initiated by user {user_id} in chat {chat_id}")
 
-    # Check if user is an admin
+    # Restrict to admins only
     if user_id not in [str(admin_id) for admin_id in ADMIN_IDS]:
         await update.message.reply_text("Only admins can manage channels.")
         return
 
-    # Example channel management logic (replace with your actual logic)
+    # Example channel management logic
     channels = await db.get_force_sub_channels()
     if not channels:
         await update.message.reply_text("No force-subscription channels configured.")
