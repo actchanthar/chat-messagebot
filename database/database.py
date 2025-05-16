@@ -1,305 +1,106 @@
-from motor.motor_asyncio import AsyncIOMotorClient
-from config import MONGODB_URL, MONGODB_NAME, ADMIN_USER_ID
-import logging
-from datetime import datetime, timedelta
+from pymongo import MongoClient
 from collections import deque
+import datetime
+import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class Database:
-    def __init__(self):
-        self.client = AsyncIOMotorClient(MONGODB_URL)
-        self.db = self.client[MONGODB_NAME]
-        self.users = self.db.users
-        self.groups = self.db.groups
-        self.rewards = self.db.rewards
-        self.settings = self.db.settings
-        self.message_history = {}
+    def __init__(self, mongodb_url, mongodb_name):
+        self.client = MongoClient(mongodb_url)
+        self.db = self.client[mongodb_name]
 
-    async def get_user(self, user_id):
-        try:
-            user = await self.users.find_one({"user_id": user_id})
-            logger.info(f"Retrieved user {user_id} from database: {user}")
-            return user
-        except Exception as e:
-            logger.error(f"Error retrieving user {user_id}: {e}")
-            return None
+    async def get_user(self, user_id: str):
+        user = self.db.users.find_one({"user_id": user_id})
+        logger.info(f"Retrieved user {user_id} from database: {user}")
+        return user
 
-    async def create_user(self, user_id, name, referrer_id=None):
-        try:
-            user = {
-                "user_id": user_id,
-                "name": name,
-                "balance": 0,
-                "messages": 0,
-                "group_messages": {"-1002061898677": 0},
-                "withdrawn_today": 0,
-                "last_withdrawal": None,
-                "banned": False,
-                "notified_10kyat": False,
-                "last_activity": datetime.utcnow(),
-                "message_timestamps": deque(maxlen=5),
-                "invited_users": 0,
-                "referrer_id": referrer_id,
-                "subscribed_channels": []
-            }
-            result = await self.users.insert_one(user)
-            logger.info(f"Created new user {user_id} with name {name}, referrer {referrer_id}")
-            return user
-        except Exception as e:
-            logger.error(f"Error creating user {user_id}: {e}")
-            return None
+    async def create_user(self, user_id: str, name: str, referrer_id: str = None):
+        user = {
+            "user_id": user_id,
+            "name": name,
+            "balance": 0,
+            "messages": 0,
+            "group_messages": {},
+            "message_timestamps": deque(maxlen=1000),  # Initialize as deque
+            "last_activity": datetime.datetime.utcnow(),
+            "referrer_id": referrer_id,
+            "invited_users": 0,
+            "subscribed_channels": []
+        }
+        self.db.users.insert_one(user)
+        logger.info(f"Created user {user_id} in database")
+        return user
 
-    async def increment_invited_users(self, user_id):
-        try:
-            result = await self.users.update_one({"user_id": user_id}, {"$inc": {"invited_users": 1}})
-            if result.modified_count > 0:
-                logger.info(f"Incremented invited_users for user {user_id}")
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Error incrementing invited_users for user {user_id}: {e}")
+    async def update_user(self, user_id: str, updates: dict):
+        if "message_timestamps" in updates and isinstance(updates["message_timestamps"], str):
+            updates["message_timestamps"] = deque(updates["message_timestamps"], maxlen=1000)
+        self.db.users.update_one({"user_id": user_id}, {"$set": updates})
+        logger.info(f"Updated user {user_id}: {updates}")
+
+    async def check_rate_limit(self, user_id: str, max_messages: int = 5, time_window: int = 60) -> bool:
+        user = await self.get_user(user_id)
+        if not user:
             return False
 
-    async def update_user(self, user_id, updates):
-        try:
-            result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
-            if result.modified_count > 0:
-                updates_log = {k: v for k, v in updates.items()}
-                if "message_timestamps" in updates_log:
-                    updates_log["message_timestamps"] = f"[{len(updates['message_timestamps'])} timestamps]"
-                logger.info(f"Updated user {user_id}: {updates_log}")
-                return True
-            logger.info(f"No changes made to user {user_id}")
-            return False
-        except Exception as e:
-            logger.error(f"Error updating user {user_id}: {e}")
+        now = datetime.datetime.utcnow()
+        timestamps = user.get("message_timestamps", deque(maxlen=1000))
+
+        # Remove timestamps older than the time window
+        while timestamps and (now - timestamps[0]).total_seconds() > time_window:
+            timestamps.popleft()
+
+        # Check if user has exceeded the rate limit
+        if len(timestamps) >= max_messages:
+            logger.warning(f"User {user_id} exceeded rate limit: {len(timestamps)} messages in {time_window} seconds")
             return False
 
-    async def update_subscription_status(self, user_id, channel_id, subscribed=True):
+        # Add the current timestamp
+        timestamps.append(now)
+        await self.update_user(user_id, {"message_timestamps": timestamps})
+        return True
+
+    async def get_force_sub_channels(self):
+        settings = self.db.settings.find_one({"type": "force_sub_channels"})
+        channels = settings.get("value", []) if settings else []
+        logger.info(f"Retrieved force-sub channels: {channels}")
+        return channels
+
+    async def set_force_sub_channels(self, channels: list) -> bool:
         try:
-            if subscribed:
-                result = await self.users.update_one(
-                    {"user_id": user_id},
-                    {"$addToSet": {"subscribed_channels": channel_id}}
-                )
-            else:
-                result = await self.users.update_one(
-                    {"user_id": user_id},
-                    {"$pull": {"subscribed_channels": channel_id}}
-                )
-            logger.info(f"Updated subscription status for user {user_id}, channel {channel_id}: {subscribed}")
-            return result.modified_count > 0
-        except Exception as e:
-            logger.error(f"Error updating subscription status for user {user_id}: {e}")
-            return False
-
-    async def get_all_users(self):
-        try:
-            users = await self.users.find().to_list(length=None)
-            logger.info(f"Retrieved all users: {len(users)} users")
-            return users
-        except Exception as e:
-            logger.error(f"Error retrieving all users: {e}")
-            return None
-
-    async def get_top_users(self, limit=10):
-        try:
-            top_users = await self.users.find(
-                {"banned": False},
-                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "_id": 0}
-            ).sort("messages", -1).limit(limit).to_list(length=limit)
-            logger.info(f"Retrieved top {limit} users: {top_users}")
-            return top_users
-        except Exception as e:
-            logger.error(f"Error retrieving top users: {e}")
-            return []
-
-    async def add_group(self, group_id):
-        try:
-            existing_group = await self.groups.find_one({"group_id": group_id})
-            if existing_group:
-                logger.info(f"Group {group_id} already exists in approved groups")
-                return "exists"
-            result = await self.groups.insert_one({"group_id": group_id})
-            logger.info(f"Added group {group_id} to approved groups")
-            return True
-        except Exception as e:
-            logger.error(f"Error adding group {group_id}: {str(e)}")
-            return False
-
-    async def get_approved_groups(self):
-        try:
-            groups = await self.groups.find({}, {"group_id": 1, "_id": 0}).to_list(length=None)
-            group_ids = [group["group_id"] for group in groups]
-            logger.info(f"Retrieved approved groups: {group_ids}")
-            return group_ids
-        except Exception as e:
-            logger.error(f"Error retrieving approved groups: {e}")
-            return []
-
-    async def get_group_message_count(self, group_id):
-        try:
-            pipeline = [
-                {"$match": {f"group_messages.{group_id}": {"$exists": True}}},
-                {"$group": {"_id": None, "total_messages": {"$sum": f"$group_messages.{group_id}"}}}
-            ]
-            result = await self.users.aggregate(pipeline).to_list(length=None)
-            total_messages = result[0]["total_messages"] if result else 0
-            logger.info(f"Total messages in group {group_id}: {total_messages}")
-            return total_messages
-        except Exception as e:
-            logger.error(f"Error retrieving message count for group {group_id}: {e}")
-            return 0
-
-    async def get_last_reward_time(self):
-        try:
-            reward = await self.rewards.find_one({"type": "weekly"})
-            if not reward:
-                await self.rewards.insert_one({"type": "weekly", "last_reward": datetime.utcnow()})
-                return datetime.utcnow()
-            return reward["last_reward"]
-        except Exception as e:
-            logger.error(f"Error retrieving last reward time: {e}")
-            return datetime.utcnow()
-
-    async def update_reward_time(self):
-        try:
-            await self.rewards.update_one({"type": "weekly"}, {"$set": {"last_reward": datetime.utcnow()}})
-            logger.info("Updated weekly reward time")
-        except Exception as e:
-            logger.error(f"Error updating reward time: {e}")
-
-    async def award_weekly_rewards(self):
-        try:
-            last_reward = await self.get_last_reward_time()
-            if datetime.utcnow() < last_reward + timedelta(days=7):
-                return False
-
-            top_users = await self.get_top_users(3)
-            reward_amount = 100
-            for user in top_users:
-                user_id = user["user_id"]
-                current_balance = user.get("balance", 0)
-                await db.update_user(user_id, {"balance": current_balance + reward_amount})
-                logger.info(f"Awarded {reward_amount} kyat to user {user_id}")
-
-            await self.update_reward_time()
-            return True
-        except Exception as e:
-            logger.error(f"Error awarding weekly rewards: {e}")
-            return False
-
-    async def set_phone_bill_reward(self, reward_text):
-        try:
-            await self.settings.update_one(
-                {"type": "phone_bill_reward"},
-                {"$set": {"value": reward_text}},
-                upsert=True
-            )
-            logger.info(f"Set phone_bill_reward to: {reward_text}")
-            return True
-        except Exception as e:
-            logger.error(f"Error setting phone_bill_reward: {e}")
-            return False
-
-    async def get_phone_bill_reward(self):
-        try:
-            setting = await self.settings.find_one({"type": "phone_bill_reward"})
-            if setting and "value" in setting:
-                return setting["value"]
-            return "Phone Bill 1000 kyat"
-        except Exception as e:
-            logger.error(f"Error retrieving phone_bill_reward: {e}")
-            return "Phone Bill 1000 kyat"
-
-    async def set_required_invites(self, required_invites):
-        try:
-            await self.settings.update_one(
-                {"type": "required_invites"},
-                {"$set": {"value": required_invites}},
-                upsert=True
-            )
-            logger.info(f"Set required_invites to: {required_invites}")
-            return True
-        except Exception as e:
-            logger.error(f"Error setting required_invites: {e}")
-            return False
-
-    async def get_required_invites(self):
-        try:
-            setting = await self.settings.find_one({"type": "required_invites"})
-            if setting and "value" in setting:
-                return setting["value"]
-            return 15
-        except Exception as e:
-            logger.error(f"Error retrieving required_invites: {e}")
-            return 15
-
-    async def set_force_sub_channels(self, channels):
-        try:
-            await self.settings.update_one(
+            self.db.settings.update_one(
                 {"type": "force_sub_channels"},
                 {"$set": {"value": channels}},
                 upsert=True
             )
-            logger.info(f"Set force_sub_channels to: {channels}")
+            logger.info(f"Updated force-sub channels: {channels}")
             return True
         except Exception as e:
-            logger.error(f"Error setting force_sub_channels: {e}")
+            logger.error(f"Error updating force-sub channels: {e}")
             return False
 
-    async def get_force_sub_channels(self):
-        try:
-            setting = await self.settings.find_one({"type": "force_sub_channels"})
-            if setting and "value" in setting:
-                return setting["value"]
-            return ["-1002097823468"]  # Default channel
-        except Exception as e:
-            logger.error(f"Error retrieving force_sub_channels: {e}")
-            return ["-1002097823468"]
-
-    async def check_rate_limit(self, user_id, message_text=None):
-        try:
-            user = await self.get_user(user_id)
-            if not user:
-                return False
-
-            current_time = datetime.utcnow()
-            if user_id not in self.message_history:
-                self.message_history[user_id] = deque(maxlen=5)
-
-            timestamps = user.get("message_timestamps", deque(maxlen=5))
-            timestamps.append(current_time)
-            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
-            if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
-                logger.warning(f"Rate limit exceeded for user {user_id} (5 messages per minute)")
-                return True
-
-            if message_text:
-                if user_id in self.message_history and self.message_history[user_id][-1] == message_text:
-                    logger.warning(f"Duplicate message detected for user {user_id}")
-                    return True
-                self.message_history[user_id] = message_text
-
-            return False
-        except Exception as e:
-            logger.error(f"Error checking rate limit for user {user_id}: {e}")
-            return False
-
-    async def can_withdraw(self, user_id):
+    async def update_subscription_status(self, user_id: str, channel_id: str, is_member: bool):
         user = await self.get_user(user_id)
         if not user:
-            return False, "User not found."
-        required_invites = await self.get_required_invites()
-        invited_users = user.get("invited_users", 0)
-        balance = user.get("balance", 0)
-        if invited_users < required_invites:
-            return False, f"You need to invite at least {required_invites} users to withdraw. You've invited {invited_users}."
-        if balance < WITHDRAWAL_THRESHOLD:
-            return False, f"You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw. Your balance: {balance} {CURRENCY}."
-        return True, ""
+            return
+        subscribed_channels = user.get("subscribed_channels", [])
+        if is_member and channel_id not in subscribed_channels:
+            subscribed_channels.append(channel_id)
+        elif not is_member and channel_id in subscribed_channels:
+            subscribed_channels.remove(channel_id)
+        await self.update_user(user_id, {"subscribed_channels": subscribed_channels})
 
-# Singleton instance
-db = Database()
+    async def increment_invited_users(self, user_id: str):
+        self.db.users.update_one(
+            {"user_id": user_id},
+            {"$inc": {"invited_users": 1}}
+        )
+        logger.info(f"Incremented invited_users for user {user_id}")
+
+    async def get_all_users(self):
+        users = list(self.db.users.find())
+        return users
+
+    async def get_phone_bill_reward(self):
+        return 1000  # Example value
