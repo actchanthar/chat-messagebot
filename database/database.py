@@ -2,7 +2,7 @@ from pymongo import MongoClient
 from collections import deque
 import datetime
 import logging
-from config import MONGODB_URL, MONGODB_NAME
+from config import MONGODB_URL, MONGODB_NAME, DEFAULT_REQUIRED_INVITES
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,7 +15,6 @@ class Database:
     async def get_user(self, user_id: str):
         user = self.db.users.find_one({"user_id": user_id})
         if user and "message_timestamps" in user:
-            # Convert list back to deque when retrieving
             user["message_timestamps"] = deque(user["message_timestamps"], maxlen=1000)
         logger.info(f"Retrieved user {user_id} from database: {user}")
         return user
@@ -27,7 +26,7 @@ class Database:
             "balance": 0,
             "messages": 0,
             "group_messages": {},
-            "message_timestamps": [],  # Store as list in MongoDB
+            "message_timestamps": [],
             "last_activity": datetime.datetime.utcnow(),
             "referrer_id": referrer_id,
             "invited_users": 0,
@@ -35,12 +34,10 @@ class Database:
         }
         self.db.users.insert_one(user)
         logger.info(f"Created user {user_id} in database")
-        # Convert message_timestamps to deque for in-memory use
         user["message_timestamps"] = deque([], maxlen=1000)
         return user
 
     async def update_user(self, user_id: str, updates: dict):
-        # Convert deque to list before saving to MongoDB
         if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
             updates["message_timestamps"] = list(updates["message_timestamps"])
         self.db.users.update_one({"user_id": user_id}, {"$set": updates})
@@ -54,16 +51,13 @@ class Database:
         now = datetime.datetime.utcnow()
         timestamps = user.get("message_timestamps", deque(maxlen=1000))
 
-        # Remove timestamps older than the time window
         while timestamps and (now - timestamps[0]).total_seconds() > time_window:
             timestamps.popleft()
 
-        # Check if user has exceeded the rate limit
         if len(timestamps) >= max_messages:
             logger.warning(f"User {user_id} exceeded rate limit: {len(timestamps)} messages in {time_window} seconds")
             return False
 
-        # Add the current timestamp
         timestamps.append(now)
         await self.update_user(user_id, {"message_timestamps": timestamps})
         return True
@@ -107,14 +101,30 @@ class Database:
 
     async def get_all_users(self):
         users = list(self.db.users.find())
-        # Convert message_timestamps to deque for each user
         for user in users:
             if "message_timestamps" in user:
                 user["message_timestamps"] = deque(user["message_timestamps"], maxlen=1000)
         return users
 
     async def get_phone_bill_reward(self):
-        return 1000  # Example value
+        return 1000
+
+    async def can_withdraw(self, user_id: str) -> tuple[bool, str]:
+        user = await self.get_user(user_id)
+        if not user:
+            return False, "User not found. Please start with /start."
+        
+        invited_users = user.get("invited_users", 0)
+        required_invites = DEFAULT_REQUIRED_INVITES  # From config.py (15 invites)
+        
+        if invited_users < required_invites:
+            return False, (
+                f"You need to invite at least {required_invites} users to withdraw. "
+                f"You have invited {invited_users} users so far.\n"
+                f"ငွေထုတ်ယူရန် အနည်းဆုံး {required_invites} ဦးကို ဖိတ်ခေါ်ရပါမည်။ "
+                f"သင်သည် ယခုထိ {invited_users} ဦးကို ဖိတ်ခေါ်ထားပါသည်။"
+            )
+        return True, ""
 
 # Initialize and export the db instance
 db = Database(MONGODB_URL, MONGODB_NAME)
