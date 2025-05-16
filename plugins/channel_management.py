@@ -24,7 +24,7 @@ async def addchnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     channel_id = context.args[0]
     invite_link = context.args[1]
-    channel_name = " ".join(context.args[2:])  # Allow multi-word channel names
+    channel_name = " ".join(context.args[2:])
     if not channel_id.startswith("-100"):
         await update.message.reply_text("Invalid channel ID. Must start with -100.")
         return
