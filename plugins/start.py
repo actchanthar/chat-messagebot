@@ -9,6 +9,14 @@ logger = logging.getLogger(__name__)
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, channel_id: str) -> bool:
     try:
+        # Verify bot's admin status in the channel
+        bot_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=context.bot.id)
+        bot_is_admin = bot_member.status in ["administrator", "creator"]
+        if not bot_is_admin:
+            logger.error(f"Bot is not an admin in channel {channel_id}. Bot status: {bot_member.status}")
+            return False
+
+        # Check user membership
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         is_member = member.status in ["member", "administrator", "creator"]
         logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}")
@@ -16,7 +24,6 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, c
         return is_member
     except Exception as e:
         logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
-        # If the bot can't access the channel, log and assume the user isn't a member
         return False
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -36,13 +43,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Check subscription to required channels
     force_sub_channels = await db.get_force_sub_channels()
+    logger.info(f"Force-sub channels from database: {force_sub_channels}")
     not_subscribed_channels = []
     for channel_id in force_sub_channels:
         if not await check_subscription(context, user_id, channel_id):
             not_subscribed_channels.append(channel_id)
 
     if not_subscribed_channels:
-        # Create inline buttons for each channel
         keyboard = [
             [InlineKeyboardButton(
                 f"Join {FORCE_SUB_CHANNEL_NAMES.get(channel_id, 'Channel')}",
@@ -61,25 +68,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     # If user has a referrer and has joined the channel, notify the referrer
-    if user.get("referrer_id") and all(
-        channel_id in user.get("subscribed_channels", []) for channel_id in force_sub_channels
-    ):
+    if user.get("referrer_id"):
         referrer_id = user["referrer_id"]
-        await db.increment_invited_users(referrer_id)
-        referrer = await db.get_user(referrer_id)
-        if referrer:
-            new_invite_link = f"https://t.me/{context.bot.username}?start=referrer={referrer_id}"
-            try:
-                await context.bot.send_message(
-                    chat_id=referrer_id,
-                    text=f"🎉 A new user has joined the required channel(s) via your referral! "
-                         f"You now have {referrer.get('invited_users', 0)} invites.\n"
-                         f"Share this link to invite more: {new_invite_link}",
-                    disable_web_page_preview=True
-                )
-                logger.info(f"Notified referrer {referrer_id} of new invite by user {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to notify referrer {referrer_id}: {e}")
+        # Only increment and notify if the user has newly joined all required channels
+        user_subscribed = all(
+            channel_id in user.get("subscribed_channels", []) for channel_id in force_sub_channels
+        )
+        if user_subscribed:
+            await db.increment_invited_users(referrer_id)
+            referrer = await db.get_user(referrer_id)
+            if referrer:
+                new_invite_link = f"https://t.me/{context.bot.username}?start=referrer={referrer_id}"
+                try:
+                    await context.bot.send_message(
+                        chat_id=referrer_id,
+                        text=f"🎉 A new user has joined the required channel(s) via your referral! "
+                             f"You now have {referrer.get('invited_users', 0)} invites.\n"
+                             f"Share this link to invite more: {new_invite_link}",
+                        disable_web_page_preview=True
+                    )
+                    logger.info(f"Notified referrer {referrer_id} of new invite by user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to notify referrer {referrer_id}: {e}")
 
     welcome_message = (
         "စာပို့ရင်း ငွေရှာမယ်:\n"
