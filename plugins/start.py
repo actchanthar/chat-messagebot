@@ -20,12 +20,20 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, c
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         is_member = member.status in ["member", "administrator", "creator"]
         logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}, user={member.user.username}")
-        await db.update_subscription_status(user_id, channel_id, is_member)
+        # Update subscription status in database
+        user = await db.get_user(user_id)
+        if user:
+            subscribed_channels = user.get("subscribed_channels", [])
+            if is_member and channel_id not in subscribed_channels:
+                subscribed_channels.append(channel_id)
+            elif not is_member and channel_id in subscribed_channels:
+                subscribed_channels.remove(channel_id)
+            await db.update_user(user_id, {"subscribed_channels": subscribed_channels})
         return is_member
     except Exception as e:
         logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
         if "user not found" in str(e).lower():
-            logger.info(f"User {user_id} is likely not in channel {channel_id}.")
+            logger.info(f"User {user_id} is likely not in channel {channel_id} or has privacy settings enabled.")
         elif "not enough rights" in str(e).lower():
             logger.error(f"Bot lacks permissions to view members in channel {channel_id}.")
         return False
@@ -48,36 +56,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check subscription to required channels
     force_sub_channels = await db.get_force_sub_channels()
     logger.info(f"Force-sub channels from database: {force_sub_channels}")
-    not_subscribed_channels = []
-    for channel_id in force_sub_channels:
-        is_subscribed = await check_subscription(context, user_id, channel_id)
-        if not is_subscribed:
-            not_subscribed_channels.append(channel_id)
-        else:
-            logger.info(f"User {user_id} confirmed subscribed to channel {channel_id}")
+    
+    # If no force-sub channels, skip the check
+    if not force_sub_channels:
+        logger.info(f"No force-sub channels configured. Skipping subscription check for user {user_id}.")
+    else:
+        not_subscribed_channels = []
+        for channel_id in force_sub_channels:
+            is_subscribed = await check_subscription(context, user_id, channel_id)
+            if not is_subscribed:
+                not_subscribed_channels.append(channel_id)
+            else:
+                logger.info(f"User {user_id} confirmed subscribed to channel {channel_id}")
 
-    if not_subscribed_channels:
-        keyboard = [
-            [InlineKeyboardButton(
-                f"Join {FORCE_SUB_CHANNEL_NAMES.get(channel_id, 'Channel')}",
-                url=FORCE_SUB_CHANNEL_LINKS.get(channel_id, 'https://t.me/yourchannel')
-            )]
-            for channel_id in not_subscribed_channels
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"🎉 Welcome! To use the bot, please join the following channel(s):\n\n"
-            "After joining, use /start again to proceed. 🚀",
-            reply_markup=reply_markup,
-            parse_mode="HTML",
-            disable_web_page_preview=True
-        )
-        return
+        if not_subscribed_channels:
+            keyboard = [
+                [InlineKeyboardButton(
+                    f"Join {FORCE_SUB_CHANNEL_NAMES.get(channel_id, 'Channel')}",
+                    url=FORCE_SUB_CHANNEL_LINKS.get(channel_id, 'https://t.me/yourchannel')
+                )]
+                for channel_id in not_subscribed_channels
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"🎉 Welcome! To use the bot, please join the following channel(s):\n\n"
+                "After joining, use /start again to proceed. 🚀",
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
+            return
 
     # If user has a referrer, notify the referrer after confirming subscription
     if user.get("referrer_id"):
         referrer_id = user["referrer_id"]
-        user_subscribed = all(
+        user_subscribed = not force_sub_channels or all(
             channel_id in user.get("subscribed_channels", []) for channel_id in force_sub_channels
         )
         if user_subscribed:
