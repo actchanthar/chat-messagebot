@@ -1,3 +1,4 @@
+# plugins/withdrawal.py
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -41,7 +42,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     balance = user.get("balance", 0)
     message = f"Your balance: {balance} {CURRENCY}"
     if update.callback_query:
-        await update.callback_query.message.edit_text(message)  # Use edit_text for button to update the message
+        await update.callback_query.message.edit_text(message)  # Edit the message for button clicks
     else:
         await update.message.reply_text(message)
 
