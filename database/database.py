@@ -1,5 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from config import MONGODB_URL, MONGODB_NAME
+from config import MONGODB_URL, MONGODB_NAME, ADMIN_USER_ID
 import logging
 from datetime import datetime, timedelta
 from collections import deque
@@ -41,8 +41,8 @@ class Database:
                 "last_activity": datetime.utcnow(),
                 "message_timestamps": deque(maxlen=5),
                 "invited_users": 0,
-                "referrer_id": referrer_id,  # Track who referred this user
-                "subscribed_channels": []  # Track subscribed channels
+                "referrer_id": referrer_id,
+                "subscribed_channels": []
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created new user {user_id} with name {name}, referrer {referrer_id}")
@@ -236,6 +236,29 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving required_invites: {e}")
             return 15
+
+    async def set_force_sub_channels(self, channels):
+        try:
+            await self.settings.update_one(
+                {"type": "force_sub_channels"},
+                {"$set": {"value": channels}},
+                upsert=True
+            )
+            logger.info(f"Set force_sub_channels to: {channels}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting force_sub_channels: {e}")
+            return False
+
+    async def get_force_sub_channels(self):
+        try:
+            setting = await self.settings.find_one({"type": "force_sub_channels"})
+            if setting and "value" in setting:
+                return setting["value"]
+            return ["-1002097823468"]  # Default channel
+        except Exception as e:
+            logger.error(f"Error retrieving force_sub_channels: {e}")
+            return ["-1002097823468"]
 
     async def check_rate_limit(self, user_id, message_text=None):
         try:
