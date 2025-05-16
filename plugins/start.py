@@ -1,6 +1,6 @@
 # plugins/start.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from config import REQUIRED_CHANNELS, BOT_TOKEN
 from database.database import db
 import logging
@@ -158,6 +158,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
     logger.info(f"Sent welcome message to user {user_id} in chat {chat_id}")
 
+# Handler for "Check Balance" button
+async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    user_id = str(query.from_user.id)
+    logger.info(f"Check balance called by user {user_id}")
+
+    user = await db.get_user(user_id)
+    if not user:
+        await query.message.reply_text("User not found. Please start with /start.")
+        return
+
+    balance = user.get("balance", 0)
+    await query.message.reply_text(
+        f"Your current balance is {balance} kyat.\n"
+        f"သင့်လက်ကျန်ငွေမှာ {balance} kyat ဖြစ်ပါသည်။"
+    )
+
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(check_balance, pattern="^check_balance$"))
+    # Note: The "Withdraw" button callback is handled in withdrawal.py
