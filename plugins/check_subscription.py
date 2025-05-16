@@ -20,12 +20,20 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, c
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         is_member = member.status in ["member", "administrator", "creator"]
         logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}, user={member.user.username}")
-        await db.update_subscription_status(user_id, channel_id, is_member)
+        # Update subscription status in database
+        user = await db.get_user(user_id)
+        if user:
+            subscribed_channels = user.get("subscribed_channels", [])
+            if is_member and channel_id not in subscribed_channels:
+                subscribed_channels.append(channel_id)
+            elif not is_member and channel_id in subscribed_channels:
+                subscribed_channels.remove(channel_id)
+            await db.update_user(user_id, {"subscribed_channels": subscribed_channels})
         return is_member
     except Exception as e:
         logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
         if "user not found" in str(e).lower():
-            logger.info(f"User {user_id} is likely not in channel {channel_id}.")
+            logger.info(f"User {user_id} is likely not in channel {channel_id} or has privacy settings enabled.")
         elif "not enough rights" in str(e).lower():
             logger.error(f"Bot lacks permissions to view members in channel {channel_id}.")
         return False
@@ -37,6 +45,11 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     force_sub_channels = await db.get_force_sub_channels()
     logger.info(f"Force-sub channels from database: {force_sub_channels}")
+    
+    if not force_sub_channels:
+        await update.message.reply_text("🎉 No force-subscription channels are configured. You can use the bot! 🚀", parse_mode="HTML")
+        return
+
     not_subscribed_channels = []
     for channel_id in force_sub_channels:
         is_subscribed = await check_subscription(context, user_id, channel_id)
