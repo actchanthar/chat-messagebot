@@ -1,4 +1,3 @@
-# plugins/withdrawal.py
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -42,7 +41,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     balance = user.get("balance", 0)
     message = f"Your balance: {balance} {CURRENCY}"
     if update.callback_query:
-        await update.callback_query.message.edit_text(message)  # Edit the message for button clicks
+        await update.callback_query.message.edit_text(message)
     else:
         await update.message.reply_text(message)
 
@@ -276,7 +275,8 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Payment Method: **{payment_method}**\n"
         f"Details: {payment_details}\n"
         f"Invited Users: {user.get('invited_users', 0)}\n"
-        f"Status: PENDING ⏳"
+        f"Status: PENDING ⏳\n"
+        f"Message ID: {context._chat_data.get('log_message_id', 'N/A')}"  # Store message ID for editing
     )
 
     try:
@@ -291,7 +291,11 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             message_id=log_msg.message_id,
             disable_notification=True
         )
-        logger.info(f"Sent and pinned withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}")
+        # Store the message ID in context for later editing
+        if 'log_message_ids' not in context.chat_data:
+            context.chat_data['log_message_ids'] = {}
+        context.chat_data['log_message_ids'][user_id] = log_msg.message_id
+        logger.info(f"Sent and pinned withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id} with message ID {log_msg.message_id}")
     except Exception as e:
         logger.error(f"Failed to send or pin withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id}: {e}")
         await message.reply_text("Error submitting request. Please try again later.")
@@ -360,12 +364,34 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 
             if success:
                 logger.info(f"Withdrawal approved for user {user_id}. Amount: {amount}, New balance: {new_balance}")
-                await query.message.reply_text(
-                    f"Withdrawal approved for user {user_id}. Amount: {amount} {CURRENCY}. New balance: {new_balance} {CURRENCY}.",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("Post to Group 📢", callback_data=f"post_approval_{user_id}_{amount}")]
-                    ])
-                )
+                # Update log channel message
+                message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
+                if message_id:
+                    user_first_name = user.get("name", "Unknown")
+                    username = user.get("username", "N/A")
+                    updated_message = (
+                        f"Withdrawal Request:\n"
+                        f"{user_first_name}\n"
+                        f"User ID: {user_id}\n"
+                        f"Username: @{username}\n"
+                        f"Amount: {amount} {CURRENCY} 💸\n"
+                        f"Payment Method: **{context.user_data.get('payment_method', 'N/A')}**\n"
+                        f"Details: {context.user_data.get('withdrawal_details', 'N/A')}\n"
+                        f"Invited Users: {user.get('invited_users', 0)}\n"
+                        f"Status: Approve ✅"
+                    )
+                    try:
+                        await context.bot.edit_message_text(
+                            chat_id=LOG_CHANNEL_ID,
+                            message_id=message_id,
+                            text=updated_message,
+                            parse_mode="Markdown"
+                        )
+                        logger.info(f"Updated log channel message {message_id} to 'Approve' for user {user_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to edit log channel message {message_id} for user {user_id}: {e}")
+
+                # Notify user
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
@@ -375,6 +401,10 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     logger.info(f"Notified user {user_id} of withdrawal approval")
                 except Exception as e:
                     logger.error(f"Failed to notify user {user_id} of withdrawal approval: {e}")
+
+                # Confirm approval to admin
+                await query.message.reply_text("Approve done ✅")
+                logger.info(f"Confirmed approval to admin for user {user_id}")
             else:
                 logger.error(f"Failed to update user {user_id} for withdrawal approval")
                 await query.message.reply_text("Error approving withdrawal. Please try again.")
@@ -388,6 +418,34 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             _, _, user_id, amount = parts
             user_id = user_id
             amount = int(amount)
+
+            # Update log channel message
+            message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
+            if message_id:
+                user = await db.get_user(user_id)
+                user_first_name = user.get("name", "Unknown") if user else "Unknown"
+                username = user.get("username", "N/A") if user else "N/A"
+                updated_message = (
+                    f"Withdrawal Request:\n"
+                    f"{user_first_name}\n"
+                    f"User ID: {user_id}\n"
+                    f"Username: @{username}\n"
+                    f"Amount: {amount} {CURRENCY} 💸\n"
+                    f"Payment Method: **{context.user_data.get('payment_method', 'N/A')}**\n"
+                    f"Details: {context.user_data.get('withdrawal_details', 'N/A')}\n"
+                    f"Invited Users: {user.get('invited_users', 0) if user else 0}\n"
+                    f"Status: Rejected ❌"
+                )
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=LOG_CHANNEL_ID,
+                        message_id=message_id,
+                        text=updated_message,
+                        parse_mode="Markdown"
+                    )
+                    logger.info(f"Updated log channel message {message_id} to 'Rejected' for user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to edit log channel message {message_id} for user {user_id}: {e}")
 
             logger.info(f"Withdrawal rejected for user {user_id}. Amount: {amount}")
             await query.message.reply_text(f"Withdrawal rejected for user {user_id}. Amount: {amount} {CURRENCY}.")
