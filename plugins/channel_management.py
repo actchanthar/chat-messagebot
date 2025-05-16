@@ -102,6 +102,6 @@ async def listchnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def register_handlers(application: Application):
     logger.info("Registering channel_management handlers")
-    application.add_handler(CommandHandler("addchnl", addchnl, filters=filters.Command() & ~filters.CommandStart))
-    application.add_handler(CommandHandler("delchnl", delchnl, filters=filters.Command() & ~filters.CommandStart))
-    application.add_handler(CommandHandler("listchnl", listchnl, filters=filters.Command() & ~filters.CommandStart))
+    application.add_handler(CommandHandler("addchnl", addchnl, filters=filters.Command()))
+    application.add_handler(CommandHandler("delchnl", delchnl, filters=filters.Command()))
+    application.add_handler(CommandHandler("listchnl", listchnl, filters=filters.Command()))
