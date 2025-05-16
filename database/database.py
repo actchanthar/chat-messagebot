@@ -26,7 +26,7 @@ class Database:
             logger.error(f"Error retrieving user {user_id}: {e}")
             return None
 
-    async def create_user(self, user_id, name):
+    async def create_user(self, user_id, name, referrer_id=None):
         try:
             user = {
                 "user_id": user_id,
@@ -39,20 +39,33 @@ class Database:
                 "banned": False,
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
-                "message_timestamps": deque(maxlen=5)  # Track last 5 message times for 1-minute limit
+                "message_timestamps": deque(maxlen=5),
+                "invited_users": 0  # Track invited users
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created new user {user_id} with name {name}")
+            if referrer_id:
+                await self.increment_invited_users(referrer_id)
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
             return None
 
+    async def increment_invited_users(self, user_id):
+        try:
+            result = await self.users.update_one({"user_id": user_id}, {"$inc": {"invited_users": 1}})
+            if result.modified_count > 0:
+                logger.info(f"Incremented invited_users for user {user_id}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error incrementing invited_users for user {user_id}: {e}")
+            return False
+
     async def update_user(self, user_id, updates):
         try:
             result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
             if result.modified_count > 0:
-                # Simplify logging of updates to avoid truncation
                 updates_log = {k: v for k, v in updates.items()}
                 if "message_timestamps" in updates_log:
                     updates_log["message_timestamps"] = f"[{len(updates['message_timestamps'])} timestamps]"
@@ -183,6 +196,29 @@ class Database:
             logger.error(f"Error retrieving phone_bill_reward: {e}")
             return "Phone Bill 1000 kyat"
 
+    async def set_required_invites(self, required_invites):
+        try:
+            await self.settings.update_one(
+                {"type": "required_invites"},
+                {"$set": {"value": required_invites}},
+                upsert=True
+            )
+            logger.info(f"Set required_invites to: {required_invites}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting required_invites: {e}")
+            return False
+
+    async def get_required_invites(self):
+        try:
+            setting = await self.settings.find_one({"type": "required_invites"})
+            if setting and "value" in setting:
+                return setting["value"]
+            return 15  # Default to 15 if not set
+        except Exception as e:
+            logger.error(f"Error retrieving required_invites: {e}")
+            return 15
+
     async def check_rate_limit(self, user_id, message_text=None):
         try:
             user = await self.get_user(user_id)
@@ -212,6 +248,19 @@ class Database:
         except Exception as e:
             logger.error(f"Error checking rate limit for user {user_id}: {e}")
             return False
+
+    async def can_withdraw(self, user_id):
+        user = await self.get_user(user_id)
+        if not user:
+            return False, "User not found."
+        required_invites = await self.get_required_invites()
+        invited_users = user.get("invited_users", 0)
+        balance = user.get("balance", 0)
+        if invited_users < required_invites:
+            return False, f"You need to invite at least {required_invites} users to withdraw. You've invited {invited_users}."
+        if balance < WITHDRAWAL_THRESHOLD:
+            return False, f"You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw. Your balance: {balance} {CURRENCY}."
+        return True, ""
 
 # Singleton instance
 db = Database()
