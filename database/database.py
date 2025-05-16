@@ -63,9 +63,6 @@ class Database:
         await self.update_user(user_id, {"message_timestamps": timestamps})
         return True
 
-    # Removed get_force_sub_channels, set_force_sub_channels, and update_subscription_status
-    # as they are part of the subscription enforcement system
-
     async def increment_invited_users(self, user_id: str):
         self.db.users.update_one(
             {"user_id": user_id},
