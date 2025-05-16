@@ -15,7 +15,7 @@ class Database:
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
-        self.message_history = {}  # In-memory cache for duplicate checking (per user)
+        self.message_history = {}
 
     async def get_user(self, user_id):
         try:
@@ -40,12 +40,12 @@ class Database:
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
                 "message_timestamps": deque(maxlen=5),
-                "invited_users": 0  # Track invited users
+                "invited_users": 0,
+                "referrer_id": referrer_id,  # Track who referred this user
+                "subscribed_channels": []  # Track subscribed channels
             }
             result = await self.users.insert_one(user)
-            logger.info(f"Created new user {user_id} with name {name}")
-            if referrer_id:
-                await self.increment_invited_users(referrer_id)
+            logger.info(f"Created new user {user_id} with name {name}, referrer {referrer_id}")
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
@@ -75,6 +75,24 @@ class Database:
             return False
         except Exception as e:
             logger.error(f"Error updating user {user_id}: {e}")
+            return False
+
+    async def update_subscription_status(self, user_id, channel_id, subscribed=True):
+        try:
+            if subscribed:
+                result = await self.users.update_one(
+                    {"user_id": user_id},
+                    {"$addToSet": {"subscribed_channels": channel_id}}
+                )
+            else:
+                result = await self.users.update_one(
+                    {"user_id": user_id},
+                    {"$pull": {"subscribed_channels": channel_id}}
+                )
+            logger.info(f"Updated subscription status for user {user_id}, channel {channel_id}: {subscribed}")
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error updating subscription status for user {user_id}: {e}")
             return False
 
     async def get_all_users(self):
@@ -214,7 +232,7 @@ class Database:
             setting = await self.settings.find_one({"type": "required_invites"})
             if setting and "value" in setting:
                 return setting["value"]
-            return 15  # Default to 15 if not set
+            return 15
         except Exception as e:
             logger.error(f"Error retrieving required_invites: {e}")
             return 15
@@ -227,9 +245,8 @@ class Database:
 
             current_time = datetime.utcnow()
             if user_id not in self.message_history:
-                self.message_history[user_id] = deque(maxlen=5)  # Store last 5 timestamps
+                self.message_history[user_id] = deque(maxlen=5)
 
-            # Check 5 messages per minute limit
             timestamps = user.get("message_timestamps", deque(maxlen=5))
             timestamps.append(current_time)
             await self.update_user(user_id, {"message_timestamps": list(timestamps)})
@@ -237,7 +254,6 @@ class Database:
                 logger.warning(f"Rate limit exceeded for user {user_id} (5 messages per minute)")
                 return True
 
-            # Check for duplicate messages
             if message_text:
                 if user_id in self.message_history and self.message_history[user_id][-1] == message_text:
                     logger.warning(f"Duplicate message detected for user {user_id}")
