@@ -227,8 +227,7 @@ async def handle_admin_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             await db.update_withdrawal(withdrawal_id, {"status": "rejected"})
             status_message = (
                 f"Your withdrawal of {amount} {CURRENCY} via {payment_method} was rejected. Please contact support.\n"
-                f"သင်ၤ
-                f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် ပယ်ချခံရသည်။ အကူအညီအတွက် ဆက်သွယ်ပါ။"
+                f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် ပယ်ချခံရသည်။ အကူအညီအတွက် ဆက်�ယ်ပါ။"
             )
             admin_log = f"Withdrawal {withdrawal_id} rejected for user {user_id}."
 
