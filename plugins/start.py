@@ -1,4 +1,3 @@
-# plugins/start.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from config import BOT_TOKEN, REQUIRED_CHANNELS, ADMIN_IDS
@@ -34,7 +33,7 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, c
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"Start command initiated by user {user_id} in chat {chat_id} at {update.message.date}")
+    logger.info(f"Start command initiated by user {user_id} in chat {chat_id} at {update.message.date}, args: {context.args}")
 
     referrer_id = None
     if context.args and context.args[0].startswith("referrer="):
@@ -43,16 +42,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name, referrer_id)
-        logger.info(f"Created new user {user_id} during start command with referrer {referrer_id}")
+        logger.info(f"Created new user {user_id} with referrer {referrer_id}")
 
-    # Use database for required channels
+    # Handle referrer notification
+    if user.get("referrer_id"):
+        referrer_id = user["referrer_id"]
+        success = await db.increment_invited_users(referrer_id)
+        logger.info(f"Increment invited_users for referrer {referrer_id}: {'Success' if success else 'Failed'}")
+        referrer = await db.get_user(referrer_id)
+        if referrer:
+            new_invite_link = f"https://t.me/{context.bot.username}?start=referrer={referrer_id}"
+            try:
+                await context.bot.send_message(
+                    chat_id=referrer_id,
+                    text=(
+                        f"🎉 A new user has joined via your referral! "
+                        f"You now have {referrer.get('invited_users', 0) + 1} invites.\n"
+                        f"Share this link to invite more: {new_invite_link}"
+                    ),
+                    disable_web_page_preview=True
+                )
+                logger.info(f"Notified referrer {referrer_id} of new invite by user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to notify referrer {referrer_id}: {e}")
+
+    # Subscription check
     required_channels = await db.get_required_channels()
-    if not required_channels:  # Fallback to config if DB is empty
+    if not required_channels:
         required_channels = REQUIRED_CHANNELS
         await db.set_required_channels(required_channels)
     logger.info(f"Required channels: {required_channels}")
 
-    # Enforce subscription only for non-admins
     if user_id not in ADMIN_IDS and required_channels:
         not_subscribed_channels = []
         for channel_id in required_channels:
@@ -80,36 +100,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(
                 f"🎉 Welcome! You must join the following channel(s) to use the bot:\n\n"
                 "After joining all channels, use /start again to proceed. 🚀\n"
-                "You cannot proceed until subscribed. Invited users will show as 0 until you comply.\n",
+                "Invites are counted, but you must subscribe to withdraw.\n",
                 reply_markup=reply_markup,
                 parse_mode="HTML",
                 disable_web_page_preview=True
             )
             logger.info(f"Sent force-sub prompt to user {user_id} with {len(not_subscribed_channels)} channels")
             return
-        else:
-            logger.info(f"User {user_id} has subscribed to all required channels")
-
-    # Handle referrer notification
-    if user.get("referrer_id"):
-        referrer_id = user["referrer_id"]
-        await db.increment_invited_users(referrer_id)
-        referrer = await db.get_user(referrer_id)
-        if referrer:
-            new_invite_link = f"https://t.me/{context.bot.username}?start=referrer={referrer_id}"
-            try:
-                await context.bot.send_message(
-                    chat_id=referrer_id,
-                    text=(
-                        f"🎉 A new user has joined via your referral! "
-                        f"You now have {referrer.get('invited_users', 0) + 1} invites.\n"
-                        f"Share this link to invite more: {new_invite_link}"
-                    ),
-                    disable_web_page_preview=True
-                )
-                logger.info(f"Notified referrer {referrer_id} of new invite by user {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to notify referrer {referrer_id}: {e}")
 
     # Build welcome message
     welcome_message = (
@@ -146,7 +143,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_message += (
         "\nManage your earnings:\n"
         f"Your Invite Link: https://t.me/{context.bot.username}?start=referrer={user_id}\n"
-        "Your Channel"
+        "Share this link to invite users. Invites are counted immediately, but you must join the required channels to withdraw.\n"
+        "ဤလင့်ခ်ကို မျှဝေပြီး အသုံးပြုသူများကို ဖိတ်ကြားပါ။ ဖိတ်ကြားမှုများကို ချက်ချင်းရေတွက်သော်လည်း ငွေထုတ်ရန် လိုအပ်သော ချန်နယ်များသို့ ဝင်ရောက်ရပါမည်။"
     )
 
     keyboard = [
@@ -193,7 +191,6 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     channel = context.args[0]
-    # Normalize channel ID
     if channel.startswith('@'):
         try:
             chat = await context.bot.get_chat(channel)
@@ -203,7 +200,7 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text("Invalid channel username or bot lacks access. Please use a channel ID.")
             return
     elif not channel.startswith('-'):
-        channel = f"-100{channel}"  # Add -100 prefix if it's a numeric ID without it
+        channel = f"-100{channel}"
 
     required_channels = await db.get_required_channels()
     if channel in required_channels:
@@ -240,7 +237,7 @@ async def del_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await update.message.reply_text("Invalid channel username or bot lacks access. Please use a channel ID.")
             return
     elif not channel.startswith('-'):
-        channel = f"-100{channel}"  # Add -100 prefix if it's a numeric ID without it
+        channel = f"-100{channel}"
 
     required_channels = await db.get_required_channels()
     if channel not in required_channels:
@@ -272,7 +269,6 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(f"Force-sub channels:\n{channels_text}")
     logger.info(f"Listed {len(required_channels)} force-sub channels for user {user_id}")
 
-# Handler for "Check Balance" button
 async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -297,4 +293,3 @@ def register_handlers(application: Application):
     application.add_handler(CommandHandler("delchnl", del_channel))
     application.add_handler(CommandHandler("listchnl", list_channels))
     application.add_handler(CallbackQueryHandler(check_balance, pattern="^check_balance$"))
-    # Note: The "Withdraw" button callback is handled in withdrawal.py
