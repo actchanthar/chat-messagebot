@@ -83,13 +83,22 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     # Check invite requirement only for non-admins
     if str(user_id) not in ADMIN_IDS:
-        can_withdraw, reason = await db.can_withdraw(user_id)
-        if not can_withdraw:
-            logger.info(f"User {user_id} cannot withdraw: {reason}")
+        try:
+            bot_username = (await context.bot.get_me()).username
+            can_withdraw, reason = await db.can_withdraw(user_id, bot_username)
+            if not can_withdraw:
+                logger.info(f"User {user_id} cannot withdraw: {reason}")
+                if update.message:
+                    await update.message.reply_text(reason)
+                else:
+                    await update.callback_query.message.reply_text(reason)
+                return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error checking withdrawal eligibility for user {user_id}: {e}")
             if update.message:
-                await update.message.reply_text(reason)
+                await update.message.reply_text("Error checking eligibility. Please try again later.")
             else:
-                await update.callback_query.message.reply_text(reason)
+                await update.callback_query.message.reply_text("Error checking eligibility. Please try again later.")
             return ConversationHandler.END
 
     # Check for pending withdrawals
@@ -222,7 +231,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if payment_method == "KBZ Pay":
             await message.reply_text(
                 "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW). 💳\n"
-                "ကျေးဇူးပြု၍ သင်ၤ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။"
+                "ကျေးဇူးပြု၍ သင်ၤ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)�।"
             )
         elif payment_method == "Wave Pay":
             await message.reply_text(
@@ -515,7 +524,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                         message_id=message_id,
                         text=updated_message,
                         parse_mode="Markdown"
-                    )
+                        )
                     logger.info(f"Updated message {message_id} to 'Rejected' for user {user_id} in chat {query.message.chat_id}")
                 except Exception as e:
                     logger.error(f"Failed to edit message {message_id} for user {user_id}: {e}")
