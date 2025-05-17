@@ -8,6 +8,9 @@ from config import WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, ADMIN
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Predefined withdrawal amounts
+WITHDRAWAL_AMOUNTS = [100, 200, 300, 500, 800, 1000, 1500]
+
 async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -50,7 +53,7 @@ async def start_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text(message)
         return
 
-    keyboard = [[InlineKeyboardButton(method, callback_data=f"withdraw_{method}")] for method in PAYMENT_METHODS]
+    keyboard = [[InlineKeyboardButton(method, callback_data=f"withdraw_method_{method}")] for method in PAYMENT_METHODS]
     keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_withdraw")])
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.message.reply_text(
@@ -77,29 +80,67 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.message.reply_text("User not found. Please start with /start.")
         return
 
-    if data.startswith("withdraw_"):
-        payment_method = data.split("_")[1]
+    balance = user.get("balance", 0)
+    bot_username = context.bot.username.lstrip('@')
+    can_withdraw, message = await db.can_withdraw(user_id, bot_username)
+    if not can_withdraw:
+        await query.message.reply_text(message)
+        context.user_data.clear()
+        return
+
+    if balance < WITHDRAWAL_THRESHOLD:
+        await query.message.reply_text(
+            f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw.\n"
+            f"သင့်လက်ကျန်ငွေမှာ {balance} {CURRENCY} ဖြစ်သည်။ ငွေထုတ်ရန် အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} လိုအပ်သည်။"
+        )
+        context.user_data.clear()
+        return
+
+    if data.startswith("withdraw_method_"):
+        payment_method = data.split("_")[2]
         context.user_data["payment_method"] = payment_method
-        balance = user.get("balance", 0)
 
-        bot_username = context.bot.username.lstrip('@')
-        can_withdraw, message = await db.can_withdraw(user_id, bot_username)
-        if not can_withdraw:
-            await query.message.reply_text(message)
-            context.user_data.clear()
-            return
+        # Create keyboard for amount selection
+        keyboard = [
+            [InlineKeyboardButton(f"{amount} {CURRENCY}", callback_data=f"withdraw_amount_{amount}")]
+            for amount in WITHDRAWAL_AMOUNTS if amount <= balance and amount <= DAILY_WITHDRAWAL_LIMIT
+        ]
+        keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel_withdraw")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text(
+            f"Selected payment method: {payment_method}\n"
+            f"Please select an amount to withdraw (available amounts based on your balance of {balance} {CURRENCY}):\n"
+            f"ရွေးချယ်ထားသော ငွေပေးချေမှုနည်းလမ်း: {payment_method}\n"
+            f"ထုတ်ယူရန် ပမာဏတစ်ခုကို ရွေးချယ်ပါ (သင့်လက်ကျန်ငွေ {balance} {CURRENCY} အပေါ်မူတည်၍):",
+            reply_markup=reply_markup
+        )
+        context.user_data["withdrawal_step"] = "select_amount"
+        return
 
-        if balance < WITHDRAWAL_THRESHOLD:
+    if data.startswith("withdraw_amount_"):
+        amount = int(data.split("_")[2])
+        context.user_data["amount"] = amount
+
+        if amount > balance:
             await query.message.reply_text(
-                f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw.\n"
-                f"သင့်လက်ကျန်ငွေမှာ {balance} {CURRENCY} ဖြစ်သည်။ ငွေထုတ်ရန် အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} လိုအပ်သည်။"
+                f"Selected amount {amount} {CURRENCY} exceeds your balance of {balance} {CURRENCY}.\n"
+                f"ရွေးချယ်ထားသော ပမာဏ {amount} {CURRENCY} သည် သင့်လက်ကျန်ငွေ {balance} {CURRENCY} ထက်ကျော်လွန်နေသည်။"
             )
             context.user_data.clear()
             return
 
+        if amount > DAILY_WITHDRAWAL_LIMIT:
+            await query.message.reply_text(
+                f"Selected amount {amount} {CURRENCY} exceeds the daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}.\n"
+                f"ရွေးချယ်ထားသော ပမာဏ {amount} {CURRENCY} သည် နေ့စဉ်ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ထက်ကျော်လွန်နေသည်။"
+            )
+            context.user_data.clear()
+            return
+
+        payment_method = context.user_data.get("payment_method")
         await query.message.reply_text(
-            f"Please provide your {payment_method} account details (e.g., phone number or account ID) to proceed with the withdrawal of {balance} {CURRENCY}.\n"
-            f"ငွေထုတ်ယူမှုအတွက် {payment_method} အကောင့်အသေးစိတ်အချက်အလက်များ (ဥပမာ၊ ဖုန်းနံပါတ် သို့မဟုတ် အကောင့် ID) ကို ပေးပါ။"
+            f"Please provide your {payment_method} account details (e.g., phone number or account ID) to withdraw {amount} {CURRENCY}.\n"
+            f"{amount} {CURRENCY} ထုတ်ယူရန် {payment_method} အကောင့်အသေးစိတ်အချက်အလက်များ (ဥပမာ၊ ဖုန်းနံပါတ် သို့မဟုတ် အကောင့် ID) ကို ပေးပါ။"
         )
         context.user_data["withdrawal_step"] = "awaiting_account_details"
         return
@@ -115,9 +156,10 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     payment_method = context.user_data.get("payment_method")
+    amount = context.user_data.get("amount")
     account_details = update.message.text
     balance = user.get("balance", 0)
-    logger.info(f"Received account details from user {user_id} for {payment_method}: {account_details}")
+    logger.info(f"Received account details from user {user_id} for {payment_method}: {account_details}, amount: {amount}")
 
     bot_username = context.bot.username.lstrip('@')
     can_withdraw, message = await db.can_withdraw(user_id, bot_username)
@@ -126,18 +168,26 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data.clear()
         return
 
-    if balance < WITHDRAWAL_THRESHOLD:
+    if amount < WITHDRAWAL_THRESHOLD:
         await update.message.reply_text(
-            f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw.\n"
-            f"သင့်လက်ကျန်ငွေမှာ {balance} {CURRENCY} ဖြစ်သည်။ ငွေထုတ်ရန် အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} လိုအပ်သည်။"
+            f"Selected amount {amount} {CURRENCY} is below the minimum withdrawal threshold of {WITHDRAWAL_THRESHOLD} {CURRENCY}.\n"
+            f"ရွေးချယ်ထားသော ပမာဏ {amount} {CURRENCY} သည် အနည်းဆုံး ထုတ်ယူမှု ကန့်သတ်ချက် {WITHDRAWAL_THRESHOLD} {CURRENCY} အောက်တွင် ရှိသည်။"
         )
         context.user_data.clear()
         return
 
-    if balance > DAILY_WITHDRAWAL_LIMIT:
+    if amount > balance:
         await update.message.reply_text(
-            f"Your withdrawal request of {balance} {CURRENCY} exceeds the daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}. Please request a smaller amount.\n"
-            f"သင်၏ ငွေထုတ်ယူမှု {balance} {CURRENCY} သည် နေ့စဉ်ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ထက်ကျော်လွန်နေသည်။ ကျေးဇူးပြု၍ ပမာဏနည်းပါးစွာ တောင်းဆိုပါ။"
+            f"Selected amount {amount} {CURRENCY} exceeds your balance of {balance} {CURRENCY}.\n"
+            f"ရွေးချယ်ထားသော ပမာဏ {amount} {CURRENCY} သည် သင့်လက်ကျန်ငွေ {balance} {CURRENCY} ထက်ကျော်လွန်နေသည်။"
+        )
+        context.user_data.clear()
+        return
+
+    if amount > DAILY_WITHDRAWAL_LIMIT:
+        await update.message.reply_text(
+            f"Selected amount {amount} {CURRENCY} exceeds the daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}.\n"
+            f"ရွေးချယ်ထားသော ပမာဏ {amount} {CURRENCY} သည် နေ့စဉ်ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ထက်ကျော်လွန်နေသည်။"
         )
         context.user_data.clear()
         return
@@ -147,7 +197,7 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
     withdrawal = {
         "withdrawal_id": withdrawal_id,
         "user_id": user_id,
-        "amount": balance,
+        "amount": amount,
         "payment_method": payment_method,
         "account_details": account_details,
         "status": "pending",
@@ -155,13 +205,17 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
     }
     await db.create_withdrawal(withdrawal)
 
+    # Update user balance
+    new_balance = balance - amount
+    await db.update_user(user_id, {"balance": new_balance})
+
     # Notify admin
     log_message = (
         f"New Withdrawal Request\n"
         f"Withdrawal ID: {withdrawal_id}\n"
         f"User ID: {user_id}\n"
         f"Name: {user['name']}\n"
-        f"Amount: {balance} {CURRENCY}\n"
+        f"Amount: {amount} {CURRENCY}\n"
         f"Payment Method: {payment_method}\n"
         f"Account Details: {account_details}\n"
         f"Time: {datetime.datetime.utcnow()}"
@@ -188,8 +242,8 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Failed to send withdrawal request notifications: {e}")
 
     await update.message.reply_text(
-        f"Your withdrawal request of {balance} {CURRENCY} via {payment_method} has been submitted. You will be notified once it is processed.\n"
-        f"သင်၏ {balance} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် တင်သွင်းပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် သင့်ကို အကြောင်းကြားပါမည်။"
+        f"Your withdrawal request of {amount} {CURRENCY} via {payment_method} has been submitted. You will be notified once it is processed.\n"
+        f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် တင်သွင်းပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် သင့်ကို အကြောင်းကြားပါမည်။"
     )
     context.user_data.clear()
 
@@ -217,7 +271,6 @@ async def handle_admin_withdrawal(update: Update, context: ContextTypes.DEFAULT_
 
         if data.startswith("approve_withdrawal_"):
             await db.update_withdrawal(withdrawal_id, {"status": "approved"})
-            await db.update_user(user_id, {"balance": 0})
             status_message = (
                 f"Your withdrawal of {amount} {CURRENCY} via {payment_method} has been approved and processed.\n"
                 f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် အတည်ပြုပြီး လုပ်ဆောင်ပြီးပါပြီ။"
@@ -225,9 +278,15 @@ async def handle_admin_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             admin_log = f"Withdrawal {withdrawal_id} approved for user {user_id}."
         else:
             await db.update_withdrawal(withdrawal_id, {"status": "rejected"})
+            # Refund the amount to user balance if rejected
+            user = await db.get_user(user_id)
+            if user:
+                new_balance = user.get("balance", 0) + amount
+                await db.update_user(user_id, {"balance": new_balance})
             status_message = (
-                f"Your withdrawal of {amount} {CURRENCY} via {payment_method} was rejected. Please contact support.\n"
-                f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် ပယ်ချခံရသည်။ အကူအညီအတွက် ဆက်�ယ်ပါ။"
+                f"Your withdrawal of {amount} {CURRENCY} via {payment_method} was rejected. The amount has been refunded to your balance. Please contact support.\n"
+                f"သင်ၤ
+                f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် ပယ်ချခံရသည်။ ပမာဏကို သင့်လက်ကျန်ငွေသို့ ပြန်အမ်းပြီးပါပြီ။ အကူအညီအတွက် ဆက်သွယ်ပါ။"
             )
             admin_log = f"Withdrawal {withdrawal_id} rejected for user {user_id}."
 
@@ -323,7 +382,7 @@ def register_handlers(application: Application):
     logger.info("Registering withdrawal handlers")
     application.add_handler(CallbackQueryHandler(check_balance, pattern="^check_balance$"))
     application.add_handler(CallbackQueryHandler(start_withdraw, pattern="^start_withdraw$"))
-    application.add_handler(CallbackQueryHandler(withdraw, pattern="^withdraw_|^cancel_withdraw$"))
+    application.add_handler(CallbackQueryHandler(withdraw, pattern="^withdraw_method_|^withdraw_amount_|^cancel_withdraw$"))
     application.add_handler(CallbackQueryHandler(handle_admin_withdrawal, pattern="^approve_withdrawal_|^reject_withdrawal_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.UpdateType.MESSAGE, handle_account_details))
     application.add_handler(CommandHandler("withdrawal_history", view_withdrawal_history))
