@@ -45,10 +45,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = await db.create_user(user_id, update.effective_user.full_name, referrer_id)
         logger.info(f"Created new user {user_id} during start command with referrer {referrer_id}")
 
+    # Use database for required channels
+    required_channels = await db.get_required_channels()
+    if not required_channels:  # Fallback to config if DB is empty
+        required_channels = REQUIRED_CHANNELS
+        await db.set_required_channels(required_channels)
+    logger.info(f"Required channels: {required_channels}")
+
     # Enforce subscription only for non-admins
-    if user_id not in ADMIN_IDS and REQUIRED_CHANNELS:
+    if user_id not in ADMIN_IDS and required_channels:
         not_subscribed_channels = []
-        for channel_id in REQUIRED_CHANNELS:
+        for channel_id in required_channels:
             is_subscribed = await check_subscription(context, user_id, channel_id)
             if not is_subscribed:
                 not_subscribed_channels.append(channel_id)
@@ -171,6 +178,100 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         logger.info(f"Sent welcome message to user {user_id} in chat {chat_id} via fallback")
 
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    logger.info(f"/addchnl command initiated by user {user_id}")
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Only admins can add channels.")
+        logger.info(f"User {user_id} attempted to add channel but is not an admin")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Please provide a channel ID or username (e.g., /addchnl -100123456789 or @channelname).")
+        logger.info(f"User {user_id} provided no arguments for /addchnl")
+        return
+
+    channel = context.args[0]
+    # Normalize channel ID
+    if channel.startswith('@'):
+        try:
+            chat = await context.bot.get_chat(channel)
+            channel = str(chat.id)
+        except Exception as e:
+            logger.error(f"Failed to resolve channel {channel}: {e}")
+            await update.message.reply_text("Invalid channel username or bot lacks access. Please use a channel ID.")
+            return
+    elif not channel.startswith('-'):
+        channel = f"-100{channel}"  # Add -100 prefix if it's a numeric ID without it
+
+    required_channels = await db.get_required_channels()
+    if channel in required_channels:
+        await update.message.reply_text(f"Channel {channel} is already in the force-sub list.")
+        logger.info(f"Channel {channel} already exists for user {user_id}")
+        return
+
+    required_channels.append(channel)
+    await db.set_required_channels(required_channels)
+    await update.message.reply_text(f"Added channel {channel} to force-sub list.")
+    logger.info(f"Added channel {channel} to force-sub list by user {user_id}")
+
+async def del_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    logger.info(f"/delchnl command initiated by user {user_id}")
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Only admins can remove channels.")
+        logger.info(f"User {user_id} attempted to remove channel but is not an admin")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Please provide a channel ID or username to remove (e.g., /delchnl -100123456789 or @channelname).")
+        logger.info(f"User {user_id} provided no arguments for /delchnl")
+        return
+
+    channel = context.args[0]
+    if channel.startswith('@'):
+        try:
+            chat = await context.bot.get_chat(channel)
+            channel = str(chat.id)
+        except Exception as e:
+            logger.error(f"Failed to resolve channel {channel}: {e}")
+            await update.message.reply_text("Invalid channel username or bot lacks access. Please use a channel ID.")
+            return
+    elif not channel.startswith('-'):
+        channel = f"-100{channel}"  # Add -100 prefix if it's a numeric ID without it
+
+    required_channels = await db.get_required_channels()
+    if channel not in required_channels:
+        await update.message.reply_text(f"Channel {channel} is not in the force-sub list.")
+        logger.info(f"Channel {channel} not found for user {user_id}")
+        return
+
+    required_channels.remove(channel)
+    await db.set_required_channels(required_channels)
+    await update.message.reply_text(f"Removed channel {channel} from force-sub list.")
+    logger.info(f"Removed channel {channel} from force-sub list by user {user_id}")
+
+async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    logger.info(f"/listchnl command initiated by user {user_id}")
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Only admins can view the channel list.")
+        logger.info(f"User {user_id} attempted to list channels but is not an admin")
+        return
+
+    required_channels = await db.get_required_channels()
+    if not required_channels:
+        await update.message.reply_text("No force-sub channels configured.")
+        logger.info(f"No force-sub channels found for user {user_id}")
+        return
+
+    channels_text = "\n".join([f"- {ch}" for ch in required_channels])
+    await update.message.reply_text(f"Force-sub channels:\n{channels_text}")
+    logger.info(f"Listed {len(required_channels)} force-sub channels for user {user_id}")
+
 # Handler for "Check Balance" button
 async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -192,5 +293,8 @@ async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("addchnl", add_channel))
+    application.add_handler(CommandHandler("delchnl", del_channel))
+    application.add_handler(CommandHandler("listchnl", list_channels))
     application.add_handler(CallbackQueryHandler(check_balance, pattern="^check_balance$"))
     # Note: The "Withdraw" button callback is handled in withdrawal.py
