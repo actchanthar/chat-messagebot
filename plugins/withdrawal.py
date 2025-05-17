@@ -129,6 +129,7 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
     if balance < WITHDRAWAL_THRESHOLD:
         await update.message.reply_text(
             f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw.\n"
+            f"သင့်လက်ကျmentalist
             f"သင့်လက်ကျန်ငွေမှာ {balance} {CURRENCY} ဖြစ်သည်။ ငွေထုတ်ရန် အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} လိုအပ်သည်။"
         )
         context.user_data.clear()
