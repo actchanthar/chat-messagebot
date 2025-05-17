@@ -108,7 +108,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info(f"Sent force-sub prompt to user {user_id} with {len(not_subscribed_channels)} channels")
             return
 
-    # Build welcome message
+    # Build welcome message (no invite link)
     welcome_message = (
         "စာပို့ရင်း ငွေရှာမယ်:\n"
         f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
@@ -139,13 +139,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 else:
                     top_message += f"{i}. {user['name']} - {group_messages} messages, {balance} kyat\n"
             welcome_message += top_message
-
-    welcome_message += (
-        "\nManage your earnings:\n"
-        f"Your Invite Link: https://t.me/{context.bot.username}?start=referrer={user_id}\n"
-        "Share this link to invite users. Invites are counted immediately, but you must join the required channels to withdraw.\n"
-        "ဤလင့်ခ်ကို မျှဝေပြီး အသုံးပြုသူများကို ဖိတ်ကြားပါ။ ဖိတ်ကြားမှုများကို ချက်ချင်းရေတွက်သော်လည်း ငွေထုတ်ရန် လိုအပ်သော ချန်နယ်များသို့ ဝင်ရောက်ရပါမည်။"
-    )
 
     keyboard = [
         [
