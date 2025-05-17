@@ -1,4 +1,4 @@
-# database.py
+# database/database.py
 from pymongo import MongoClient
 from collections import deque
 import datetime
@@ -31,7 +31,6 @@ class Database:
             "last_activity": datetime.datetime.utcnow(),
             "referrer_id": referrer_id,
             "invited_users": 0,
-            # Removed "subscribed_channels" as it’s no longer needed
         }
         self.db.users.insert_one(user)
         logger.info(f"Created user {user_id} in database")
@@ -96,6 +95,21 @@ class Database:
                 f"သင်သည် ယခုထိ {invited_users} ဦးကို ဖိတ်ခေါ်ထားပါသည်။"
             )
         return True, ""
+
+    # Add methods for managing force-sub channels
+    async def set_required_channels(self, channels: list):
+        self.db.required_channels.replace_one(
+            {"_id": "force_sub"},
+            {"_id": "force_sub", "channels": channels},
+            upsert=True
+        )
+        logger.info(f"Set required channels to {channels}")
+
+    async def get_required_channels(self):
+        result = self.db.required_channels.find_one({"_id": "force_sub"})
+        channels = result["channels"] if result and "channels" in result else []
+        logger.info(f"Retrieved required channels: {channels}")
+        return channels
 
 # Initialize and export the db instance
 db = Database(MONGODB_URL, MONGODB_NAME)
