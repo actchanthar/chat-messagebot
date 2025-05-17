@@ -19,9 +19,6 @@ logger = logging.getLogger(__name__)
 # Define withdrawal steps
 STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-# Admin group ID for notifications
-ADMIN_GROUP_ID = "-1002061898677"
-
 # Handle /balance command and Check Balance button
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
@@ -103,7 +100,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                                            "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
         else:
             await update.callback_query.message.reply_text("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
-                                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစ�ryးရန်စောင့်ပါ။")
+                                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
         return ConversationHandler.END
 
     context.user_data.clear()
@@ -234,7 +231,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         else:
             await message.reply_text(
                 f"Please provide your {payment_method} account details. 💳\n"
-                f"ကျေးဇူးပြု၍ သင်၏ {payment_method} အကောင့်အသေးစိတ်ကို ပေးပါ။"
+                f"ကျေးဇူးပြု၍ သင်ၤ {payment_method} အကောင့်အသေးစိတ်ကို ပေးပါ။"
             )
         logger.info(f"User {user_id} prompted for {payment_method} account details")
         return STEP_DETAILS
@@ -298,7 +295,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["withdrawal_details"] = payment_details
     logger.info(f"User {user_id} submitted account details, context: {context.user_data}")
 
-    # Prepare withdrawal message
+    # Prepare withdrawal message for log channel
     user_first_name = user.get("name", update.effective_user.first_name or "Unknown")
     username = update.effective_user.username or user.get("username", "N/A")
     withdrawal_message = (
@@ -346,55 +343,43 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("Error submitting request. Please try again later.")
         return ConversationHandler.END
 
-    # Send to admin group
+    # Prepare simplified message
+    simplified_message = f"{username} သည် ငွေ {amount} {CURRENCY} ထုတ်ယူခဲ့သည်။"
+
+    # Send simplified message to all groups in GROUP_CHAT_IDS
+    for group_id in GROUP_CHAT_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=group_id,
+                text=simplified_message
+            )
+            logger.info(f"Sent simplified withdrawal message to group {group_id} for user {user_id}")
+        except Exception as e:
+            logger.error(f"Failed to send simplified message to group {group_id} for user {user_id}: {e}")
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Warning: Failed to send simplified message to group {group_id} for user {user_id}: {e}"
+            )
+
+    # Send simplified message as DM to user
     try:
-        admin_msg = await context.bot.send_message(
-            chat_id=ADMIN_GROUP_ID,
-            text=withdrawal_message,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=simplified_message
         )
-        logger.info(f"Sent withdrawal request to admin group {ADMIN_GROUP_ID} for user {user_id} with message ID {admin_msg.message_id}")
+        logger.info(f"Sent simplified withdrawal message as DM to user {user_id}")
     except Exception as e:
-        logger.error(f"Failed to send withdrawal request to admin group {ADMIN_GROUP_ID} for user {user_id}: {e}")
-        # Don't fail the request, just log the error
+        logger.error(f"Failed to send simplified DM to user {user_id}: {e}")
         await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
-            text=f"Warning: Failed to notify admin group {ADMIN_GROUP_ID} for withdrawal request of user {user_id}: {e}"
+            text=f"Warning: Failed to send simplified DM to user {user_id}: {e}"
         )
 
     # Reply to user in the conversation
     await message.reply_text(
         f"Your withdrawal request for {amount} {CURRENCY} has been submitted. The amount has been deducted from your balance and will be processed by an admin. Your new balance is {new_balance} {CURRENCY}. ⏳\n"
-        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်�ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
     )
-
-    # Send DM confirmation to user
-    try:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=(
-                f"Withdrawal Request Confirmation:\n"
-                f"Amount: {amount} {CURRENCY}\n"
-                f"Payment Method: {payment_method}\n"
-                f"Details: {payment_details}\n"
-                f"Status: Pending ⏳\n"
-                f"Your request has been submitted and is awaiting admin approval.\n"
-                f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု အတည်ပြုချက်:\n"
-                f"ပမာဏ: {amount} {CURRENCY}\n"
-                f"ငွေပေးချေမှုနည်းလမ်း: {payment_method}\n"
-                f"အသေးစိတ်: {payment_details}\n"
-                f"အခြေအနေ: ဆိုင်းငံ့ထားသည် ⏳\n"
-                f"သင့်တောင်းဆိုမှုကို တင်ပြပြီးဖြစ်ပြီး အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ဆိုင်းနေပါသည်။"
-            )
-        )
-        logger.info(f"Sent DM confirmation to user {user_id} for withdrawal request")
-    except Exception as e:
-        logger.error(f"Failed to send DM confirmation to user {user_id}: {e}")
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"Warning: Failed to send DM confirmation to user {user_id}: {e}"
-        )
 
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
     return ConversationHandler.END
@@ -449,7 +434,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     )
                     try:
                         await context.bot.edit_message_text(
-                            chat_id=query.message.chat_id,  # Edit in the channel/group where the button was pressed
+                            chat_id=query.message.chat_id,
                             message_id=message_id,
                             text=updated_message,
                             parse_mode="Markdown"
@@ -498,7 +483,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             })
             logger.info(f"db.update_user returned: {result} for user {user_id} on rejection")
 
-            message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
+            message_id = context richtig.chat_data.get('log_message_ids', {}).get(user_id)
             if message_id:
                 user_first_name = user.get("name", "Unknown")
                 username = user.get("username", "N/A")
@@ -589,7 +574,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.info(f"Refunded {amount} to user {user_id} on cancellation. New balance: {new_balance}")
         await update.message.reply_text(
             f"Withdrawal canceled. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
-            f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်ဲည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+            f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
         )
     else:
         await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
