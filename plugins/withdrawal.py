@@ -3,7 +3,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from database.database import db
 import logging
 import datetime
-from config import WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, ADMIN_IDS, PAYMENT_METHODS, LOG_CHANNEL_ID
+from config import WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, ADMIN_IDS, PAYMENT_METHODS, LOG_CHANNEL_ID, ADMIN_GROUP_ID
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -209,7 +209,7 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
     new_balance = balance - amount
     await db.update_user(user_id, {"balance": new_balance})
 
-    # Notify admin
+    # Notify admins (DM, log channel, and group)
     log_message = (
         f"New Withdrawal Request\n"
         f"Withdrawal ID: {withdrawal_id}\n"
@@ -227,23 +227,32 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
+        # Notify admins via DM
         for admin_id in ADMIN_IDS:
             await context.bot.send_message(
                 chat_id=admin_id,
                 text=log_message,
                 reply_markup=reply_markup
             )
+        # Notify in log channel
         await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=log_message
         )
-        logger.info(f"Sent withdrawal request to admins and log channel for user {user_id}")
+        # Notify in admin group
+        await context.bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text=log_message,
+            reply_markup=reply_markup
+        )
+        logger.info(f"Sent withdrawal request to admins (DM, log channel, group {ADMIN_GROUP_ID}) for user {user_id}")
     except Exception as e:
         logger.error(f"Failed to send withdrawal request notifications: {e}")
 
+    # Send DM to user
     await update.message.reply_text(
-        f"Your withdrawal request of {amount} {CURRENCY} via {payment_method} has been submitted. You will be notified once it is processed.\n"
-        f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် တင်သွင်းပြီးပါပြီ။ လုပ်ဆောင်ပြီးသည်နှင့် သင့်ကို အကြောင်းကြားပါမည်။"
+        f"Your withdrawal request of {amount} {CURRENCY} via {payment_method} has been submitted and is pending approval.\n"
+        f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် တင်သွင်းပြီးပါပြီ။ အတည်ပြုချက်စောင့်ဆိုင်းနေပါသည်။"
     )
     context.user_data.clear()
 
@@ -273,6 +282,7 @@ async def handle_admin_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             await db.update_withdrawal(withdrawal_id, {"status": "approved"})
             status_message = (
                 f"Your withdrawal of {amount} {CURRENCY} via {payment_method} has been approved and processed.\n"
+                f"သင်ၤ
                 f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် အတည်ပြုပြီး လုပ်ဆောင်ပြီးပါပြီ။"
             )
             admin_log = f"Withdrawal {withdrawal_id} approved for user {user_id}."
@@ -298,6 +308,10 @@ async def handle_admin_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             await query.message.reply_text(admin_log)
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
+                text=f"{admin_log}\nAccount Details: {account_details}"
+            )
+            await context.bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
                 text=f"{admin_log}\nAccount Details: {account_details}"
             )
             logger.info(admin_log)
