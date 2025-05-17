@@ -1,7 +1,7 @@
 # plugins/start.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import BOT_TOKEN  # Removed REQUIRED_CHANNELS since it's no longer needed
+from config import BOT_TOKEN, ADMIN_IDS
 from database.database import db
 import logging
 import datetime
@@ -9,12 +9,33 @@ import datetime
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, channel_id: str) -> bool:
+    try:
+        bot_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=context.bot.id)
+        bot_is_admin = bot_member.status in ["administrator", "creator"]
+        if not bot_is_admin:
+            logger.error(f"Bot is not an admin in channel {channel_id}. Bot status: {bot_member.status}")
+            return False
+
+        member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        is_member = member.status in ["member", "administrator", "creator"]
+        logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}, user={member.user.username}")
+        return is_member
+    except Exception as e:
+        logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
+        if "user not found" in str(e).lower():
+            logger.info(f"User {user_id} is likely not in channel {channel_id} or has privacy settings enabled.")
+            return False
+        elif "not enough rights" in str(e).lower():
+            logger.error(f"Bot lacks permissions to view members in channel {channel_id}.")
+            return False
+        return False
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id} at {update.message.date}")
 
-    # Handle referrer
     referrer_id = None
     if context.args and context.args[0].startswith("referrer="):
         referrer_id = context.args[0].split("referrer=")[1]
@@ -24,7 +45,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = await db.create_user(user_id, update.effective_user.full_name, referrer_id)
         logger.info(f"Created new user {user_id} during start command with referrer {referrer_id}")
 
-    # Increment referrer's invited users if applicable
+    required_channels = await db.get_required_channels() or []
+    logger.info(f"Required channels from database: {required_channels}")
+
+    # Enforce subscription only for non-admins
+    if user_id not in ADMIN_IDS and required_channels:
+        not_subscribed_channels = []
+        for channel_id in required_channels:
+            is_subscribed = await check_subscription(context, user_id, channel_id)
+            if not is_subscribed:
+                not_subscribed_channels.append(channel_id)
+                logger.info(f"User {user_id} is not subscribed to channel {channel_id}")
+
+        if not_subscribed_channels:
+            keyboard = []
+            for channel_id in not_subscribed_channels:
+                try:
+                    chat = await context.bot.get_chat(channel_id)
+                    invite_link = await context.bot.export_chat_invite_link(channel_id)
+                    button_text = f"Join {chat.title}"
+                    keyboard.append([InlineKeyboardButton(button_text, url=invite_link)])
+                    logger.info(f"Generated invite link for channel {channel_id}: {invite_link}")
+                except Exception as e:
+                    logger.error(f"Failed to get invite link for {channel_id}: {e}")
+                    channel_link = f"https://t.me/{channel_id.replace('-100', '')}"
+                    keyboard.append([InlineKeyboardButton(f"Join Channel {channel_id}", url=channel_link)])
+                    logger.info(f"Using fallback link for channel {channel_id}: {channel_link}")
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"🎉 Welcome! You must join the following channel(s) to use the bot:\n\n"
+                "After joining all channels, use /start again to proceed. 🚀\n"
+                "You cannot proceed until subscribed. Invited users will show as 0 until you comply.\n",
+                reply_markup=reply_markup,
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
+            logger.info(f"Sent force-sub prompt to user {user_id} with {len(not_subscribed_channels)} channels")
+            return
+        else:
+            logger.info(f"User {user_id} has subscribed to all required channels")
+
+    # Handle referrer notification
     if user.get("referrer_id"):
         referrer_id = user["referrer_id"]
         await db.increment_invited_users(referrer_id)
@@ -53,7 +115,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
     )
 
-    # Add leaderboard
     users = await db.get_all_users()
     if users:
         target_group = "-1002061898677"
@@ -96,7 +157,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Send welcome message
     try:
         await update.message.reply_text(
             welcome_message,
@@ -106,7 +166,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(f"Sent welcome message to user {user_id} in chat {chat_id}")
     except Exception as e:
         logger.error(f"Failed to send welcome message to user {user_id}: {e}")
-        # Fallback: Send without replying to avoid BadRequest error
         await context.bot.send_message(
             chat_id=chat_id,
             text=welcome_message,
@@ -114,6 +173,92 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             parse_mode="HTML"
         )
         logger.info(f"Sent welcome message to user {user_id} in chat {chat_id} via fallback")
+
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    logger.info(f"/addchnl command initiated by user {user_id}")
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Only admins can add channels.")
+        logger.info(f"User {user_id} attempted to add channel but is not an admin")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Please provide a channel ID or username (e.g., /addchnl -100123456789 or @channelname).")
+        logger.info(f"User {user_id} provided no arguments for /addchnl")
+        return
+
+    channel = context.args[0]
+    # Normalize channel ID (remove '-100' prefix if present and ensure it's a valid format)
+    if channel.startswith('@'):
+        channel = channel[1:]  # Remove @ for username
+    elif channel.startswith('-100'):
+        channel = channel[4:]  # Remove -100 prefix
+    elif not channel.startswith('-'):
+        channel = f"-100{channel}"  # Add -100 prefix if it's a numeric ID without it
+
+    required_channels = await db.get_required_channels() or []
+    if channel in required_channels:
+        await update.message.reply_text(f"Channel {channel} is already in the force-sub list.")
+        logger.info(f"Channel {channel} already exists for user {user_id}")
+        return
+
+    required_channels.append(channel)
+    await db.set_required_channels(required_channels)
+    await update.message.reply_text(f"Added channel {channel} to force-sub list.")
+    logger.info(f"Added channel {channel} to force-sub list by user {user_id}")
+
+async def del_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    logger.info(f"/delchnl command initiated by user {user_id}")
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Only admins can remove channels.")
+        logger.info(f"User {user_id} attempted to remove channel but is not an admin")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Please provide a channel ID or username to remove (e.g., /delchnl -100123456789 or @channelname).")
+        logger.info(f"User {user_id} provided no arguments for /delchnl")
+        return
+
+    channel = context.args[0]
+    if channel.startswith('@'):
+        channel = channel[1:]  # Remove @ for username
+    elif channel.startswith('-100'):
+        channel = channel[4:]  # Remove -100 prefix
+    elif not channel.startswith('-'):
+        channel = f"-100{channel}"  # Add -100 prefix if it's a numeric ID without it
+
+    required_channels = await db.get_required_channels() or []
+    if channel not in required_channels:
+        await update.message.reply_text(f"Channel {channel} is not in the force-sub list.")
+        logger.info(f"Channel {channel} not found for user {user_id}")
+        return
+
+    required_channels.remove(channel)
+    await db.set_required_channels(required_channels)
+    await update.message.reply_text(f"Removed channel {channel} from force-sub list.")
+    logger.info(f"Removed channel {channel} from force-sub list by user {user_id}")
+
+async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    logger.info(f"/listchnl command initiated by user {user_id}")
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Only admins can view the channel list.")
+        logger.info(f"User {user_id} attempted to list channels but is not an admin")
+        return
+
+    required_channels = await db.get_required_channels() or []
+    if not required_channels:
+        await update.message.reply_text("No force-sub channels configured.")
+        logger.info(f"No force-sub channels found for user {user_id}")
+        return
+
+    channels_text = "\n".join([f"- {ch}" for ch in required_channels])
+    await update.message.reply_text(f"Force-sub channels:\n{channels_text}")
+    logger.info(f"Listed {len(required_channels)} force-sub channels for user {user_id}")
 
 # Handler for "Check Balance" button
 async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -136,5 +281,8 @@ async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("addchnl", add_channel))
+    application.add_handler(CommandHandler("delchnl", del_channel))
+    application.add_handler(CommandHandler("listchnl", list_channels))
     application.add_handler(CallbackQueryHandler(check_balance, pattern="^check_balance$"))
     # Note: The "Withdraw" button callback is handled in withdrawal.py
