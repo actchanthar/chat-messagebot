@@ -129,7 +129,6 @@ async def handle_account_details(update: Update, context: ContextTypes.DEFAULT_T
     if balance < WITHDRAWAL_THRESHOLD:
         await update.message.reply_text(
             f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw.\n"
-            f"သင့်လက်ကျmentalist
             f"သင့်လက်ကျန်ငွေမှာ {balance} {CURRENCY} ဖြစ်သည်။ ငွေထုတ်ရန် အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} လိုအပ်သည်။"
         )
         context.user_data.clear()
@@ -228,6 +227,7 @@ async def handle_admin_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             await db.update_withdrawal(withdrawal_id, {"status": "rejected"})
             status_message = (
                 f"Your withdrawal of {amount} {CURRENCY} via {payment_method} was rejected. Please contact support.\n"
+                f"သင်ၤ
                 f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် ပယ်ချခံရသည်။ အကူအညီအတွက် ဆက်သွယ်ပါ။"
             )
             admin_log = f"Withdrawal {withdrawal_id} rejected for user {user_id}."
