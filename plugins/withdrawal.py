@@ -282,7 +282,7 @@ async def handle_admin_withdrawal(update: Update, context: ContextTypes.DEFAULT_
             await db.update_withdrawal(withdrawal_id, {"status": "approved"})
             status_message = (
                 f"Your withdrawal of {amount} {CURRENCY} via {payment_method} has been approved and processed.\n"
-                f"သင်ၤ
+               
                 f"သင်၏ {amount} {CURRENCY} ငွေထုတ်ယူမှုကို {payment_method} မှတစ်ဆင့် အတည်ပြုပြီး လုပ်ဆောင်ပြီးပါပြီ။"
             )
             admin_log = f"Withdrawal {withdrawal_id} approved for user {user_id}."
