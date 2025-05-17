@@ -100,7 +100,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                                            "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
         else:
             await update.callback_query.message.reply_text("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
-                                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
+                                                           "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်�ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
         return ConversationHandler.END
 
     context.user_data.clear()
@@ -210,7 +210,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if user.get("balance", 0) < amount:
             await message.reply_text(
                 "Insufficient balance. Please check your balance with /balance.\n"
-                "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေးဇူးပြု၍ သင့်လက်ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
+                "လက်ကျန်ငွေ မလုံလောက်ပါ�। ကျေးဇူးပြု၍ သင့်လက်ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
             )
             return ConversationHandler.END
 
@@ -226,7 +226,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         elif payment_method == "Wave Pay":
             await message.reply_text(
                 "Please provide your Wave Pay account details (e.g., phone number and name). 💳\n"
-                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ ဖုန်းနံပါတ်နှင့် နာမည်)။"
+                "ကျေးဇူးပြု၍ သင်ၤ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ ဖုန်းနံပါတ်နှင့် နာမည်)။"
             )
         else:
             await message.reply_text(
@@ -239,7 +239,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     except ValueError:
         await message.reply_text(
             "Please enter a valid number (e.g., 100).\n"
-            "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
+            "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)�।"
         )
         return STEP_AMOUNT
 
@@ -483,7 +483,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             })
             logger.info(f"db.update_user returned: {result} for user {user_id} on rejection")
 
-            message_id = context richtig.chat_data.get('log_message_ids', {}).get(user_id)
+            message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
             if message_id:
                 user_first_name = user.get("name", "Unknown")
                 username = user.get("username", "N/A")
@@ -515,7 +515,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await context.bot.send_message(
                     chat_id=user_id,
                     text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. If there are any problems or you wish to appeal, please contact @actanibot.\n"
-                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်�ലက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
                 )
                 logger.info(f"Notified user {user_id} of withdrawal rejection")
             except Exception as e:
