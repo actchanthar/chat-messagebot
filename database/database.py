@@ -1,4 +1,3 @@
-# database/database.py
 from pymongo import MongoClient
 from collections import deque
 import datetime
@@ -40,8 +39,9 @@ class Database:
     async def update_user(self, user_id: str, updates: dict):
         if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
             updates["message_timestamps"] = list(updates["message_timestamps"])
-        self.db.users.update_one({"user_id": user_id}, {"$set": updates})
-        logger.info(f"Updated user {user_id}: {updates}")
+        result = self.db.users.update_one({"user_id": user_id}, {"$set": updates})
+        logger.info(f"Updated user {user_id}: {updates}, result: {result.modified_count}")
+        return result
 
     async def check_rate_limit(self, user_id: str, max_messages: int = 5, time_window: int = 60) -> bool:
         user = await self.get_user(user_id)
@@ -63,11 +63,12 @@ class Database:
         return True
 
     async def increment_invited_users(self, user_id: str):
-        self.db.users.update_one(
+        result = self.db.users.update_one(
             {"user_id": user_id},
             {"$inc": {"invited_users": 1}}
         )
-        logger.info(f"Incremented invited_users for user {user_id}")
+        logger.info(f"Incremented invited_users for user {user_id}, result: {result.modified_count}")
+        return result.modified_count > 0
 
     async def get_all_users(self):
         users = list(self.db.users.find())
@@ -85,7 +86,7 @@ class Database:
             return False, "User not found. Please start with /start."
 
         invited_users = user.get("invited_users", 0)
-        required_invites = DEFAULT_REQUIRED_INVITES  # From config.py (15 invites)
+        required_invites = DEFAULT_REQUIRED_INVITES
 
         if invited_users < required_invites:
             return False, (
@@ -96,7 +97,6 @@ class Database:
             )
         return True, ""
 
-    # Add methods for managing force-sub channels
     async def set_required_channels(self, channels: list):
         self.db.required_channels.replace_one(
             {"_id": "force_sub"},
@@ -111,5 +111,4 @@ class Database:
         logger.info(f"Retrieved required channels: {channels}")
         return channels
 
-# Initialize and export the db instance
 db = Database(MONGODB_URL, MONGODB_NAME)
