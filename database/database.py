@@ -97,7 +97,7 @@ class Database:
                 f"သင်သည် ယခုထိ {invited_users} ဦးကို ဖိတ်ခေါ်ထားပါသည်။\n\n"
                 f"Your Link: {invite_link}\n"
                 "ဤလင့်ခ်ကို မျှဝေပြီး အသုံးပြုသူများကို ဖိတ်ကြားပါ။ "
-                "ဖိတ်ကြားမှုများကို ချက်ချင်းရေတွက်သော်လည်း ငွေထုတ်ရန် လိုအပ်သော ချန်�နယ်များသို့ ဝင်ရောက်ရပါမည်။"
+                "ဖိတ်ကြားမှုများကို ချက်ချင်းရေတွက်သော်လည်း ငွေထုတ်ရန် လိုအပ်သော ချန်နယ်များသို့ ဝင်ရောက်ရပါမည်။"
             )
         return True, ""
 
@@ -128,5 +128,29 @@ class Database:
             upsert=True
         )
         logger.info(f"Set message rate to {rate} messages per kyat")
+
+    async def create_withdrawal(self, withdrawal: dict):
+        self.db.withdrawals.insert_one(withdrawal)
+        logger.info(f"Created withdrawal {withdrawal['withdrawal_id']} for user {withdrawal['user_id']}")
+
+    async def get_withdrawal(self, withdrawal_id: str):
+        withdrawal = self.db.withdrawals.find_one({"withdrawal_id": withdrawal_id})
+        logger.info(f"Retrieved withdrawal {withdrawal_id}: {withdrawal}")
+        return withdrawal
+
+    async def update_withdrawal(self, withdrawal_id: str, updates: dict):
+        result = self.db.withdrawals.update_one({"withdrawal_id": withdrawal_id}, {"$set": updates})
+        logger.info(f"Updated withdrawal {withdrawal_id}: {updates}, result: {result.modified_count}")
+        return result
+
+    async def get_user_withdrawals(self, user_id: str):
+        withdrawals = list(self.db.withdrawals.find({"user_id": user_id}))
+        logger.info(f"Retrieved {len(withdrawals)} withdrawals for user {user_id}")
+        return withdrawals
+
+    async def get_pending_withdrawals(self):
+        withdrawals = list(self.db.withdrawals.find({"status": "pending"}))
+        logger.info(f"Retrieved {len(withdrawals)} pending withdrawals")
+        return withdrawals
 
 db = Database(MONGODB_URL, MONGODB_NAME)
