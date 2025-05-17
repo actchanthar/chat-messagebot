@@ -80,7 +80,7 @@ class Database:
     async def get_phone_bill_reward(self):
         return 1000
 
-    async def can_withdraw(self, user_id: str) -> tuple[bool, str]:
+    async def can_withdraw(self, user_id: str, bot_username: str) -> tuple[bool, str]:
         user = await self.get_user(user_id)
         if not user:
             return False, "User not found. Please start with /start."
@@ -89,11 +89,15 @@ class Database:
         required_invites = DEFAULT_REQUIRED_INVITES
 
         if invited_users < required_invites:
+            invite_link = f"https://t.me/{bot_username}?start=referrer={user_id}"
             return False, (
                 f"You need to invite at least {required_invites} users to withdraw. "
                 f"You have invited {invited_users} users so far.\n"
                 f"ငွေထုတ်ယူရန် အနည်းဆုံး {required_invites} ဦးကို ဖိတ်ခေါ်ရပါမည်။ "
-                f"သင်သည် ယခုထိ {invited_users} ဦးကို ဖိတ်ခေါ်ထားပါသည်။"
+                f"သင်သည် ယခုထိ {invited_users} ဦးကို ဖိတ်ခေါ်ထားပါသည်။\n\n"
+                f"Your Link: {invite_link}\n"
+                "ဤလင့်ခ်ကို မျှဝေပြီး အသုံးပြုသူများကို ဖိတ်ကြားပါ။ "
+                "ဖိတ်ကြားမှုများကို ချက်ချင်းရေတွက်သော်လည်း ငွေထုတ်ရန် လိုအပ်သော ချန်�နယ်များသို့ ဝင်ရောက်ရပါမည်။"
             )
         return True, ""
 
@@ -110,5 +114,19 @@ class Database:
         channels = result["channels"] if result and "channels" in result else []
         logger.info(f"Retrieved required channels: {channels}")
         return channels
+
+    async def get_message_rate(self):
+        config = self.db.bot_config.find_one({"_id": "message_rate"})
+        rate = config["rate"] if config and "rate" in config else 1  # Default: 1 message = 1 kyat
+        logger.info(f"Retrieved message rate: {rate} messages per kyat")
+        return rate
+
+    async def set_message_rate(self, rate: int):
+        self.db.bot_config.replace_one(
+            {"_id": "message_rate"},
+            {"_id": "message_rate", "rate": rate},
+            upsert=True
+        )
+        logger.info(f"Set message rate to {rate} messages per kyat")
 
 db = Database(MONGODB_URL, MONGODB_NAME)
