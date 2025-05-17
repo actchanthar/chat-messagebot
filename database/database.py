@@ -2,7 +2,7 @@ from pymongo import MongoClient
 from collections import deque
 import datetime
 import logging
-from config import MONGODB_URL, MONGODB_NAME, DEFAULT_REQUIRED_INVITES
+from config import MONGODB_URL, MONGODB_NAME, DEFAULT_REQUIRED_INVITES, ADMIN_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,6 +84,10 @@ class Database:
         user = await self.get_user(user_id)
         if not user:
             return False, "User not found. Please start with /start."
+
+        # Admins bypass invite requirement
+        if user_id in ADMIN_IDS:
+            return True, ""
 
         invited_users = user.get("invited_users", 0)
         required_invites = DEFAULT_REQUIRED_INVITES
