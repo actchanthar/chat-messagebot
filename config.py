@@ -1,7 +1,7 @@
 # config.py
 # Bot token
 BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
-
+BOT_USERNAME = "@actearnbot"  # Replace with your bot’s username, e.g., "@MyBot"
 # MongoDB settings
 MONGODB_NAME = "actchat1"
 MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/actchat1?retryWrites=true&w=majority&appName=Cluster0"
