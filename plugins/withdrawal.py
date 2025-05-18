@@ -38,6 +38,50 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, c
         logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
         return False
 
+async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    logger.info(f"Debug_message_count called by user {user_id} in chat {chat_id}")
+
+    user = db.get_user(user_id)
+    if not user:
+        logger.error(f"User {user_id} not found in database for debug")
+        try:
+            await update.message.reply_text("Error: User not found in database. Please run /start.")
+        except Exception as e:
+            logger.error(f"Failed to send user not found message to {user_id}: {e}")
+        return
+
+    group_messages = user.get("group_messages", 0)
+    balance = user.get("balance", 0)
+    banned = user.get("banned", False)
+    rule_info = (
+        f"Messages Required: {message_reward_rule.get('messages_required', 'Not set')}\n"
+        f"Reward Amount: {message_reward_rule.get('reward_amount', 'Not set')} {CURRENCY}"
+    ) if message_reward_rule else "No message reward rule set."
+
+    debug_message = (
+        f"Debug Message Count:\n"
+        f"User ID: {user_id}\n"
+        f"Username: @{update.effective_user.username or 'N/A'}\n"
+        f"Group Messages: {group_messages}\n"
+        f"Balance: {balance} {CURRENCY}\n"
+        f"Banned: {banned}\n"
+        f"Message Reward Rule:\n{rule_info}\n"
+        f"GROUP_CHAT_IDS: {GROUP_CHAT_IDS}\n"
+        f"Current Chat ID: {chat_id}"
+    )
+
+    try:
+        await update.message.reply_text(debug_message)
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Debug Message Count by {user_id}:\n{debug_message}"
+        )
+        logger.info(f"Sent debug info for user {user_id} to chat {chat_id} and log channel")
+    except Exception as e:
+        logger.error(f"Failed to send debug info for user {user_id}: {str(e)}")
+
 async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     admin_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
@@ -117,10 +161,19 @@ async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Received message from user {user_id} in chat {chat_id}. Checking if group is in GROUP_CHAT_IDS: {GROUP_CHAT_IDS}")
+    message_text = update.message.text[:50] if update.message.text else "Non-text message"
+    logger.info(f"Received message from user {user_id} in chat {chat_id}: '{message_text}' | GROUP_CHAT_IDS: {GROUP_CHAT_IDS}")
 
+    # Check if chat is in GROUP_CHAT_IDS
     if chat_id not in GROUP_CHAT_IDS:
         logger.debug(f"Chat {chat_id} not in GROUP_CHAT_IDS. Ignoring message from user {user_id}.")
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Debug: Chat {chat_id} not in GROUP_CHAT_IDS for user {user_id}. GROUP_CHAT_IDS: {GROUP_CHAT_IDS}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to log GROUP_CHAT_IDS mismatch to {LOG_CHANNEL_ID}: {e}")
         return
 
     # Verify bot is a member of the group
@@ -129,45 +182,63 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=bot_id)
         if bot_member.status not in ["member", "administrator", "creator"]:
-            logger.error(f"Bot {bot_id} is not a member of group {chat_id}. Status: {bot_member.status}")
+            logger.error(f"Bot {bot_id} (@{bot_username}) is not a member of group {chat_id}. Status: {bot_member.status}")
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
-                text=f"Error: Bot @{bot_username} is not a member of group {chat_id}. Please add it to count messages."
+                text=f"Error: Bot @{bot_username} is not a member of group {chat_id} (status: {bot_member.status}). Please add it to count messages."
             )
             return
+        logger.info(f"Bot @{bot_username} is {bot_member.status} in group {chat_id}")
     except Exception as e:
         logger.error(f"Failed to check bot membership in group {chat_id}: {str(e)}")
         await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
-            text=f"Error: Cannot verify bot membership in group {chat_id}: {str(e)}"
+            text=f"Error: Cannot verify bot membership in group {chat_id} for user {user_id}: {str(e)}"
         )
         return
 
-    logger.info(f"Processing message from user {user_id} in group {chat_id}")
-
+    # Check user in database
     user = db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
         try:
             await context.bot.send_message(
+                chat_id=user_id,
+                text="Error: You are not registered. Please run /start to register."
+            )
+            await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
-                text=f"Error: User {user_id} not found in database while counting message in group {chat_id}."
+                text=f"Error: User {user_id} (@{update.effective_user.username or 'N/A'}) not found in database while counting message in group {chat_id}."
             )
         except Exception as e:
-            logger.error(f"Failed to log user not found to {LOG_CHANNEL_ID}: {e}")
+            logger.error(f"Failed to notify user {user_id} or log user not found: {e}")
         return
 
+    # Check if user is banned
     if user.get("banned", False):
         logger.info(f"User {user_id} is banned, ignoring message in group {chat_id}")
         return
 
+    # Check message reward rule
+    if not message_reward_rule:
+        logger.warning(f"No message reward rule set for user {user_id} in group {chat_id}")
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Warning: No message reward rule set while processing message from user {user_id} in group {chat_id}."
+            )
+        except Exception as e:
+            logger.error(f"Failed to log missing reward rule to {LOG_CHANNEL_ID}: {e}")
+        return
+
+    # Increment message count
     group_messages = user.get("group_messages", 0) + 1
     balance = user.get("balance", 0)
     update_data = {"group_messages": group_messages}
-    logger.info(f"User {user_id} message count incremented to {group_messages} in group {chat_id}")
+    logger.info(f"User {user_id} message count incremented to {group_messages} in group {chat_id} (previous: {group_messages-1})")
 
-    # Check reward rule and apply reward if applicable
-    if message_reward_rule and group_messages >= message_reward_rule["messages_required"]:
+    # Apply reward if applicable
+    if group_messages >= message_reward_rule["messages_required"]:
         reward_amount = message_reward_rule["reward_amount"]
         balance += reward_amount
         update_data["balance"] = balance
@@ -194,29 +265,38 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"Group: {chat_id}"
                 )
             )
-            logger.info(f"Notified user {user_id} and logged reward for {reward_amount} {CURRENCY}")
+            logger.info(f"Notified user {user_id} and logged reward of {reward_amount} {CURRENCY} in group {chat_id}")
         except Exception as e:
             logger.error(f"Failed to notify user {user_id} or log reward: {str(e)}")
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
-                text=f"Error: Failed to notify user {user_id} or log reward: {str(e)}"
+                text=f"Error: Failed to notify user {user_id} or log reward in group {chat_id}: {str(e)}"
             )
 
+    # Update database
     try:
         result = db.update_user(user_id, update_data)
         if not result:
-            logger.error(f"Failed to update user {user_id} with data {update_data}")
+            logger.error(f"Failed to update user {user_id} with data {update_data} in group {chat_id}")
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
-                text=f"Error: Failed to update user {user_id} message count or balance in group {chat_id}."
+                text=f"Error: Failed to update user {user_id} message count or balance in group {chat_id}. Data: {update_data}"
+            )
+            await context.bot.send_message(
+                chat_id=user_id,
+                text="Error: Failed to record your message. Please try again or contact support."
             )
         else:
-            logger.info(f"Successfully updated user {user_id}: group_messages={group_messages}, balance={balance}")
+            logger.info(f"Successfully updated user {user_id}: group_messages={group_messages}, balance={balance} in group {chat_id}")
     except Exception as e:
-        logger.error(f"Database error updating user {user_id}: {str(e)}")
+        logger.error(f"Database error updating user {user_id} in group {chat_id}: {str(e)}")
         await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=f"Error: Database failure updating user {user_id} in group {chat_id}: {str(e)}"
+        )
+        await context.bot.send_message(
+            chat_id=user_id,
+            text="Error: Database issue while recording your message. Please try again or contact support."
         )
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -349,7 +429,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if pending_withdrawals:
         logger.info(f"User {user_id} has a pending withdrawal: {pending_withdrawals}")
         message = ("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
-                   "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
+                   "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ�।")
         try:
             if update.message:
                 await update.message.reply_text(message)
@@ -986,7 +1066,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await context.bot.send_message(
                     chat_id=target_user_id,
                     text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. If there are any problems or you wish to appeal, please contact @actanibot.\n"
-                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်�লক္ခန္ဒငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
                 )
                 logger.info(f"Notified user {target_user_id} of withdrawal rejection")
             except Exception as e:
@@ -1062,7 +1142,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             logger.error(f"Failed to send cancellation message to {user_id}: {e}")
     else:
         try:
-            await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
+            await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်�।")
         except Exception as e:
             logger.error(f"Failed to send cancellation message to {user_id}: {e}")
 
@@ -1093,4 +1173,5 @@ def register_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(balance, pattern="^check_balance$"))
     application.add_handler(CommandHandler("resetwithdraw", reset_withdraw))
     application.add_handler(CommandHandler("setmessage", setmessage))
+    application.add_handler(CommandHandler("debug_message_count", debug_message_count))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(chat_id=GROUP_CHAT_IDS), count_group_message))
