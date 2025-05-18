@@ -20,8 +20,12 @@ logger = logging.getLogger(__name__)
 
 STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-# Temporary in-memory storage for message reward rule
-message_reward_rule = {}
+# Initialize message reward rule from database
+def load_message_reward_rule():
+    settings = db.get_bot_settings()
+    return settings.get("message_reward_rule", {})
+
+message_reward_rule = load_message_reward_rule()
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, channel_id: str) -> bool:
     try:
@@ -48,7 +52,7 @@ async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Error: User not found in database. Please run /start.")
         return
 
-    group_messages = user.get("group_messages", 0)
+    group_messages = user.get("group_messages", {})
     balance = int(user.get("balance", 0))
     banned = user.get("banned", False)
     rule_info = (
@@ -75,6 +79,41 @@ async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     logger.info(f"Sent debug info for user {user_id}")
 
+async def reset_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    admin_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    logger.info(f"Reset_messages called by user {admin_id} in chat {chat_id}")
+
+    if admin_id not in ADMIN_IDS:
+        logger.info(f"Non-admin user {admin_id} attempted /reset_messages")
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+
+    if not context.args:
+        logger.info(f"User {admin_id} used /reset_messages without user_id")
+        await update.message.reply_text("Usage: /reset_messages <user_id> (e.g., /reset_messages 5062124930)")
+        return
+
+    target_user_id = context.args[0]
+    user = db.get_user(target_user_id)
+    if not user:
+        logger.error(f"User {target_user_id} not found for reset_messages")
+        await update.message.reply_text(f"User {target_user_id} not found.")
+        return
+
+    result = db.update_user(target_user_id, {"group_messages": {}})
+    if not result:
+        logger.error(f"Failed to reset messages for user {target_user_id}")
+        await update.message.reply_text(f"Error resetting messages for user {target_user_id}.")
+        return
+
+    logger.info(f"Reset group_messages for user {target_user_id}")
+    await update.message.reply_text(f"Successfully reset message count for user {target_user_id}.")
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=f"Message Count Reset:\nUser ID: {target_user_id}\nBy Admin: {admin_id}"
+    )
+
 async def force_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     admin_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
@@ -87,7 +126,7 @@ async def force_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     if not context.args:
         logger.info(f"User {admin_id} used /force_reward without user_id")
-        await update.message.reply_text("Usage: /force_reward <user_id> (e.g., /force_reward 7796351432)")
+        await update.message.reply_text("Usage: /force_reward <user_id> (e.g., /force_reward 5062124930)")
         return
 
     target_user_id = context.args[0]
@@ -107,7 +146,7 @@ async def force_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     new_balance = balance + reward_amount
     update_data = {
         "balance": new_balance,
-        "group_messages": 0
+        "group_messages": {}
     }
 
     result = db.update_user(target_user_id, update_data)
@@ -173,6 +212,8 @@ async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         "messages_required": int(count),
         "reward_amount": amount
     }
+    # Save to database
+    db.update_bot_settings({"message_reward_rule": message_reward_rule})
     logger.info(f"Set message reward rule by admin {admin_id}: {message_reward_rule}")
 
     await update.message.reply_text(
@@ -240,16 +281,17 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    group_messages = user.get("group_messages", 0) + 1
+    group_messages = user.get("group_messages", {})
+    group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
     balance = int(user.get("balance", 0))
     update_data = {"group_messages": group_messages}
-    logger.info(f"User {user_id} message count: {group_messages} (prev: {group_messages-1}), balance: {balance}")
+    logger.info(f"User {user_id} message count in {chat_id}: {group_messages[chat_id]} (prev: {group_messages[chat_id]-1}), balance: {balance}")
 
-    if group_messages >= message_reward_rule["messages_required"]:
+    if group_messages[chat_id] >= message_reward_rule["messages_required"]:
         reward_amount = message_reward_rule["reward_amount"]
         new_balance = balance + reward_amount
         update_data["balance"] = new_balance
-        update_data["group_messages"] = 0
+        update_data["group_messages"][chat_id] = 0
         logger.info(f"Applying reward for user {user_id}: {reward_amount} {CURRENCY}, prev balance: {balance}, new balance: {new_balance}")
 
         try:
@@ -265,7 +307,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     text="Error: Failed to record reward. Contact support."
                 )
                 return
-            logger.info(f"Reward applied for user {user_id}: group_messages=0, balance={new_balance}")
+            logger.info(f"Reward applied for user {user_id}: group_messages[{chat_id}]=0, balance={new_balance}")
 
             await context.bot.send_message(
                 chat_id=user_id,
@@ -277,7 +319,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"Message Reward Applied:\n"
                     f"User ID: {user_id}\n"
                     f"Username: @{update.effective_user.username or 'N/A'}\n"
-                    f"Messages: {group_messages}\n"
+                    f"Messages: {group_messages[chat_id]}\n"
                     f"Reward: {reward_amount} {CURRENCY}\n"
                     f"Previous Balance: {balance} {CURRENCY}\n"
                     f"New Balance: {new_balance} {CURRENCY}\n"
@@ -302,7 +344,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     text=f"Error: Failed to update user {user_id} with {update_data}"
                 )
                 return
-            logger.info(f"Updated user {user_id}: group_messages={group_messages}, balance={balance}")
+            logger.info(f"Updated user {user_id}: group_messages[{chat_id}]={group_messages[chat_id]}, balance={balance}")
         except Exception as e:
             logger.error(f"Database error for user {user_id}: {str(e)}")
             await context.bot.send_message(
@@ -679,7 +721,7 @@ async def reset_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if not context.args:
         logger.info(f"User {admin_id} used /resetwithdraw without user_id")
-        await update.message.reply_text("Please provide a user ID (e.g., /resetwithdraw 7796351432).")
+        await update.message.reply_text("Please provide a user ID (e.g., /resetwithdraw 5062124930).")
         return
 
     target_user_id = context.args[0]
@@ -888,4 +930,5 @@ def register_handlers(application: Application):
     application.add_handler(CommandHandler("setmessage", setmessage))
     application.add_handler(CommandHandler("debug_message_count", debug_message_count))
     application.add_handler(CommandHandler("force_reward", force_reward))
+    application.add_handler(CommandHandler("reset_messages", reset_messages))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(chat_id=GROUP_CHAT_IDS), count_group_message))
