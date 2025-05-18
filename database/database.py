@@ -125,12 +125,50 @@ class Database:
         logger.info(f"Retrieved {len(users)} top users by invites")
         return users
 
-    def can_withdraw(self, user_id: str):
-        user = self.get_user(user_id)
-        if not user:
-            return False
-        from config import DEFAULT_REQUIRED_INVITES
-        return user.get("invited_users", 0) >= DEFAULT_REQUIRED_INVITES
+    def can_withdraw(self, user_id: str, bot_username: str):
+        logger.info(f"Starting can_withdraw for user {user_id}")
+        try:
+            user = self.get_user(user_id)
+            logger.info(f"User data for {user_id}: {user}")
+            if not user:
+                logger.error(f"User {user_id} not found")
+                return False, "User not found. Please start with /start."
+
+            from config import WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, DEFAULT_REQUIRED_INVITES
+            balance = user.get("balance", 0)
+            logger.info(f"User {user_id} balance: {balance}")
+            if balance < WITHDRAWAL_THRESHOLD:
+                return False, f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw."
+
+            required_channels = self.get_required_channels() or []
+            logger.info(f"Required channels: {required_channels}")
+            if required_channels:
+                subscribed_channels = user.get("subscribed_channels", [])
+                logger.info(f"User {user_id} subscribed channels: {subscribed_channels}")
+                not_subscribed = [ch for ch in required_channels if ch not in subscribed_channels]
+                if not_subscribed:
+                    return False, "You must join all required channels to withdraw. Use /start to see the list."
+
+            invited_users = user.get("invited_users", 0)
+            logger.info(f"User {user_id} invited_users: {invited_users}")
+            if invited_users < DEFAULT_REQUIRED_INVITES:
+                return False, f"You need at least {DEFAULT_REQUIRED_INVITES} invited users to withdraw. You have {invited_users}."
+
+            last_withdrawal = user.get("last_withdrawal")
+            withdrawn_today = user.get("withdrawn_today", 0)
+            current_time = datetime.datetime.now()
+            logger.info(f"User {user_id} last_withdrawal: {last_withdrawal}, withdrawn_today: {withdrawn_today}")
+            if last_withdrawal:
+                last_withdrawal_date = last_withdrawal.date()
+                current_date = current_time.date()
+                if last_withdrawal_date == current_date and withdrawn_today >= DAILY_WITHDRAWAL_LIMIT:
+                    return False, f"You've reached the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}."
+
+            logger.info(f"User {user_id} is eligible to withdraw")
+            return True, "Eligible to withdraw."
+        except Exception as e:
+            logger.error(f"Error in can_withdraw for user {user_id}: {str(e)}", exc_info=True)
+            return False, "Error checking eligibility. Please try again later or contact support."
 
     def check_rate_limit(self, user_id: str, time_window: int = 30) -> bool:
         user = self.get_user(user_id)
