@@ -152,7 +152,12 @@ class Database:
             invited_users = user.get("invited_users", 0)
             logger.info(f"User {user_id} invited_users: {invited_users}")
             if invited_users < DEFAULT_REQUIRED_INVITES:
-                return False, f"You need at least {DEFAULT_REQUIRED_INVITES} invited users to withdraw. You have {invited_users}."
+                invite_link = f"https://t.me/{bot_username}?start=referral_{user_id}"
+                return False, (
+                    f"You need at least {DEFAULT_REQUIRED_INVITES} invited users to withdraw. You have {invited_users}.\n"
+                    f"ငွေထုတ်ယူရန် အနည်းဆုံး {DEFAULT_REQUIRED_INVITES} ဦးကို ဖိတ်ခေါ်ရပါမည်။ သင်သည် ယခုထိ {invited_users} ဦးကို ဖိတ်ခေါ်ထားပါသည်။\n"
+                    f"Your Invite Link: {invite_link}"
+                )
 
             last_withdrawal = user.get("last_withdrawal")
             withdrawn_today = user.get("withdrawn_today", 0)
