@@ -12,14 +12,14 @@ class Database:
         self.client = MongoClient(mongodb_url)
         self.db = self.client[mongodb_name]
 
-    async def get_user(self, user_id: str):
+    def get_user(self, user_id: str):
         user = self.db.users.find_one({"user_id": user_id})
         if user and "message_timestamps" in user:
             user["message_timestamps"] = deque(user["message_timestamps"], maxlen=1000)
         logger.info(f"Retrieved user {user_id} from database: {user}")
         return user
 
-    async def create_user(self, user_id: str, name: str, referrer_id: str = None):
+    def create_user(self, user_id: str, name: str, referrer_id: str = None):
         user = {
             "user_id": user_id,
             "name": name,
@@ -36,15 +36,15 @@ class Database:
         user["message_timestamps"] = deque([], maxlen=1000)
         return user
 
-    async def update_user(self, user_id: str, updates: dict):
+    def update_user(self, user_id: str, updates: dict):
         if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
             updates["message_timestamps"] = list(updates["message_timestamps"])
         result = self.db.users.update_one({"user_id": user_id}, {"$set": updates})
         logger.info(f"Updated user {user_id}: {updates}, result: {result.modified_count}")
         return result
 
-    async def check_rate_limit(self, user_id: str, max_messages: int = 5, time_window: int = 60) -> bool:
-        user = await self.get_user(user_id)
+    def check_rate_limit(self, user_id: str, max_messages: int = 5, time_window: int = 60) -> bool:
+        user = self.get_user(user_id)
         if not user:
             return False
 
@@ -59,10 +59,10 @@ class Database:
             return False
 
         timestamps.append(now)
-        await self.update_user(user_id, {"message_timestamps": timestamps})
+        self.update_user(user_id, {"message_timestamps": timestamps})
         return True
 
-    async def increment_invited_users(self, user_id: str):
+    def increment_invited_users(self, user_id: str):
         result = self.db.users.update_one(
             {"user_id": user_id},
             {"$inc": {"invited_users": 1}}
@@ -70,22 +70,21 @@ class Database:
         logger.info(f"Incremented invited_users for user {user_id}, result: {result.modified_count}")
         return result.modified_count > 0
 
-    async def get_all_users(self):
+    def get_all_users(self):
         users = list(self.db.users.find())
         for user in users:
             if "message_timestamps" in user:
                 user["message_timestamps"] = deque(user["message_timestamps"], maxlen=1000)
         return users
 
-    async def get_phone_bill_reward(self):
+    def get_phone_bill_reward(self):
         return 1000
 
-    async def can_withdraw(self, user_id: str, bot_username: str) -> tuple[bool, str]:
-        user = await self.get_user(user_id)
+    def can_withdraw(self, user_id: str, bot_username: str) -> tuple[bool, str]:
+        user = self.get_user(user_id)
         if not user:
             return False, "User not found. Please start with /start."
 
-        # Admins bypass invite requirement
         if user_id in ADMIN_IDS:
             return True, ""
 
@@ -105,7 +104,7 @@ class Database:
             )
         return True, ""
 
-    async def set_required_channels(self, channels: list):
+    def set_required_channels(self, channels: list):
         self.db.required_channels.replace_one(
             {"_id": "force_sub"},
             {"_id": "force_sub", "channels": channels},
@@ -113,19 +112,19 @@ class Database:
         )
         logger.info(f"Set required channels to {channels}")
 
-    async def get_required_channels(self):
+    def get_required_channels(self):
         result = self.db.required_channels.find_one({"_id": "force_sub"})
         channels = result["channels"] if result and "channels" in result else []
         logger.info(f"Retrieved required channels: {channels}")
         return channels
 
-    async def get_message_rate(self):
+    def get_message_rate(self):
         config = self.db.bot_config.find_one({"_id": "message_rate"})
-        rate = config["rate"] if config and "rate" in config else 1  # Default: 1 message = 1 kyat
+        rate = config["rate"] if config and "rate" in config else 1
         logger.info(f"Retrieved message rate: {rate} messages per kyat")
         return rate
 
-    async def set_message_rate(self, rate: int):
+    def set_message_rate(self, rate: int):
         self.db.bot_config.replace_one(
             {"_id": "message_rate"},
             {"_id": "message_rate", "rate": rate},
@@ -133,28 +132,64 @@ class Database:
         )
         logger.info(f"Set message rate to {rate} messages per kyat")
 
-    async def create_withdrawal(self, withdrawal: dict):
+    def create_withdrawal(self, withdrawal: dict):
         self.db.withdrawals.insert_one(withdrawal)
         logger.info(f"Created withdrawal {withdrawal['withdrawal_id']} for user {withdrawal['user_id']}")
 
-    async def get_withdrawal(self, withdrawal_id: str):
+    def get_withdrawal(self, withdrawal_id: str):
         withdrawal = self.db.withdrawals.find_one({"withdrawal_id": withdrawal_id})
         logger.info(f"Retrieved withdrawal {withdrawal_id}: {withdrawal}")
         return withdrawal
 
-    async def update_withdrawal(self, withdrawal_id: str, updates: dict):
+    def update_withdrawal(self, withdrawal_id: str, updates: dict):
         result = self.db.withdrawals.update_one({"withdrawal_id": withdrawal_id}, {"$set": updates})
         logger.info(f"Updated withdrawal {withdrawal_id}: {updates}, result: {result.modified_count}")
         return result
 
-    async def get_user_withdrawals(self, user_id: str):
+    def get_user_withdrawals(self, user_id: str):
         withdrawals = list(self.db.withdrawals.find({"user_id": user_id}))
         logger.info(f"Retrieved {len(withdrawals)} withdrawals for user {user_id}")
         return withdrawals
 
-    async def get_pending_withdrawals(self):
+    def get_pending_withdrawals(self):
         withdrawals = list(self.db.withdrawals.find({"status": "pending"}))
         logger.info(f"Retrieved {len(withdrawals)} pending withdrawals")
         return withdrawals
+
+    def mark_broadcast_failure(self, user_id: str):
+        result = self.db.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"failed_broadcast": True}}
+        )
+        logger.info(f"Marked broadcast failure for user {user_id}, result: {result.modified_count}")
+        return result.modified_count > 0
+
+    def delete_failed_broadcast_users(self):
+        result = self.db.users.delete_many({"failed_broadcast": True})
+        logger.info(f"Deleted {result.deleted_count} users with failed broadcasts")
+        return result.deleted_count
+
+    def set_phone_bill_reward_text(self, text: str):
+        result = self.db.settings.update_one(
+            {"key": "phone_bill_reward_text"},
+            {"$set": {"value": text}},
+            upsert=True
+        )
+        logger.info(f"Set phone bill reward text to {text}, result: {result.modified_count or result.upserted_id}")
+        return result.modified_count > 0 or result.upserted_id is not None
+
+    def get_phone_bill_reward_text(self):
+        setting = self.db.settings.find_one({"key": "phone_bill_reward_text"})
+        reward_text = setting.get("value", "Phone Bill Reward") if setting else "Phone Bill Reward"
+        logger.info(f"Retrieved phone bill reward text: {reward_text}")
+        return reward_text
+
+    def get_top_users_by_invites(self, limit: int = 10):
+        users = list(self.db.users.find(
+            {"invited_users": {"$gt": 0}},
+            {"user_id": 1, "username": 1, "name": 1, "invited_users": 1}
+        ).sort("invited_users", -1).limit(limit))
+        logger.info(f"Retrieved top {len(users)} users by invites")
+        return users
 
 db = Database(MONGODB_URL, MONGODB_NAME)
