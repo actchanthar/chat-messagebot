@@ -1,4 +1,4 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from ferait import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from config import BOT_TOKEN, REQUIRED_CHANNELS, ADMIN_IDS
 from database.database import db
@@ -39,17 +39,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.args and context.args[0].startswith("referrer="):
         referrer_id = context.args[0].split("referrer=")[1]
 
-    user = await db.get_user(user_id)
+    user = db.get_user(user_id)
     if not user:
-        user = await db.create_user(user_id, update.effective_user.full_name, referrer_id)
+        user = db.create_user(user_id, update.effective_user.full_name, referrer_id)
         logger.info(f"Created new user {user_id} with referrer {referrer_id}")
 
     # Handle referrer notification
     if user.get("referrer_id"):
         referrer_id = user["referrer_id"]
-        success = await db.increment_invited_users(referrer_id)
+        success = db.increment_invited_users(referrer_id)
         logger.info(f"Increment invited_users for referrer {referrer_id}: {'Success' if success else 'Failed'}")
-        referrer = await db.get_user(referrer_id)
+        referrer = db.get_user(referrer_id)
         if referrer:
             new_invite_link = f"https://t.me/{context.bot.username}?start=referrer={referrer_id}"
             try:
@@ -67,10 +67,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.error(f"Failed to notify referrer {referrer_id}: {e}")
 
     # Subscription check
-    required_channels = await db.get_required_channels()
+    required_channels = db.get_required_channels()
     if not required_channels:
         required_channels = REQUIRED_CHANNELS
-        await db.set_required_channels(required_channels)
+        db.set_required_channels(required_channels)
     logger.info(f"Required channels: {required_channels}")
 
     if user_id not in ADMIN_IDS and required_channels:
@@ -108,7 +108,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info(f"Sent force-sub prompt to user {user_id} with {len(not_subscribed_channels)} channels")
             return
 
-    # Build welcome message (no invite link)
+    # Build welcome message
     welcome_message = (
         "စာပို့ရင်း ငွေရှာမယ်:\n"
         f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
@@ -116,7 +116,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
     )
 
-    users = await db.get_all_users()
+    users = db.get_all_users()
     if users:
         target_group = "-1002061898677"
         sorted_users = sorted(
@@ -126,7 +126,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )[:10]
 
         if sorted_users and sorted_users[0].get("group_messages", {}).get(target_group, 0) > 0:
-            phone_bill_reward = await db.get_phone_bill_reward()
+            phone_bill_reward = db.get_phone_bill_reward()
             top_message = (
                 "🏆 Top Users:\n\n"
                 f"(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို {phone_bill_reward} မဲဖောက်ပေးပါတယ်):\n\n"
@@ -195,14 +195,14 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif not channel.startswith('-'):
         channel = f"-100{channel}"
 
-    required_channels = await db.get_required_channels()
+    required_channels = db.get_required_channels()
     if channel in required_channels:
         await update.message.reply_text(f"Channel {channel} is already in the force-sub list.")
         logger.info(f"Channel {channel} already exists for user {user_id}")
         return
 
     required_channels.append(channel)
-    await db.set_required_channels(required_channels)
+    db.set_required_channels(required_channels)
     await update.message.reply_text(f"Added channel {channel} to force-sub list.")
     logger.info(f"Added channel {channel} to force-sub list by user {user_id}")
 
@@ -232,14 +232,14 @@ async def del_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif not channel.startswith('-'):
         channel = f"-100{channel}"
 
-    required_channels = await db.get_required_channels()
+    required_channels = db.get_required_channels()
     if channel not in required_channels:
         await update.message.reply_text(f"Channel {channel} is not in the force-sub list.")
         logger.info(f"Channel {channel} not found for user {user_id}")
         return
 
     required_channels.remove(channel)
-    await db.set_required_channels(required_channels)
+    db.set_required_channels(required_channels)
     await update.message.reply_text(f"Removed channel {channel} from force-sub list.")
     logger.info(f"Removed channel {channel} from force-sub list by user {user_id}")
 
@@ -252,7 +252,7 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.info(f"User {user_id} attempted to list channels but is not an admin")
         return
 
-    required_channels = await db.get_required_channels()
+    required_channels = db.get_required_channels()
     if not required_channels:
         await update.message.reply_text("No force-sub channels configured.")
         logger.info(f"No force-sub channels found for user {user_id}")
@@ -268,7 +268,7 @@ async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_id = str(query.from_user.id)
     logger.info(f"Check balance called by user {user_id}")
 
-    user = await db.get_user(user_id)
+    user = db.get_user(user_id)
     if not user:
         await query.message.reply_text("User not found. Please start with /start.")
         return
