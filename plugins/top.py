@@ -30,7 +30,13 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(message, parse_mode="HTML")
         logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
     except Exception as e:
-        logger.error(f"Failed to send top users list to user {user_id}: {e}")
+        logger.error(f"Failed to send /top reply to user {user_id}: {e}")
+        try:
+            # Fallback: Send as new message
+            await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="HTML")
+            logger.info(f"Sent top users list as new message to user {user_id} in chat {chat_id}")
+        except Exception as send_error:
+            logger.error(f"Failed to send /top as new message to user {user_id}: {send_error}")
         try:
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
