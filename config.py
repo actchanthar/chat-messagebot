@@ -13,7 +13,7 @@ CURRENCY = "kyat"
 
 # Message counting and group settings
 COUNT_MESSAGES = True
-GROUP_CHAT_IDS = ["-1002061898677", "-1002217915135"]
+GROUP_CHAT_IDS = ["-1002061898677", "-1001756870040"]
 
 # Log channel ID for admin notifications
 LOG_CHANNEL_ID = "-1002555129360"
