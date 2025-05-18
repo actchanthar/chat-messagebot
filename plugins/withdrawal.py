@@ -23,7 +23,7 @@ def load_message_reward_rule():
     settings = db.get_bot_settings()
     rule = settings.get("message_reward_rule", {})
     if not rule:
-        rule = {"messages_required": 3, "reward_amount": 1}  # Fallback
+        rule = {"messages_required": 3, "reward_amount": 1}
         db.update_bot_settings({"message_reward_rule": rule})
         logger.info("Set fallback reward rule: 3 messages = 1 kyat")
     logger.info(f"Loaded reward rule: {rule}")
@@ -34,7 +34,7 @@ message_reward_rule = load_message_reward_rule()
 async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"Setmessage called by {user_id} in {chat_id}")
+    logger.info(f"Setmessage by {user_id} in {chat_id}")
 
     if user_id not in ADMIN_IDS:
         logger.info(f"Non-admin {user_id} attempted /setmessage")
@@ -71,9 +71,7 @@ async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     result = db.update_bot_settings({"message_reward_rule": message_reward_rule})
     logger.info(f"Set reward rule by {user_id}: {message_reward_rule}, db result: {result}")
 
-    await update.message.reply_text(
-        f"Rule set: {count} messages earns {amount} {CURRENCY}."
-    )
+    await update.message.reply_text(f"Rule set: {count} messages earns {amount} {CURRENCY}.")
     await context.bot.send_message(
         chat_id=LOG_CHANNEL_ID,
         text=f"Rule Set:\nMessages: {count}\nReward: {amount} {CURRENCY}\nBy Admin: {user_id}"
@@ -131,10 +129,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not message_reward_rule:
         logger.warning(f"No reward rule for {user_id} in {chat_id}")
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"No reward rule for {user_id} in {chat_id}"
-        )
+        await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"No reward rule for {user_id} in {chat_id}")
         return
 
     group_messages = user.get("group_messages", {})
@@ -153,10 +148,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         result = db.update_user(user_id, update_data)
         if not result:
             logger.error(f"Failed to update {user_id}: {update_data}")
-            await context.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=f"Error: Failed to update {user_id}"
-            )
+            await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Error: Failed to update {user_id}")
             return
 
         await context.bot.send_message(
@@ -171,10 +163,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         result = db.update_user(user_id, update_data)
         if not result:
             logger.error(f"Failed to update {user_id}: {update_data}")
-            await context.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=f"Error: Failed to update {user_id}"
-            )
+            await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Error: Failed to update {user_id}")
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
@@ -201,7 +190,7 @@ async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"Reward Amount: {message_reward_rule.get('reward_amount', 'Not set')} {CURRENCY}"
     ) if message_reward_rule else "No reward rule set."
 
-    debug_message = (
+    debug402_message = (
         f"Debug:\n"
         f"User ID: {user_id}\n"
         f"Username: @{update.effective_user.username or 'N/A'}\n"
@@ -213,10 +202,7 @@ async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"Chat ID: {chat_id}"
     )
     await update.message.reply_text(debug_message)
-    await context.bot.send_message(
-        chat_id=LOG_CHANNEL_ID,
-        text=f"Debug by {user_id}:\n{debug_message}"
-    )
+    await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Debug by {user_id}:\n{debug_message}")
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
@@ -367,7 +353,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             InlineKeyboardButton("Reject", callback_data=f"reject_withdrawal_{user_id}_{amount}")
         ]
     ]
-    log_msg = await context.bot.send_message(
+    await context.bot.send_message(
         chat_id=LOG_CHANNEL_ID,
         text=withdrawal_message,
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -392,10 +378,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             "withdrawn_today": user.get("withdrawn_today", 0) + amount
         })
         if result:
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"Withdrawal of {amount} {CURRENCY} approved!"
-            )
+            await context.bot.send_message(chat_id=target_user_id, text=f"Withdrawal of {amount} {CURRENCY} approved!")
             await query.message.edit_text(query.message.text + "\nStatus: Approved")
         else:
             await query.message.reply_text("Error approving.")
@@ -409,10 +392,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             "pending_withdrawals": []
         })
         if result:
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"Withdrawal of {amount} {CURRENCY} rejected."
-            )
+            await context.bot.send_message(chat_id=target_user_id, text=f"Withdrawal of {amount} {CURRENCY} rejected.")
             await query.message.edit_text(query.message.text + "\nStatus: Rejected")
         else:
             await query.message.reply_text("Error rejecting.")
