@@ -461,7 +461,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         try:
             await message.reply_text(
                 "Please enter a valid number (e.g., 100).\n"
-                "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
+                "ကျေးဇူးပြု၍ မှန်�ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
             )
         except Exception as e:
             logger.error(f"Failed to send invalid number message to {user_id}: {e}")
@@ -477,7 +477,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     payment_method = context.user_data.get("payment_method")
     withdrawn_today = context.user_data.get("withdrawn_today", 0)
     if not amount or not payment_method:
-        logger.error(f"User {user_id} missing amount or payment method in context")
+        logger.error(f"User {user_id} missing amount or payment_method in context")
         try:
             await message.reply_text("Error: Withdrawal amount or payment method not found. Please start again with /withdraw.")
         except Exception as e:
@@ -506,12 +506,15 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     new_balance = balance - amount
     payment_details = message.text if message.text else "No details provided"
+    group_message_count = 0  # Counter for successful group messages
+
     pending_withdrawal = {
         "amount": amount,
         "payment_method": payment_method,
         "payment_details": payment_details,
         "status": "pending",
-        "requested_at": datetime.now(timezone.utc)
+        "requested_at": datetime.now(timezone.utc),
+        "group_message_count": group_message_count  # Store count in withdrawal record
     }
     result = db.update_user(user_id, {
         "balance": new_balance,
@@ -579,20 +582,27 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
     simplified_message = f"@{username} သည် ငွေ {amount} {CURRENCY} ထုတ်ယူခဲ့သည်။"
+    bot_username = (await context.bot.get_me()).username
+    bot_id = (await context.bot.get_me()).id
+
     for group_id in GROUP_CHAT_IDS:
         try:
-            bot_id = (await context.bot.get_me()).id
-            await context.bot.get_chat_member(chat_id=group_id, user_id=bot_id)
+            # Verify bot is a member and can send messages
+            bot_member = await context.bot.get_chat_member(chat_id=group_id, user_id=bot_id)
+            if bot_member.status not in ["member", "administrator", "creator"]:
+                raise Forbidden(f"Bot is not a member of group {group_id}")
+
             await context.bot.send_message(
                 chat_id=group_id,
                 text=simplified_message
             )
+            group_message_count += 1  # Increment counter for successful message
             logger.info(f"Sent simplified withdrawal message to group {group_id} for user {user_id}")
         except Forbidden as e:
             logger.error(f"Failed to send simplified message to group {group_id} for user {user_id}: {e}")
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
-                text=f"Warning: Bot is not a member of group {group_id}. Please add @{(await context.bot.get_me()).username} as an admin to send withdrawal messages."
+                text=f"Warning: Bot is not a member of group {group_id}. Please add @{bot_username} as a member/admin to send withdrawal messages."
             )
         except TelegramError as e:
             logger.error(f"Failed to send simplified message to group {group_id} for user {user_id}: {e}")
@@ -600,6 +610,22 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 chat_id=LOG_CHANNEL_ID,
                 text=f"Warning: Failed to send simplified message to group {group_id} for user {user_id}: {e}"
             )
+
+    # Update the withdrawal record with the group message count
+    pending_withdrawal["group_message_count"] = group_message_count
+    db.update_user(user_id, {
+        "pending_withdrawals": [pending_withdrawal]
+    })
+    logger.info(f"Sent withdrawal messages to {group_message_count} groups for user {user_id}")
+
+    # Log the group message count to the log channel
+    try:
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Withdrawal notification for user {user_id} sent to {group_message_count}/{len(GROUP_CHAT_IDS)} groups."
+        )
+    except Exception as e:
+        logger.error(f"Failed to log group message count to {LOG_CHANNEL_ID} for user {user_id}: {e}")
 
     try:
         await context.bot.send_message(
@@ -616,14 +642,14 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         await message.reply_text(
-            f"Your withdrawal request for {amount} {CURRENCY} has been submitted. The amount has been deducted from your balance and will be processed by an admin. Your new balance is {new_balance} {CURRENCY}. ⏳\n"
-            f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+            f"Your withdrawal request for {amount} {CURRENCY} has been submitted. The amount has been deducted from your balance and will be processed by an admin. Your new balance is {new_balance} {CURRENCY}. Notification sent to {group_message_count} group(s). ⏳\n"
+            f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ အုပ်စုပေါင်း {group_message_count} ခုသို့ အကြောင်းကြားပြီးပါပြီ။"
         )
     except Exception as e:
         logger.error(f"Failed to send confirmation message to {user_id}: {e}")
         return ConversationHandler.END
 
-    logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
+    logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}, notified {group_message_count} groups")
     return ConversationHandler.END
 
 async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
