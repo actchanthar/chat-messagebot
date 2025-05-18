@@ -130,4 +130,15 @@ class Database:
         from config import DEFAULT_REQUIRED_INVITES
         return user.get("invited_users", 0) >= DEFAULT_REQUIRED_INVITES
 
+    def check_rate_limit(self, user_id: str, time_window: int = 30) -> bool:
+        user = self.get_user(user_id)
+        if not user:
+            logger.info(f"User {user_id} not found for rate limit check")
+            return False
+        timestamps = user.get("message_timestamps", deque([]))
+        now = datetime.datetime.now()
+        recent_timestamps = [ts for ts in timestamps if (now - ts).total_seconds() <= time_window]
+        logger.info(f"User {user_id} has {len(recent_timestamps)} messages in last {time_window} seconds")
+        return len(recent_timestamps) < 2  # Allow 1 message per 30 seconds
+
 db = Database()
