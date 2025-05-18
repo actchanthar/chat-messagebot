@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import BOT_TOKEN, REQUIRED_CHANNELS, ADMIN_IDS
+from telegram.error import BadRequest
+from config import BOT_TOKEN, REQUIRED_CHANNELS, ADMIN_IDS, LOG_CHANNEL_ID
 from database.database import db
 import logging
 import datetime
@@ -264,20 +265,67 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
     user_id = str(query.from_user.id)
-    logger.info(f"Check balance called by user {user_id}")
+    chat_id = query.message.chat.id
+    logger.info(f"Check balance called by user {user_id} in chat {chat_id}")
 
     user = db.get_user(user_id)
     if not user:
-        await query.message.reply_text("User not found. Please start with /start.")
+        try:
+            await query.message.reply_text("User not found. Please start with /start.")
+            logger.info(f"User {user_id} not found for balance check")
+        except Exception as e:
+            logger.error(f"Failed to send user not found message to {user_id}: {e}")
         return
 
     balance = user.get("balance", 0)
-    await query.message.reply_text(
+    message = (
         f"Your current balance is {balance} kyat.\n"
         f"သင့်လက်ကျန်ငွေမှာ {balance} kyat ဖြစ်ပါသည်။"
     )
+
+    try:
+        # Answer the callback query, but handle timeout/invalid query
+        try:
+            await query.answer()
+        except BadRequest as answer_error:
+            logger.warning(f"Failed to answer callback query for user {user_id}: {answer_error}")
+
+        # Try to edit the message
+        keyboard = [
+            [
+                InlineKeyboardButton("💰 Check Balance", callback_data="check_balance"),
+                InlineKeyboardButton("💸 Withdraw", callback_data="start_withdraw")
+            ],
+            [
+                InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
+                InlineKeyboardButton("Earnings Group", url="https://t.me/stranger77777777777")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.edit_text(
+            text=message,
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+        logger.info(f"Updated balance message for user {user_id} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to edit balance message for user {user_id}: {e}")
+        try:
+            # Fallback: Send a new message
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode="HTML"
+            )
+            logger.info(f"Sent balance as new message to user {user_id} in chat {chat_id}")
+        except Exception as send_error:
+            logger.error(f"Failed to send fallback balance message to user {user_id}: {send_error}")
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Failed to send balance response to {user_id}: {send_error}"
+            )
 
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
