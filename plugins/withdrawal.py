@@ -115,6 +115,10 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if chat_id not in GROUP_CHAT_IDS:
         logger.debug(f"Chat {chat_id} not in GROUP_CHAT_IDS")
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Warning: Chat {chat_id} not in GROUP_CHAT_IDS for user {user_id}"
+        )
         return
 
     user = db.get_user(user_id)
@@ -136,7 +140,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
     balance = float(user.get("balance", 0))
     update_data = {"group_messages": group_messages}
-    logger.info(f"User {user_id} count: {group_messages[chat_id]}, balance: {balance}")
+    logger.info(f"User {user_id} count: {group_messages[chat_id]}, balance: {balance}, rule: {message_reward_rule}")
 
     if group_messages[chat_id] >= message_reward_rule["messages_required"]:
         reward_amount = message_reward_rule["reward_amount"]
@@ -190,7 +194,7 @@ async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"Reward Amount: {message_reward_rule.get('reward_amount', 'Not set')} {CURRENCY}"
     ) if message_reward_rule else "No reward rule set."
 
-    debug402_message = (
+    debug_message = (
         f"Debug:\n"
         f"User ID: {user_id}\n"
         f"Username: @{update.effective_user.username or 'N/A'}\n"
@@ -205,7 +209,12 @@ async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE
     await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Debug by {user_id}:\n{debug_message}")
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = str(update.effective_user.id)
+    user_id = str(getattr(update.effective_user, 'id', None))
+    if not user_id:
+        logger.error("No user ID in update")
+        await update.message.reply_text("Error: Unable to identify user.")
+        return ConversationHandler.END
+    user_id = str(user_id)
     chat_id = update.effective_chat.id
     logger.info(f"Withdraw by {user_id} in {chat_id}")
 
