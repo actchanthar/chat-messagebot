@@ -383,7 +383,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             try:
                 await message.reply_text(
                     f"Minimum withdrawal amount is {WITHDRAWAL_THRESHOLD} {CURRENCY}. Please try again.\n"
-                    f"အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} ထုတ်နိုင်ပါသည်။ ထပ်စမ်းကြည့်ပါ�।"
+                    f"အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY} ထုတ်နိုင်ပါသည်။ ထပ်စမ်းကြည့်ပါ။"
                 )
             except Exception as e:
                 logger.error(f"Failed to send minimum amount message to {user_id}: {e}")
@@ -437,17 +437,17 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if payment_method == "KBZ Pay":
             message_text = (
                 "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW). 💳\n"
-                "ကျေးဇူးပြု၍ သင်ၤ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)�।"
+                "ကျေးဇူးပြု၍ သင့် KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။"
             )
         elif payment_method == "Wave Pay":
             message_text = (
                 "Please provide your Wave Pay account details (e.g., phone number and name). 💳\n"
-                "ကျေးဇူးပြု၍ သင်ၤ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ ဖုန်းနံပါတ်နှင့် နာမည်)။"
+                "ကျေးဇူးပြု၍ သင့် Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ ဖုန်းနံပါတ်နှင့် နာမည်)။"
             )
         else:
             message_text = (
                 f"Please provide your {payment_method} account details. 💳\n"
-                f"ကျေးဇူးပြုၤ {payment_method} အကောင့်အသေးစိတ်ကို ပေးပါ။"
+                f"ကျေးဇူးပြု၍ {payment_method} အကောင့်အသေးစိတ်ကို ပေးပါ။"
             )
         try:
             await message.reply_text(message_text)
@@ -461,7 +461,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         try:
             await message.reply_text(
                 "Please enter a valid number (e.g., 100).\n"
-                "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)�।"
+                "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
             )
         except Exception as e:
             logger.error(f"Failed to send invalid number message to {user_id}: {e}")
@@ -477,7 +477,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     payment_method = context.user_data.get("payment_method")
     withdrawn_today = context.user_data.get("withdrawn_today", 0)
     if not amount or not payment_method:
-        logger.error(f"User {user_id} missing amount or payment_method in context")
+        logger.error(f"User {user_id} missing amount or payment method in context")
         try:
             await message.reply_text("Error: Withdrawal amount or payment method not found. Please start again with /withdraw.")
         except Exception as e:
@@ -498,7 +498,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         try:
             await message.reply_text(
                 "Insufficient balance. Please check your balance with /balance.\n"
-                "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေးဇူးပြု၍ သင့်လက်�ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
+                "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေးဇူးပြု၍ သင့်လက်ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
             )
         except Exception as e:
             logger.error(f"Failed to send insufficient balance message to {user_id}: {e}")
@@ -778,7 +778,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await context.bot.send_message(
                     chat_id=target_user_id,
                     text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. If there are any problems or you wish to appeal, please contact @actanibot.\n"
-                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ�। သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
                 )
                 logger.info(f"Notified user {target_user_id} of withdrawal rejection")
             except Exception as e:
@@ -848,13 +848,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         try:
             await update.message.reply_text(
                 f"Withdrawal canceled. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
-                f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လညထည့်သွင်းပြီးပါပြီ။ သင့်ဲလက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+                f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လညထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
             )
         except Exception as e:
             logger.error(f"Failed to send cancellation message to {user_id}: {e}")
     else:
         try:
-            await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်�।")
+            await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
         except Exception as e:
             logger.error(f"Failed to send cancellation message to {user_id}: {e}")
 
