@@ -29,6 +29,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Update message timestamps
     timestamps = user.get("message_timestamps", [])
     timestamps.append(datetime.datetime.now())
+    db.update_user(user_id, {"message_timestamps    timestamps = user.get("message_timestamps", [])
+    timestamps.append(datetime.datetime.now())
     db.update_user(user_id, {"message_timestamps": timestamps})
 
     # Update group message count
