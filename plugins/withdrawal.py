@@ -27,7 +27,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.callback_query:
         await update.callback_query.answer()
 
-    user = await db.get_user(user_id)
+    user = db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
         message = "User not found. Please start with /start."
@@ -61,7 +61,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.callback_query.message.reply_text("Please use /withdraw in a private chat.")
         return ConversationHandler.END
 
-    user = await db.get_user(user_id)
+    user = db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
         if update.message:
@@ -81,7 +81,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if str(user_id) not in ADMIN_IDS:
         try:
             bot_username = (await context.bot.get_me()).username
-            can_withdraw, reason = await db.can_withdraw(user_id, bot_username)
+            can_withdraw, reason = db.can_withdraw(user_id, bot_username)
             if not can_withdraw:
                 logger.info(f"User {user_id} cannot withdraw: {reason}")
                 if update.message:
@@ -184,7 +184,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return STEP_AMOUNT
 
-        user = await db.get_user(user_id)
+        user = db.get_user(user_id)
         if not user:
             await message.reply_text("User not found. Please start again with /start.")
             return ConversationHandler.END
@@ -232,7 +232,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         else:
             await message.reply_text(
                 f"Please provide your {payment_method} account details. 💳\n"
-                f"ကျေးဇူးပြု၍ သင်ၤ {payment_method} အကောင့်အသေးစိတ်ကို ပေးပါ။"
+                f"ကျေးဇူးပြုၤ {payment_method} အကောင့်အသေးစိတ်ကို ပေးပါ။"
             )
         logger.info(f"User {user_id} prompted for {payment_method} account details")
         return STEP_DETAILS
@@ -258,7 +258,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("Error: Withdrawal amount or payment method not found. Please start again with /withdraw.")
         return ConversationHandler.END
 
-    user = await db.get_user(user_id)
+    user = db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
         await message.reply_text("User not found. Please start again with /start.")
@@ -281,11 +281,11 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "status": "pending",
         "requested_at": datetime.now(timezone.utc)
     }
-    result = await db.update_user(user_id, {
+    result = db.update_user(user_id, {
         "balance": new_balance,
         "pending_withdrawals": [pending_withdrawal]
     })
-    if not result:
+    if not result.modified_count:
         logger.error(f"Failed to deduct amount for user {user_id} during withdrawal request")
         await message.reply_text("Error submitting request. Please try again later.")
         return ConversationHandler.END
@@ -332,7 +332,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.chat_data['log_message_ids'][user_id] = log_msg.message_id
         logger.info(f"Sent and pinned withdrawal request to log channel {LOG_CHANNEL_ID} for user {user_id} with message ID {log_msg.message_id}")
     except Exception as e:
-        await db.update_user(user_id, {
+        db.update_user(user_id, {
             "balance": balance,
             "pending_withdrawals": []
         })
@@ -340,7 +340,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("Error submitting request. Please try again later.")
         return ConversationHandler.END
 
-    simplified_message = f"{username} သည် ငွေ {amount} {CURRENCY} ထုတ်ယူခဲ့သည်။"
+    simplified_message = f"@{username} သည် ငွေ {amount} {CURRENCY} ထုတ်ယူခဲ့သည်။"
 
     for group_id in GROUP_CHAT_IDS:
         try:
@@ -379,7 +379,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await message.reply_text(
         f"Your withdrawal request for {amount} {CURRENCY} has been submitted. The amount has been deducted from your balance and will be processed by an admin. Your new balance is {new_balance} {CURRENCY}. ⏳\n"
-        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်�ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
     )
 
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
@@ -402,20 +402,20 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             user_id = user_id
             amount = int(amount)
 
-            user = await db.get_user(user_id)
+            user = db.get_user(user_id)
             if not user:
                 logger.error(f"User {user_id} not found for withdrawal approval")
                 await query.message.reply_text("User not found.")
                 return
 
-            result = await db.update_user(user_id, {
+            result = db.update_user(user_id, {
                 "pending_withdrawals": [],
                 "last_withdrawal": datetime.now(timezone.utc),
                 "withdrawn_today": user.get("withdrawn_today", 0) + amount
             })
-            logger.info(f"db.update_user returned: {result}")
+            logger.info(f"db.update_user returned: {result.modified_count}")
 
-            if result and (isinstance(result, bool) or (hasattr(result, 'modified_count') and result.modified_count > 0)):
+            if result.modified_count > 0:
                 logger.info(f"Withdrawal approved for user {user_id}. Amount: {amount}")
                 message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
                 if message_id:
@@ -469,7 +469,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             user_id = user_id
             amount = int(amount)
 
-            user = await db.get_user(user_id)
+            user = db.get_user(user_id)
             if not user:
                 logger.error(f"User {user_id} not found for withdrawal rejection")
                 await query.message.reply_text("User not found.")
@@ -477,11 +477,11 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 
             balance = user.get("balance", 0)
             new_balance = balance + amount
-            result = await db.update_user(user_id, {
+            result = db.update_user(user_id, {
                 "balance": new_balance,
                 "pending_withdrawals": []
             })
-            logger.info(f"db.update_user returned: {result} for user {user_id} on rejection")
+            logger.info(f"db.update_user returned: {result.modified_count} for user {user_id} on rejection")
 
             message_id = context.chat_data.get('log_message_ids', {}).get(user_id)
             if message_id:
@@ -531,7 +531,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             user_id = user_id
             amount = int(amount)
 
-            user = await db.get_user(user_id)
+            user = db.get_user(user_id)
             if not user:
                 logger.error(f"User {user_id} not found for approval post")
                 await query.message.reply_text("User not found.")
@@ -560,13 +560,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     logger.info(f"User {user_id} canceled the withdrawal process")
 
-    user = await db.get_user(user_id)
+    user = db.get_user(user_id)
     pending_withdrawals = user.get("pending_withdrawals", [])
     if pending_withdrawals:
         amount = pending_withdrawals[0]["amount"]
         balance = user.get("balance", 0)
         new_balance = balance + amount
-        await db.update_user(user_id, {
+        db.update_user(user_id, {
             "balance": new_balance,
             "pending_withdrawals": []
         })
@@ -576,7 +576,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
         )
     else:
-        await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။")
+        await update.message.reply_text("Withdrawal canceled.\nငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်�।")
 
     context.user_data.clear()
     return ConversationHandler.END
