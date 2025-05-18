@@ -17,10 +17,8 @@ from telegram.error import Forbidden, TelegramError
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Define withdrawal steps
 STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-# Handle /balance command and Check Balance button
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
@@ -46,7 +44,6 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         await update.message.reply_text(message)
 
-# Entry point for /withdraw command and Withdraw button
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
@@ -81,7 +78,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.callback_query.message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
-    # Check invite requirement only for non-admins
     if str(user_id) not in ADMIN_IDS:
         try:
             bot_username = (await context.bot.get_me()).username
@@ -101,7 +97,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 await update.callback_query.message.reply_text("Error checking eligibility. Please try again later.")
             return ConversationHandler.END
 
-    # Check for pending withdrawals
     pending_withdrawals = user.get("pending_withdrawals", [])
     if pending_withdrawals:
         logger.info(f"User {user_id} has a pending withdrawal: {pending_withdrawals}")
@@ -131,7 +126,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
     return STEP_PAYMENT_METHOD
 
-# Handle payment method selection
 async def handle_payment_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -169,7 +163,6 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
     )
     return STEP_AMOUNT
 
-# Handle withdrawal amount input
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
@@ -196,7 +189,6 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await message.reply_text("User not found. Please start again with /start.")
             return ConversationHandler.END
 
-        # Check daily withdrawal limit
         last_withdrawal = user.get("last_withdrawal")
         withdrawn_today = user.get("withdrawn_today", 0)
         current_time = datetime.now(timezone.utc)
@@ -216,7 +208,6 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             else:
                 withdrawn_today = 0
 
-        # Strict balance check
         if user.get("balance", 0) < amount:
             await message.reply_text(
                 "Insufficient balance. Please check your balance with /balance.\n"
@@ -253,7 +244,6 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         return STEP_AMOUNT
 
-# Handle account details input
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
@@ -274,7 +264,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("User not found. Please start again with /start.")
         return ConversationHandler.END
 
-    # Deduct amount immediately and store as pending
     balance = user.get("balance", 0)
     if balance < amount:
         await message.reply_text(
@@ -305,7 +294,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["withdrawal_details"] = payment_details
     logger.info(f"User {user_id} submitted account details, context: {context.user_data}")
 
-    # Prepare withdrawal message for log channel
     user_first_name = user.get("name", update.effective_user.first_name or "Unknown")
     username = update.effective_user.username or user.get("username", "N/A")
     withdrawal_message = (
@@ -320,7 +308,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Status: PENDING ⏳"
     )
 
-    # Send to log channel
     keyboard = [
         [
             InlineKeyboardButton("Approve ✅", callback_data=f"approve_withdrawal_{user_id}_{amount}"),
@@ -353,16 +340,12 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await message.reply_text("Error submitting request. Please try again later.")
         return ConversationHandler.END
 
-    # Prepare simplified message
     simplified_message = f"{username} သည် ငွေ {amount} {CURRENCY} ထုတ်ယူခဲ့သည်။"
 
-    # Send simplified message to all groups in GROUP_CHAT_IDS where bot is a member
     for group_id in GROUP_CHAT_IDS:
         try:
-            # Check if bot is a member of the group
             bot_id = (await context.bot.get_me()).id
             await context.bot.get_chat_member(chat_id=group_id, user_id=bot_id)
-            # If no exception, bot is a member; send the message
             await context.bot.send_message(
                 chat_id=group_id,
                 text=simplified_message
@@ -372,7 +355,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             logger.error(f"Failed to send simplified message to group {group_id} for user {user_id}: {e}")
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
-                text=f"Warning: Failed to send simplified message to group {group_id} for user {user_id}: {e}"
+                text=f"Warning: Bot is not a member of group {group_id}. Please add @{(await context.bot.get_me()).username} as an admin to send withdrawal messages."
             )
         except TelegramError as e:
             logger.error(f"Failed to send simplified message to group {group_id} for user {user_id}: {e}")
@@ -381,7 +364,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 text=f"Warning: Failed to send simplified message to group {group_id} for user {user_id}: {e}"
             )
 
-    # Send simplified message as DM to user
     try:
         await context.bot.send_message(
             chat_id=user_id,
@@ -395,16 +377,14 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             text=f"Warning: Failed to send simplified DM to user {user_id}: {e}"
         )
 
-    # Reply to user in the conversation
     await message.reply_text(
         f"Your withdrawal request for {amount} {CURRENCY} has been submitted. The amount has been deducted from your balance and will be processed by an admin. Your new balance is {new_balance} {CURRENCY}. ⏳\n"
-        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ပမာဏကို သင့်လက်ကျန်မှ နုတ်ယူလိုက်ပြီး အုပ်ချုပ်ရေးမှူးမှ ဆောင်ရွက်ပေးပါမည်။ သင့်လက်�ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
     )
 
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
     return ConversationHandler.END
 
-# Handle admin approval/rejection
 async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -524,7 +504,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                         message_id=message_id,
                         text=updated_message,
                         parse_mode="Markdown"
-                        )
+                    )
                     logger.info(f"Updated message {message_id} to 'Rejected' for user {user_id} in chat {query.message.chat_id}")
                 except Exception as e:
                     logger.error(f"Failed to edit message {message_id} for user {user_id}: {e}")
@@ -576,7 +556,6 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error in handle_admin_receipt: {e}")
         await query.message.reply_text("Error processing withdrawal request. Please try again.")
 
-# Cancel the withdrawal process
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     logger.info(f"User {user_id} canceled the withdrawal process")
