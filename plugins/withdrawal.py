@@ -115,25 +115,19 @@ async def force_reward(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         text=f"Admin applied a reward of {reward_amount} {CURRENCY}. Your new balance is {new_balance} {CURRENCY}."
     )
 
-async setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     admin_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
     logger.info(f"Setmessage called by user {admin_id} in chat {chat_id}")
 
     if admin_id not in ADMIN_IDS:
         logger.info(f"Non-admin user {admin_id} attempted /setmessage")
-        try:
-            await update.message.reply_text("You are not authorized to use this command.")
-        except Exception as e:
-            logger.error(f"Failed to send unauthorized message to {admin_id}: {e}")
+        await update.message.reply_text("You are not authorized to use this command.")
         return
 
     if not context.args:
         logger.info(f"User {admin_id} used /setmessage without arguments")
-        try:
-            await update.message.reply_text("Usage: /setmessage <count> for message , <messages> message <amount> (e.g., /setmessage 3 for message , 3 message 1ks)")
-        except Exception as e:
-            logger.error(f"Failed to send usage message to {admin_id}: {e}")
+        await update.message.reply_text("Usage: /setmessage <count> for message , <messages> message <amount> (e.g., /setmessage 3 for message , 3 message 1ks)")
         return
 
     command_text = " ".join(context.args)
@@ -141,29 +135,24 @@ async setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     match = re.match(pattern, command_text, re.IGNORECASE)
     if not match:
         logger.info(f"Invalid /setmessage format by user {admin_id}: {command_text}")
-        try:
-            await update.message.reply_text("Invalid format. Use: /setmessage <count> for message , <messages> message <amount> (e.g., /setmessage 3 for message , 3 message 1ks)")
-        except Exception as e:
-            logger.error(f"Failed to send invalid format message to {admin_id}: {e}")
+        await update.message.reply_text("Invalid format. Use: /setmessage <count> for message , <messages> message <amount> (e.g., /setmessage 3 for message , 3 message 1ks)")
         return
 
     count, messages, amount_str = match.groups()
     if int(count) != int(messages):
         logger.info(f"Mismatch in message counts by user {admin_id}: count={count}, messages={messages}")
-        try:
-            await update.message.reply_text("Error: <count> and <messages> must be the same number.")
-        except Exception as e:
-            logger.error(f"Failed to send mismatch message to {admin_id}: {e}")
+        await update.message.reply_text("Error: <count> and <messages> must be the same number.")
         return
 
     try:
-        amount = int(amount_str.replace("ks", "000").replace("k", "000"))
+        # Handle 'ks' for thousands, otherwise treat as literal amount
+        if amount_str.lower().endswith('ks'):
+            amount = int(amount_str[:-2]) * 1000
+        else:
+            amount = int(amount_str)
     except ValueError:
         logger.info(f"Invalid amount format by user {admin_id}: {amount_str}")
-        try:
-            await update.message.reply_text("Invalid amount. Use a number (e.g., 1ks for 1000, or 1000).")
-        except Exception as e:
-            logger.error(f"Failed to send invalid amount message to {admin_id}: {e}")
+        await update.message.reply_text("Invalid amount. Use a number (e.g., 1ks for 1000, or 1 for 1 kyat).")
         return
 
     global message_reward_rule
@@ -173,22 +162,19 @@ async setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     }
     logger.info(f"Set message reward rule by admin {admin_id}: {message_reward_rule}")
 
-    try:
-        await update.message.reply_text(
-            f"Message reward rule set: {count} messages in group earns {amount} {CURRENCY}."
+    await update.message.reply_text(
+        f"Message reward rule set: {count} messages in group earns {amount} {CURRENCY}."
+    )
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=(
+            f"Message Reward Rule Set:\n"
+            f"Messages Required: {count}\n"
+            f"Reward Amount: {amount} {CURRENCY}\n"
+            f"Set by Admin: {admin_id}"
         )
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=(
-                f"Message Reward Rule Set:\n"
-                f"Messages Required: {count}\n"
-                f"Reward Amount: {amount} {CURRENCY}\n"
-                f"Set by Admin: {admin_id}"
-            )
-        )
-        logger.info(f"Logged message reward rule to log channel {LOG_CHANNEL_ID}")
-    except Exception as e:
-        logger.error(f"Failed to send confirmation or log message for /setmessage by {admin_id}: {e}")
+    )
+    logger.info(f"Logged message reward rule to log channel {LOG_CHANNEL_ID}")
 
 async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
@@ -251,7 +237,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         new_balance = balance + reward_amount
         update_data["balance"] = new_balance
         update_data["group_messages"] = 0
-        logger.info(f"Applying reward for user {user_id}: {reward_amount} {CURRENCY}, new balance: {new_balance}")
+        logger.info(f"Applying reward for user {user_id}: {reward_amount} {CURRENCY}, prev balance: {balance}, new balance: {new_balance}")
 
         try:
             result = db.update_user(user_id, update_data)
@@ -280,6 +266,7 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"Username: @{update.effective_user.username or 'N/A'}\n"
                     f"Messages: {group_messages}\n"
                     f"Reward: {reward_amount} {CURRENCY}\n"
+                    f"Previous Balance: {balance} {CURRENCY}\n"
                     f"New Balance: {new_balance} {CURRENCY}\n"
                     f"Group: {chat_id}"
                 )
