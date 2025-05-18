@@ -1,7 +1,6 @@
 from pymongo import MongoClient
 from bson import ObjectId
 from config import MONGODB_URL, MONGODB_NAME
-from collections import deque
 import datetime
 import logging
 
@@ -31,7 +30,7 @@ class Database:
             "last_withdrawal": None,
             "withdrawn_today": 0,
             "group_messages": {},
-            "message_timestamps": deque([], maxlen=1000),
+            "message_timestamps": [],  # Use list instead of deque
             "subscribed_channels": [],
             "pending_withdrawals": [],
             "invited_users": 0,
@@ -43,6 +42,9 @@ class Database:
         return self.get_user(user_id)
 
     def update_user(self, user_id: str, update_data: dict):
+        # Enforce maxlen=1000 for message_timestamps
+        if "message_timestamps" in update_data:
+            update_data["message_timestamps"] = update_data["message_timestamps"][-1000:]
         result = self.users_collection.update_one(
             {"user_id": user_id}, {"$set": update_data}
         )
@@ -135,7 +137,7 @@ class Database:
         if not user:
             logger.info(f"User {user_id} not found for rate limit check")
             return False
-        timestamps = user.get("message_timestamps", deque([]))
+        timestamps = user.get("message_timestamps", [])
         now = datetime.datetime.now()
         recent_timestamps = [ts for ts in timestamps if (now - ts).total_seconds() <= time_window]
         logger.info(f"User {user_id} has {len(recent_timestamps)} messages in last {time_window} seconds")
