@@ -118,7 +118,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             logger.error(f"Failed to send banned message to {user_id}: {e}")
         return ConversationHandler.END
 
-    # Early balance check
     balance = user.get("balance", 0)
     if balance < WITHDRAWAL_THRESHOLD:
         message = f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw."
@@ -132,36 +131,35 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             logger.error(f"Failed to send insufficient balance message to {user_id}: {e}")
         return ConversationHandler.END
 
-    # Early subscription check for non-admins
     if str(user_id) not in ADMIN_IDS:
         required_channels = db.get_required_channels() or []
-        not_subscribed = []
-        for channel_id in required_channels:
-            if not await check_subscription(context, user_id, channel_id):
-                not_subscribed.append(channel_id)
-        if not_subscribed:
-            keyboard = []
-            for channel_id in not_subscribed:
+        if required_channels:
+            not_subscribed = []
+            for channel_id in required_channels:
+                if not await check_subscription(context, user_id, channel_id):
+                    not_subscribed.append(channel_id)
+            if not_subscribed:
+                keyboard = []
+                for channel_id in not_subscribed:
+                    try:
+                        chat = await context.bot.get_chat(channel_id)
+                        invite_link = await context.bot.export_chat_invite_link(channel_id)
+                        keyboard.append([InlineKeyboardButton(f"Join {chat.title}", url=invite_link)])
+                    except Exception as e:
+                        logger.error(f"Failed to get invite link for {channel_id}: {e}")
+                        keyboard.append([InlineKeyboardButton(f"Join Channel {channel_id}", url=f"https://t.me/{channel_id.replace('-100', '')}")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                message = "You must join all required channels to withdraw.\nAfter joining, try again."
                 try:
-                    chat = await context.bot.get_chat(channel_id)
-                    invite_link = await context.bot.export_chat_invite_link(channel_id)
-                    keyboard.append([InlineKeyboardButton(f"Join {chat.title}", url=invite_link)])
+                    if update.message:
+                        await update.message.reply_text(message, reply_markup=reply_markup)
+                    else:
+                        await update.callback_query.message.reply_text(message, reply_markup=reply_markup)
                 except Exception as e:
-                    logger.error(f"Failed to get invite link for {channel_id}: {e}")
-                    keyboard.append([InlineKeyboardButton(f"Join Channel {channel_id}", url=f"https://t.me/{channel_id.replace('-100', '')}")])
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            message = "You must join all required channels to withdraw.\nAfter joining, try again."
-            try:
-                if update.message:
-                    await update.message.reply_text(message, reply_markup=reply_markup)
-                else:
-                    await update.callback_query.message.reply_text(message, reply_markup=reply_markup)
-            except Exception as e:
-                logger.error(f"Failed to send subscription message to {user_id}: {e}")
-            logger.info(f"User {user_id} not subscribed to channels: {not_subscribed}")
-            return ConversationHandler.END
+                    logger.error(f"Failed to send subscription message to {user_id}: {e}")
+                logger.info(f"User {user_id} not subscribed to channels: {not_subscribed}")
+                return ConversationHandler.END
 
-    # Check existing pending withdrawals
     pending_withdrawals = user.get("pending_withdrawals", [])
     if pending_withdrawals:
         logger.info(f"User {user_id} has a pending withdrawal: {pending_withdrawals}")
@@ -176,11 +174,11 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             logger.error(f"Failed to send pending withdrawal message to {user_id}: {e}")
         return ConversationHandler.END
 
-    # Check eligibility via db.can_withdraw
     if str(user_id) not in ADMIN_IDS:
         try:
             bot_username = (await context.bot.get_me()).username
             can_withdraw, reason = db.can_withdraw(user_id, bot_username)
+            logger.info(f"can_withdraw for user {user_id}: can_withdraw={can_withdraw}, reason={reason}")
             if not can_withdraw:
                 logger.info(f"User {user_id} cannot withdraw: {reason}")
                 try:
@@ -189,7 +187,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     else:
                         await update.callback_query.message.reply_text(reason)
                 except Exception as e:
-                    logger.error(f"Failed to send withdrawal reason to {user_id}: {e}")
+                    logger.error(f"Failed to send withdrawal reason to {user_id}: {str(e)}")
                 return ConversationHandler.END
         except Exception as e:
             logger.error(f"Error checking withdrawal eligibility for user {user_id}: {str(e)}", exc_info=True)
@@ -200,7 +198,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 else:
                     await update.callback_query.message.reply_text(message)
             except Exception as e:
-                logger.error(f"Failed to send eligibility error to {user_id}: {e}")
+                logger.error(f"Failed to send eligibility error to {user_id}: {str(e)}")
             return ConversationHandler.END
 
     keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
