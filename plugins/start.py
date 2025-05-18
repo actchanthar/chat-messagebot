@@ -1,4 +1,4 @@
-from ferait import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from config import BOT_TOKEN, REQUIRED_CHANNELS, ADMIN_IDS
 from database.database import db
