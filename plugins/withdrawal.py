@@ -164,6 +164,288 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if pending_withdrawals:
         logger.info(f"User {user_id} has a pending withdrawal: {pending_withdrawals}")
         message = ("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
+                   "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ�।")
+        try:
+            if update.message:
+                await update.message.reply_text(message)
+            else:
+                await update.callback_query.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Failed to send pending withdrawal message to {user_id}: {e}")
+        return ConversationHandler.END
+
+    if str(user_id) not in ADMIN_IDS:
+        try:
+            bot_username = (await context.bot.get_me()).username
+            can_withdraw, reason = db.can_withdraw(user_id, bot_username)
+            logger.info(f"can_withdraw for user {user_id}: can_withdraw={can_withdraw}, reason={reason}")
+            if not can_withdraw:
+                logger.info(f"User {user_id} cannot withdraw: {reason}")
+                try:
+                    if update.message:
+                        await update.message.reply_text(reason, parse_mode="HTML")
+                    else:
+                        await update.callback_query.message.reply_text(reason, parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"Failed to send withdrawal reason to {user_id}: {str(e)}")
+                return ConversationHandler.END
+        except Exception as e:
+            logger.error(f"Error checking withdrawal eligibility for user {user_id}: {str(e)}", exc_info=True)
+            message = "Error checking eligibility. Please try again later or contact support."
+            try:
+                if update.message:
+                    await update.message.reply_text(message)
+                else:
+                    await update.callback_query.message.reply_text(message)
+            except Exception as e:
+                logger.error(f"Failed to send eligibility error to {user_id}: {str(e)}")
+            return ConversationHandler.END
+
+    keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    message = "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။"
+    try:
+        if update.message:
+            await update.message.reply_text(message, reply_markup=reply_markup)
+        else:
+            await update.callback_query.message.reply_text(message, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Failed to send payment method prompt to {user_id}: {e}")
+        return ConversationHandler.END
+    logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
+    return STEP_PAYMENT_METHOD
+
+async def reset_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    admin_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    logger.info(f"Resetwithdraw called by user {admin_id} in chat {chat_id}")
+
+    if admin_id not in ADMIN_IDS:
+        logger.info(f"Non-admin user {admin_id} attempted /resetwithdraw")
+        try:
+            await update.message.reply_text("You are not authorized to use this command.")
+        except Exception as e:
+            logger.error(f"Failed to send unauthorized message to {admin_id}: {e}")
+        return
+
+    if not context.args:
+        logger.info(f"User {admin_id} used /resetwithdraw without user_id")
+        try:
+            await update.message.reply_text("Please provide a user ID (e.g., /resetwithdraw 7796351432).")
+        except Exception as e:
+            logger.error(f"Failed to send missing user_id message to {admin_id}: {e}")
+        return
+
+    target_user_id = context.args[0]
+    user = db.get_user(target_user_id)
+    if not user:
+        logger.error(f"User {target_user_id} not found for resetwithdraw")
+        try:
+            await update.message.reply_text(f"User {target_user_id} not found.")
+        except Exception as e:
+            logger.error(f"Failed to send user not found message to {admin_id}: {e}")
+        return
+
+    pending_withdrawals = user.get("pending_withdrawals", [])
+    if not pending_withdrawals:
+        logger.info(f"User {target_user_id} has no pending withdrawals")
+        try:
+            await update.message.reply_text(f"User {target_user_id} has no pending withdrawal requests.")
+        except Exception as e:
+            logger.error(f"Failed to send no pending withdrawals message to {admin_id}: {e}")
+        return
+
+    amount = pending_withdrawals[0]["amount"]
+    balance = user.get("balance", 0)
+    new_balance = balance + amount
+    result = db.update_user(target_user_id, {
+        "balance": new_balance,
+        "pending_withdrawals": []
+    })
+    if not result:
+        logger.error(f"Failed to reset withdrawal for user {target_user_id}")
+        try:
+            await update.message.reply_text(f"Error resetting withdrawal for user {target_user_id}. Please try again.")
+        except Exception as e:
+            logger.error(f"Failed to send reset error message to {admin_id}: {e}")
+        return
+
+    logger.info(f"Reset withdrawal for user {target_user_id}. Refunded {amount} {CURRENCY}. New balance: {new_balance}")
+    try:
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=(
+                f"Your pending withdrawal request of {amount} {CURRENCY} has been reset by an admin. "
+                f"The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
+                f"သင့်ဆိုင်းငံ့ထ Stripped Response:
+
+```python
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler,
+    CallbackQueryHandler,
+)
+from telegram.error import BadRequest, Forbidden, TelegramError
+from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS, ADMIN_IDS
+from database.database import db
+import logging
+from datetime import datetime, timezone
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
+
+async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: str, channel_id: str) -> bool:
+    try:
+        bot_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=context.bot.id)
+        bot_is_admin = bot_member.status in ["administrator", "creator"]
+        if not bot_is_admin:
+            logger.error(f"Bot is not an admin in channel {channel_id}. Bot status: {bot_member.status}")
+            return False
+        member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        is_member = member.status in ["member", "administrator", "creator"]
+        logger.info(f"User {user_id} subscription check for channel {channel_id}: status={member.status}, is_member={is_member}")
+        return is_member
+    except Exception as e:
+        logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
+        return False
+
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    logger.info(f"Balance function called for user {user_id} in chat {chat_id} via {'button' if update.callback_query else 'command'}")
+
+    if update.callback_query:
+        try:
+            await update.callback_query.answer()
+        except BadRequest as e:
+            logger.warning(f"Failed to answer balance query for user {user_id}: {e}")
+
+    user = db.get_user(user_id)
+    if not user:
+        logger.error(f"User {user_id} not found in database")
+        message = "User not found. Please start with /start."
+        try:
+            if update.callback_query:
+                await update.callback_query.message.reply_text(message)
+            else:
+                await update.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Failed to send user not found message to {user_id}: {e}")
+        return
+
+    balance = user.get("balance", 0)
+    message = f"Your balance: {balance} {CURRENCY}"
+    try:
+        if update.callback_query:
+            await update.callback_query.message.edit_text(message)
+        else:
+            await update.message.reply_text(message)
+    except Exception as e:
+        logger.error(f"Failed to send balance message to user {user_id}: {e}")
+        await context.bot.send_message(chat_id=chat_id, text=message)
+
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    source = "command" if update.message else "button"
+    logger.info(f"Withdraw function called for user {user_id} in chat {chat_id} via {source}")
+
+    if update.callback_query:
+        try:
+            await update.callback_query.answer()
+        except BadRequest as e:
+            logger.warning(f"Failed to answer withdraw query for user {user_id}: {e}")
+
+    if update.effective_chat.type != "private":
+        logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
+        message = "Please use the /withdraw command in a private chat."
+        try:
+            if update.message:
+                await update.message.reply_text(message)
+            else:
+                await update.callback_query.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Failed to send private chat message to {user_id}: {e}")
+        return ConversationHandler.END
+
+    user = db.get_user(user_id)
+    if not user:
+        logger.error(f"User {user_id} not found in database")
+        message = "User not found. Please start with /start."
+        try:
+            if update.message:
+                await update.message.reply_text(message)
+            else:
+                await update.callback_query.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Failed to send user not found message to {user_id}: {e}")
+        return ConversationHandler.END
+
+    if user.get("banned", False):
+        logger.info(f"User {user_id} is banned")
+        message = "You are banned from using this bot."
+        try:
+            if update.message:
+                await update.message.reply_text(message)
+            else:
+                await update.callback_query.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Failed to send banned message to {user_id}: {e}")
+        return ConversationHandler.END
+
+    balance = user.get("balance", 0)
+    if balance < WITHDRAWAL_THRESHOLD:
+        message = f"Your balance is {balance} {CURRENCY}. You need at least {WITHDRAWAL_THRESHOLD} {CURRENCY} to withdraw."
+        logger.info(f"User {user_id} has insufficient balance: {balance}")
+        try:
+            if update.message:
+                await update.message.reply_text(message)
+            else:
+                await update.callback_query.message.reply_text(message)
+        except Exception as e:
+            logger.error(f"Failed to send insufficient balance message to {user_id}: {e}")
+        return ConversationHandler.END
+
+    if str(user_id) not in ADMIN_IDS:
+        required_channels = db.get_required_channels() or []
+        if required_channels:
+            not_subscribed = []
+            for channel_id in required_channels:
+                if not await check_subscription(context, user_id, channel_id):
+                    not_subscribed.append(channel_id)
+            if not_subscribed:
+                keyboard = []
+                for channel_id in not_subscribed:
+                    try:
+                        chat = await context.bot.get_chat(channel_id)
+                        invite_link = await context.bot.export_chat_invite_link(channel_id)
+                        keyboard.append([InlineKeyboardButton(f"Join {chat.title}", url=invite_link)])
+                    except Exception as e:
+                        logger.error(f"Failed to get invite link for {channel_id}: {e}")
+                        keyboard.append([InlineKeyboardButton(f"Join Channel {channel_id}", url=f"https://t.me/{channel_id.replace('-100', '')}")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                message = "You must join all required channels to withdraw.\nAfter joining, try again."
+                try:
+                    if update.message:
+                        await update.message.reply_text(message, reply_markup=reply_markup)
+                    else:
+                        await update.callback_query.message.reply_text(message, reply_markup=reply_markup)
+                except Exception as e:
+                    logger.error(f"Failed to send subscription message to {user_id}: {e}")
+                logger.info(f"User {user_id} not subscribed to channels: {not_subscribed}")
+                return ConversationHandler.END
+
+    pending_withdrawals = user.get("pending_withdrawals", [])
+    if pending_withdrawals:
+        logger.info(f"User {user_id} has a pending withdrawal: {pending_withdrawals}")
+        message = ("You have a pending withdrawal request. Please wait for it to be processed before requesting another.\n"
                    "သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှုရှိပါသည်။ နောက်တစ်ကြိမ်တောင်းဆိုခြင်းမပြုမီ ပြီးစီးရန်စောင့်ပါ။")
         try:
             if update.message:
@@ -214,6 +496,98 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
     logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
     return STEP_PAYMENT_METHOD
+
+async def reset_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    admin_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    logger.info(f"Resetwithdraw called by user {admin_id} in chat {chat_id}")
+
+    if admin_id not in ADMIN_IDS:
+        logger.info(f"Non-admin user {admin_id} attempted /resetwithdraw")
+        try:
+            await update.message.reply_text("You are not authorized to use this command.")
+        except Exception as e:
+            logger.error(f"Failed to send unauthorized message to {admin_id}: {e}")
+        return
+
+    if not context.args:
+        logger.info(f"User {admin_id} used /resetwithdraw without user_id")
+        try:
+            await update.message.reply_text("Please provide a user ID (e.g., /resetwithdraw 7796351432).")
+        except Exception as e:
+            logger.error(f"Failed to send missing user_id message to {admin_id}: {e}")
+        return
+
+    target_user_id = context.args[0]
+    user = db.get_user(target_user_id)
+    if not user:
+        logger.error(f"User {target_user_id} not found for resetwithdraw")
+        try:
+            await update.message.reply_text(f"User {target_user_id} not found.")
+        except Exception as e:
+            logger.error(f"Failed to send user not found message to {admin_id}: {e}")
+        return
+
+    pending_withdrawals = user.get("pending_withdrawals", [])
+    if not pending_withdrawals:
+        logger.info(f"User {target_user_id} has no pending withdrawals")
+        try:
+            await update.message.reply_text(f"User {target_user_id} has no pending withdrawal requests.")
+        except Exception as e:
+            logger.error(f"Failed to send no pending withdrawals message to {admin_id}: {e}")
+        return
+
+    amount = pending_withdrawals[0]["amount"]
+    balance = user.get("balance", 0)
+    new_balance = balance + amount
+    result = db.update_user(target_user_id, {
+        "balance": new_balance,
+        "pending_withdrawals": []
+    })
+    if not result:
+        logger.error(f"Failed to reset withdrawal for user {target_user_id}")
+        try:
+            await update.message.reply_text(f"Error resetting withdrawal for user {target_user_id}. Please try again.")
+        except Exception as e:
+            logger.error(f"Failed to send reset error message to {admin_id}: {e}")
+        return
+
+    logger.info(f"Reset withdrawal for user {target_user_id}. Refunded {amount} {CURRENCY}. New balance: {new_balance}")
+    try:
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=(
+                f"Your pending withdrawal request of {amount} {CURRENCY} has been reset by an admin. "
+                f"The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
+                f"သင့်ဆိုင်းငံ့ထားသော ငွေထုတ်တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပြန်လည်သတ်မှတ်လိုက်ပါသည်။ "
+                f"ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+            )
+        )
+        logger.info(f"Notified user {target_user_id} of withdrawal reset")
+    except Exception as e:
+        logger.error(f"Failed to notify user {target_user_id} of withdrawal reset: {e}")
+
+    try:
+        await update.message.reply_text(
+            f"Successfully reset withdrawal for user {target_user_id}. Refunded {amount} {CURRENCY}. New balance: {new_balance} {CURRENCY}."
+        )
+    except Exception as e:
+        logger.error(f"Failed to send reset confirmation to admin {admin_id}: {e}")
+
+    try:
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=(
+                f"Withdrawal Reset:\n"
+                f"User ID: {target_user_id}\n"
+                f"Amount: {amount} {CURRENCY}\n"
+                f"New Balance: {new_balance} {CURRENCY}\n"
+                f"Reset by Admin: {admin_id}"
+            )
+        )
+        logger.info(f"Logged withdrawal reset for user {target_user_id} to log channel {LOG_CHANNEL_ID}")
+    except Exception as e:
+        logger.error(f"Failed to log withdrawal reset to {LOG_CHANNEL_ID}: {e}")
 
 async def handle_payment_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -454,7 +828,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     keyboard = [
         [
             InlineKeyboardButton("Approve ✅", callback_data=f"approve_withdrawal_{user_id}_{amount}"),
-            InlineKeyboardButton("Reject ❌", callback_data=f"reject_withdrawal_{user_id}_{amount}")
+            InlineKeyboardButton("Reject ❌", callback_data=f"-reject_withdrawal_{user_id}_{amount}")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -756,7 +1130,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         try:
             await update.message.reply_text(
                 f"Withdrawal canceled. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}.\n"
-                f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်ဲလက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+                f"ငွေထုတ်မှု ပယ်ဖျက်လိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်�লညထည့်သွင်းပြီးပါပြီ။ သင့်ဲလက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
             )
         except Exception as e:
             logger.error(f"Failed to send cancellation message to {user_id}: {e}")
@@ -791,3 +1165,4 @@ def register_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve_withdrawal_|reject_withdrawal_|post_approval_)"))
     application.add_handler(CommandHandler("balance", balance))
     application.add_handler(CallbackQueryHandler(balance, pattern="^check_balance$"))
+    application.add_handler(CommandHandler("resetwithdraw", reset_withdraw))
