@@ -139,23 +139,26 @@ async def start_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Check if this is a private chat
     if query.message.chat.type != "private":
-        await query.message.reply_text("Please use /withdraw in my private chat.")
+        await query.message.reply_text("Please use the Withdraw button in my private chat.")
         return
 
     # Directly call the withdrawal logic
     try:
         from plugins.withdrawal import withdraw
+        # Create a minimal Update object with necessary attributes
         mock_update = Update(
             update_id=update.update_id,
-            message=query.message,
-            effective_user=query.from_user,
-            effective_chat=query.message.chat
+            callback_query=query
         )
+        # Set attributes to mimic a command update
+        mock_update._effective_user = query.from_user
+        mock_update._effective_chat = query.message.chat
+        mock_update._effective_message = query.message
         logger.info(f"Invoking withdraw for user {user_id} in private chat {chat_id}")
         await withdraw(mock_update, context)
     except Exception as e:
         logger.error(f"Failed to process withdraw for {user_id}: {str(e)}")
-        await query.message.reply_text("Error initiating withdrawal. Please use /withdraw directly or contact support.")
+        await query.message.reply_text("Failed to start withdrawal. Please try again or use /withdraw.")
 
 async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
