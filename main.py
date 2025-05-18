@@ -15,24 +15,24 @@ from plugins.setphonebill import register_handlers as setphonebill_handlers
 from plugins.top import register_handlers as top_handlers
 from plugins.users import register_handlers as users_handlers
 import logging
+import traceback
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def error_handler(update: Update, context):
-    logger.error(f"Update {update} caused error {context.error}")
+    tb = traceback.format_exc()
+    logger.error(f"Update {update} caused error {context.error}\n{tb}")
     try:
         await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
-            text=f"Error: {context.error}"
+            text=f"Error: {context.error}\nTraceback: {tb}"
         )
     except Exception as e:
         logger.error(f"Failed to send error to log channel {LOG_CHANNEL_ID}: {e}")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
-
-    # Register handlers
     start_handlers(application)
     withdrawal_handlers(application)
     add_bonus_handlers(application)
@@ -46,11 +46,7 @@ def main():
     setphonebill_handlers(application)
     top_handlers(application)
     users_handlers(application)
-
-    # Add error handler
     application.add_error_handler(error_handler)
-
-    # Start polling
     logger.info("Bot is starting...")
     application.run_polling()
 
