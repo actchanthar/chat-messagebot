@@ -50,6 +50,21 @@ class Database:
         logger.info(f"Updated user {user_id}: {update_data}, result: {result.modified_count}")
         return result.modified_count > 0
 
+    def get_bot_settings(self):
+        settings = self.settings_collection.find_one({"_id": "settings"}) or {}
+        logger.info(f"Retrieved bot settings: {settings}")
+        return settings
+
+    def update_bot_settings(self, data: dict):
+        result = self.settings_collection.update_one(
+            {"_id": "settings"},
+            {"$set": data},
+            upsert=True
+        )
+        logger.info(f"Updated bot settings: {data}, result: {result.modified_count}")
+        return result.modified_count > 0
+
+    # Keep other methods as in your version
     def increment_invited_users(self, user_id: str):
         result = self.users_collection.update_one(
             {"user_id": user_id}, {"$inc": {"invited_users": 1}}
@@ -184,19 +199,5 @@ class Database:
         recent_timestamps = [ts for ts in timestamps if (now - ts).total_seconds() <= time_window]
         logger.info(f"User {user_id} has {len(recent_timestamps)} messages in last {time_window} seconds")
         return len(recent_timestamps) < 2
-
-    def get_bot_settings(self):
-        settings = self.settings_collection.find_one({"_id": "settings"}) or {}
-        logger.info(f"Retrieved bot settings: {settings}")
-        return settings
-
-    def update_bot_settings(self, data: dict):
-        result = self.settings_collection.update_one(
-            {"_id": "settings"},
-            {"$set": data},
-            upsert=True
-        )
-        logger.info(f"Updated bot settings: {data}, result: {result.modified_count}")
-        return result.modified_count > 0
 
 db = Database()
