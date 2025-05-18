@@ -1,8 +1,8 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from config import ADMIN_IDS, LOG_CHANNEL_ID
 from database.database import db
 import logging
-from config import CURRENCY, LOG_CHANNEL_ID
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -10,81 +10,35 @@ logger = logging.getLogger(__name__)
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"Top command initiated by user {user_id} in chat {chat_id}")
+    logger.info(f"/top command initiated by user {user_id} in chat {chat_id}")
 
-    # Check rate limit silently
-    if await db.check_rate_limit(user_id):
-        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
-        return  # Do not reply, just skip processing
+    top_users = db.get_top_users_by_invites()
+    phone_bill_reward = db.get_phone_bill_reward_text()
+    total_users = db.get_total_users()
 
-    # Check and award weekly rewards
-    if await db.award_weekly_rewards():
-        phone_bill_reward = await db.get_phone_bill_reward()
-        await update.message.reply_text(f"Weekly rewards of 100 kyat awarded to the top 3 users! (Can be withdrawn via {phone_bill_reward} မဲဖောက်ပေးပါတယ်)")
-        logger.info(f"Weekly rewards processed for user {user_id}")
+    message = (
+        f"🏆 Top Users by Invites (Phone Bill Reward: {phone_bill_reward}):\n\n"
+        f"Total Users: {total_users}\n\n"
+    )
+    for i, user in enumerate(top_users, 1):
+        message += (
+            f"{i}. <b>{user['name']}</b> - {user.get('invited_users', 0)} invites, "
+            f"{user.get('balance', 0)} kyat\n"
+        )
 
-    # Fetch all users and sort by messages in -1002061898677
-    users = await db.get_all_users()
-    if not users:
-        await update.message.reply_text("No users available yet.")
-        logger.warning(f"No users found for user {user_id}")
-        return
-
-    target_group = "-1002061898677"
-    sorted_users = sorted(
-        users,
-        key=lambda x: x.get("group_messages", {}).get(target_group, 0),
-        reverse=True
-    )[:10]
-
-    if not sorted_users or sorted_users[0].get("group_messages", {}).get(target_group, 0) == 0:
-        await update.message.reply_text("No messages recorded in the target group yet.")
-        logger.warning(f"No messages in target group for user {user_id}")
-        return
-
-    phone_bill_reward = await db.get_phone_bill_reward()
-    top_message = f"🏆 Top Users:\n\n(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို {phone_bill_reward} မဲဖောက်ပေးပါတယ်):\n\n"
-    for i, user in enumerate(sorted_users, 1):
-        group_messages = user.get("group_messages", {}).get(target_group, 0)
-        balance = user.get("balance", 0)
-        if i <= 3:
-            top_message += f"{i}. <b>{user['name']}</b> - {group_messages} messages, {balance} {CURRENCY}\n"
-        else:
-            top_message += f"{i}. {user['name']} - {group_messages} messages, {balance} {CURRENCY}\n"
-
-    await update.message.reply_text(top_message, parse_mode="HTML")
-    logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
-
-async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    logger.info(f"Rest command initiated by user {user_id} in chat {chat_id}")
-
-    if user_id != "5062124930":
-        await update.message.reply_text("You are not authorized to use this command.")
-        logger.info(f"Unauthorized rest attempt by user {user_id}")
-        return
-
-    if await db.check_rate_limit(user_id):
-        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
-        return  # Do not reply, just skip processing
-
-    result = await db.users.update_many({}, {"$set": {"messages": 0}})
-    if result.modified_count > 0:
-        await update.message.reply_text("Leaderboard has been reset. Messages set to 0, balances preserved.")
-        logger.info(f"Reset messages for {result.modified_count} users by admin {user_id}")
-
-        current_top = await db.get_top_users()
-        log_message = "Leaderboard reset by admin:\n🏆 Top Users:\n"
-        for i, user in enumerate(current_top, 1):
-            balance = user.get("balance", 0)
-            log_message += f"{i}. {user['name']}: 0 messages, {balance} {CURRENCY}\n"
-        await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=log_message)
-    else:
-        await update.message.reply_text("No users found to reset.")
-        logger.info(f"No users modified during reset by user {user_id}")
+    try:
+        await update.message.reply_text(message, parse_mode="HTML")
+        logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send top users list to user {user_id}: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Failed to send /top response to {user_id}: {e}"
+            )
+        except Exception as log_error:
+            logger.error(f"Failed to log /top error to {LOG_CHANNEL_ID}: {log_error}")
 
 def register_handlers(application: Application):
-    logger.info("Registering top and rest handlers")
+    logger.info("Registering top handlers")
     application.add_handler(CommandHandler("top", top))
-    application.add_handler(CommandHandler("rest", rest))
