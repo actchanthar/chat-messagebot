@@ -140,10 +140,15 @@ async def start_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.message.reply_text("Please use /withdraw in private chat.")
         return
 
-    from plugins.withdrawal import withdraw  # Import dynamically
-    context._chat_id = chat_id
-    context._user_id = user_id
-    await withdraw(query.message, context)
+    from plugins.withdrawal import withdraw
+    # Create a mock Update object for withdraw
+    mock_update = Update(
+        update_id=update.update_id,
+        message=query.message,
+        effective_user=query.from_user
+    )
+    mock_update._effective_user = query.from_user  # Ensure effective_user is set
+    await withdraw(mock_update, context)
 
 async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
