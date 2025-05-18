@@ -1,35 +1,46 @@
-# plugins/help.py
 from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
+from config import LOG_CHANNEL_ID
+from database.database import db
+import datetime
 import logging
 
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = str(update.effective_chat.id)
-    logger.info(f"Received /help command from user {user_id} in chat {chat_id}")
+    chat_id = update.effective_chat.id
+    logger.info(f"/help command initiated by user {user_id} in chat {chat_id}")
 
-    # Determine how to reply based on whether this is a command or callback
-    if update.message:
-        reply_func = update.message.reply_text
-    elif update.callback_query:
-        reply_func = update.callback_query.message.reply_text
-    else:
-        logger.error(f"No valid message or callback query for user {user_id}")
-        return
-
-    await reply_func(
-        "တစ်စာတိုလျှင် ၁ ကျပ်ရရှိမည်။\n"
-        "ထုတ်ယူရန်အတွက် ကျွန်ုပ်တို့၏ချန်နယ်သို့ဝင်ရောက်ပါ။\n\n"
-        "အမိန့်များ:\n"
-        "/balance - ဝင်ငွေစစ်ဆေးရန်\n"
-        "/top - ထိပ်တန်းအသုံးပြုသူများကြည့်ရန်\n"
-        "/withdraw - ထုတ်ယူရန်တောင်းဆိုရန်\n"
-        "/help - ဤစာကိုပြရန်"
+    message = (
+        "Available commands:\n"
+        "/start - Start the bot\n"
+        "/top - View top users by invites\n"
+        "/withdraw - Withdraw funds\n"
+        "/users or /dfusers - Delete failed broadcast users (admin)\n"
+        "/broadcast <message> - Broadcast a message (admin)\n"
+        "/SetPhoneBill <text> - Set phone bill reward (admin)\n"
+        "/addbonus <user_id> <amount> - Add bonus (admin)\n"
+        "/setinvite <number> - Set required invites (admin)"
     )
-    logger.info(f"Successfully sent /help response to user {user_id} in chat {chat_id}")
 
-def register_handlers(application):
+    # Track help command usage
+    db.update_user(user_id, {"last_help": datetime.datetime.now()})
+
+    try:
+        await update.message.reply_text(message)
+        logger.info(f"Sent help message to user {user_id} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send /help response to user {user_id}: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Failed to send /help response to {user_id}: {e}"
+            )
+        except Exception as log_error:
+            logger.error(f"Failed to log /help error to {LOG_CHANNEL_ID}: {log_error}")
+
+def register_handlers(application: Application):
     logger.info("Registering help handlers")
-    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("help", help))
