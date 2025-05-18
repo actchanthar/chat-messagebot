@@ -133,25 +133,29 @@ async def start_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     query = update.callback_query
     user_id = str(query.from_user.id)
     chat_id = query.message.chat.id
-    logger.info(f"Withdraw button by {user_id} in {chat_id}")
+    logger.info(f"Withdraw button pressed by {user_id} in chat {chat_id}")
 
-    await query.answer()
+    await query.answer()  # Acknowledge the button press
+
+    # Check if this is a private chat
     if query.message.chat.type != "private":
-        await query.message.reply_text("Please use /withdraw in private chat.")
+        await query.message.reply_text("Please use /withdraw in my private chat.")
         return
 
-    # Simulate /withdraw command
+    # Directly call the withdrawal logic
     try:
-        # Send /withdraw as a message from the user
-        await context.bot.send_message(
-            chat_id=user_id,
-            text="/withdraw",
-            disable_notification=True
+        from plugins.withdrawal import withdraw
+        mock_update = Update(
+            update_id=update.update_id,
+            message=query.message,
+            effective_user=query.from_user,
+            effective_chat=query.message.chat
         )
-        logger.info(f"Sent /withdraw command for {user_id} in private chat")
+        logger.info(f"Invoking withdraw for user {user_id} in private chat {chat_id}")
+        await withdraw(mock_update, context)
     except Exception as e:
-        logger.error(f"Failed to send /withdraw for {user_id}: {e}")
-        await query.message.reply_text("Error initiating withdrawal. Use /withdraw directly.")
+        logger.error(f"Failed to process withdraw for {user_id}: {str(e)}")
+        await query.message.reply_text("Error initiating withdrawal. Please use /withdraw directly or contact support.")
 
 async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
