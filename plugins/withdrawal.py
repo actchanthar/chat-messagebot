@@ -183,9 +183,9 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 logger.info(f"User {user_id} cannot withdraw: {reason}")
                 try:
                     if update.message:
-                        await update.message.reply_text(reason)
+                        await update.message.reply_text(reason, parse_mode="HTML")
                     else:
-                        await update.callback_query.message.reply_text(reason)
+                        await update.callback_query.message.reply_text(reason, parse_mode="HTML")
                 except Exception as e:
                     logger.error(f"Failed to send withdrawal reason to {user_id}: {str(e)}")
                 return ConversationHandler.END
@@ -425,7 +425,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "balance": new_balance,
         "pending_withdrawals": [pending_withdrawal]
     })
-    if not result.modified_count:
+    if not result:
         logger.error(f"Failed to deduct amount for user {user_id} during withdrawal request")
         try:
             await message.reply_text("Error submitting request. Please try again later.")
@@ -572,9 +572,9 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 "last_withdrawal": datetime.now(timezone.utc),
                 "withdrawn_today": user.get("withdrawn_today", 0) + amount
             })
-            logger.info(f"db.update_user returned: {result.modified_count}")
+            logger.info(f"db.update_user returned: {result}")
 
-            if result.modified_count > 0:
+            if result:
                 logger.info(f"Withdrawal approved for user {target_user_id}. Amount: {amount}")
                 message_id = context.chat_data.get('log_message_ids', {}).get(target_user_id)
                 if message_id:
@@ -652,7 +652,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 "balance": new_balance,
                 "pending_withdrawals": []
             })
-            logger.info(f"db.update_user returned: {result.modified_count} for user {target_user_id} on rejection")
+            logger.info(f"db.update_user returned: {result} for user {target_user_id} on rejection")
 
             message_id = context.chat_data.get('log_message_ids', {}).get(target_user_id)
             if message_id:
