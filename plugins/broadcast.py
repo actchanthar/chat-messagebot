@@ -1,63 +1,60 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from database.database import db
+from config import ADMIN_IDS, GROUP_CHAT_IDS, LOG_CHANNEL_ID
 import logging
-from config import LOG_CHANNEL_ID
+from telegram.error import Forbidden, TelegramError
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+from database.database import db
+
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    logger.info(f"Broadcast command initiated by user {user_id} in chat {chat_id}")
-
-    # Restrict to admin (user ID 5062124930)
-    if user_id != "5062124930":
+    if user_id not in ADMIN_IDS:
+        logger.info(f"Non-admin {user_id} attempted /broadcast")
         await update.message.reply_text("You are not authorized to use this command.")
-        logger.info(f"Unauthorized broadcast attempt by user {user_id}")
         return
 
-    # Check if a message is provided
     if not context.args:
         await update.message.reply_text("Please provide a message to broadcast. Usage: /broadcast <message>")
-        logger.info(f"No message provided by user {user_id}")
         return
 
     message = " ".join(context.args)
-    logger.info(f"Broadcast initiated by user {user_id} with message: {message}")
-
-    # Fetch all users from the database
     users = await db.get_all_users()
-    if not users:
-        await update.message.reply_text("No users found to broadcast to.")
-        logger.warning(f"No users found for broadcast by user {user_id}")
-        return
+    sent_count = 0
+    failed_count = 0
 
-    # Broadcast to each user
-    success_count = 0
-    failure_count = 0
     for user in users:
+        user_id = user["user_id"]
         try:
-            target_user_id = user["user_id"]
-            # Send the message to the user's chat (user_id acts as chat_id for direct messages)
-            await context.bot.send_message(chat_id=target_user_id, text=message, parse_mode="HTML")
-            success_count += 1
-            logger.info(f"Successfully broadcasted message to user {target_user_id}")
-        except Exception as e:
-            failure_count += 1
-            logger.error(f"Failed to broadcast to user {target_user_id}: {str(e)}")
+            await context.bot.send_message(chat_id=user_id, text=message)
+            sent_count += 1
+            logger.info(f"Broadcast sent to user {user_id}")
+        except (Forbidden, TelegramError) as e:
+            logger.error(f"Broadcast failed for user {user_id}: {e}")
+            await db.mark_broadcast_failure(user_id)
+            failed_count += 1
 
-    # Reply to the admin with the result
-    result_message = f"Broadcast completed: Sent to {success_count} users, failed for {failure_count} users."
-    await update.message.reply_text(result_message)
-    logger.info(f"Broadcast result for user {user_id}: {result_message}")
+    for group_id in GROUP_CHAT_IDS:
+        try:
+            bot_id = (await context.bot.get_me()).id
+            await context.bot.get_chat_member(chat_id=group_id, user_id=bot_id)
+            await context.bot.send_message(chat_id=group_id, text=message)
+            logger.info(f"Broadcast sent to group {group_id}")
+        except Forbidden as e:
+            logger.error(f"Broadcast failed for group {group_id}: {e}")
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Warning: Bot is not a member of group {group_id}. Please add @{(await context.bot.get_me()).username} as an admin."
+            )
+        except TelegramError as e:
+            logger.error(f"Broadcast failed for group {group_id}: {e}")
 
-    # Log to admin channel
-    await context.bot.send_message(
-        chat_id=LOG_CHANNEL_ID,
-        text=f"Broadcast by {update.effective_user.full_name}: {message}\n{result_message}"
-    )
+    summary = f"Broadcast completed: Sent to {sent_count} users, failed for {failed_count} users."
+    await update.message.reply_text(summary)
+    await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=summary)
+    logger.info(summary)
 
 def register_handlers(application: Application):
     logger.info("Registering broadcast handlers")
