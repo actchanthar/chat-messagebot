@@ -30,7 +30,7 @@ class Database:
             "last_withdrawal": None,
             "withdrawn_today": 0,
             "group_messages": {},
-            "message_timestamps": [],  # Use list instead of deque
+            "message_timestamps": [],
             "subscribed_channels": [],
             "pending_withdrawals": [],
             "invited_users": 0,
@@ -42,7 +42,6 @@ class Database:
         return self.get_user(user_id)
 
     def update_user(self, user_id: str, update_data: dict):
-        # Enforce maxlen=1000 for message_timestamps
         if "message_timestamps" in update_data:
             update_data["message_timestamps"] = update_data["message_timestamps"][-1000:]
         result = self.users_collection.update_one(
@@ -184,6 +183,20 @@ class Database:
         now = datetime.datetime.now()
         recent_timestamps = [ts for ts in timestamps if (now - ts).total_seconds() <= time_window]
         logger.info(f"User {user_id} has {len(recent_timestamps)} messages in last {time_window} seconds")
-        return len(recent_timestamps) < 2  # Allow 1 message per 30 seconds
+        return len(recent_timestamps) < 2
+
+    def get_bot_settings(self):
+        settings = self.settings_collection.find_one({"_id": "settings"}) or {}
+        logger.info(f"Retrieved bot settings: {settings}")
+        return settings
+
+    def update_bot_settings(self, data: dict):
+        result = self.settings_collection.update_one(
+            {"_id": "settings"},
+            {"$set": data},
+            upsert=True
+        )
+        logger.info(f"Updated bot settings: {data}, result: {result.modified_count}")
+        return result.modified_count > 0
 
 db = Database()
