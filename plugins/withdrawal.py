@@ -117,31 +117,62 @@ async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    if chat_id not in GROUP_CHAT_IDS:
-        return  # Ignore messages not in group chats
+    logger.info(f"Received message from user {user_id} in chat {chat_id}. Checking if group is in GROUP_CHAT_IDS: {GROUP_CHAT_IDS}")
 
-    logger.info(f"Counting message from user {user_id} in group {chat_id}")
+    if chat_id not in GROUP_CHAT_IDS:
+        logger.debug(f"Chat {chat_id} not in GROUP_CHAT_IDS. Ignoring message from user {user_id}.")
+        return
+
+    # Verify bot is a member of the group
+    bot_id = (await context.bot.get_me()).id
+    bot_username = (await context.bot.get_me()).username
+    try:
+        bot_member = await context.bot.get_chat_member(chat_id=chat_id, user_id=bot_id)
+        if bot_member.status not in ["member", "administrator", "creator"]:
+            logger.error(f"Bot {bot_id} is not a member of group {chat_id}. Status: {bot_member.status}")
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Error: Bot @{bot_username} is not a member of group {chat_id}. Please add it to count messages."
+            )
+            return
+    except Exception as e:
+        logger.error(f"Failed to check bot membership in group {chat_id}: {str(e)}")
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Error: Cannot verify bot membership in group {chat_id}: {str(e)}"
+        )
+        return
+
+    logger.info(f"Processing message from user {user_id} in group {chat_id}")
 
     user = db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Error: User {user_id} not found in database while counting message in group {chat_id}."
+            )
+        except Exception as e:
+            logger.error(f"Failed to log user not found to {LOG_CHANNEL_ID}: {e}")
         return
 
     if user.get("banned", False):
-        logger.info(f"User {user_id} is banned, ignoring message")
+        logger.info(f"User {user_id} is banned, ignoring message in group {chat_id}")
         return
 
     group_messages = user.get("group_messages", 0) + 1
     balance = user.get("balance", 0)
     update_data = {"group_messages": group_messages}
+    logger.info(f"User {user_id} message count incremented to {group_messages} in group {chat_id}")
 
-    # Check if reward rule exists and user has reached the required message count
+    # Check reward rule and apply reward if applicable
     if message_reward_rule and group_messages >= message_reward_rule["messages_required"]:
         reward_amount = message_reward_rule["reward_amount"]
         balance += reward_amount
         update_data["balance"] = balance
         update_data["group_messages"] = 0  # Reset message count
-        logger.info(f"User {user_id} earned {reward_amount} {CURRENCY} for {group_messages} messages")
+        logger.info(f"User {user_id} reached {group_messages} messages, earning {reward_amount} {CURRENCY}")
 
         try:
             await context.bot.send_message(
@@ -159,18 +190,34 @@ async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"Username: @{update.effective_user.username or 'N/A'}\n"
                     f"Messages Sent: {group_messages}\n"
                     f"Reward: {reward_amount} {CURRENCY}\n"
-                    f"New Balance: {balance} {CURRENCY}"
+                    f"New Balance: {balance} {CURRENCY}\n"
+                    f"Group: {chat_id}"
                 )
             )
-            logger.info(f"Notified user {user_id} and logged reward")
+            logger.info(f"Notified user {user_id} and logged reward for {reward_amount} {CURRENCY}")
         except Exception as e:
-            logger.error(f"Failed to notify user {user_id} or log reward: {e}")
+            logger.error(f"Failed to notify user {user_id} or log reward: {str(e)}")
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Error: Failed to notify user {user_id} or log reward: {str(e)}"
+            )
 
-    result = db.update_user(user_id, update_data)
-    if not result:
-        logger.error(f"Failed to update message count for user {user_id}")
-    else:
-        logger.info(f"Updated message count for user {user_id}: {group_messages}")
+    try:
+        result = db.update_user(user_id, update_data)
+        if not result:
+            logger.error(f"Failed to update user {user_id} with data {update_data}")
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Error: Failed to update user {user_id} message count or balance in group {chat_id}."
+            )
+        else:
+            logger.info(f"Successfully updated user {user_id}: group_messages={group_messages}, balance={balance}")
+    except Exception as e:
+        logger.error(f"Database error updating user {user_id}: {str(e)}")
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Error: Database failure updating user {user_id} in group {chat_id}: {str(e)}"
+        )
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
@@ -350,7 +397,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     except Exception as e:
         logger.error(f"Failed to send payment method prompt to {user_id}: {e}")
         return ConversationHandler.END
-    logger.info(f"User {user_id} prompted for payment method selection with buttons Figurina: {PAYMENT_METHODS}")
+    logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
     return STEP_PAYMENT_METHOD
 
 async def reset_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -939,7 +986,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 await context.bot.send_message(
                     chat_id=target_user_id,
                     text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected by the admin. The amount has been refunded to your balance. Your new balance is {new_balance} {CURRENCY}. If there are any problems or you wish to appeal, please contact @actanibot.\n"
-                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
+                         f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို အုပ်ချုပ်ရေးမှူးမှ ပယ်ချလိုက်ပါသည်။ ပမာဏကို သင့်လက်ကျန်သို့ ပြန်လည်ထည့်သွင်းပြီးပါပြီ။ သင့်�লক္ခန္ဒငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။ ပြဿနာများရှိပါက သို့မဟုတ် အယူခံဝင်လိုပါက @actanibot သို့ ဆက်သွယ်ပါ။"
                 )
                 logger.info(f"Notified user {target_user_id} of withdrawal rejection")
             except Exception as e:
