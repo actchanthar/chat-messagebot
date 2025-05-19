@@ -19,24 +19,45 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(f"Force-sub channels for user {user_id}: {channels}")
         if channels:
             all_subscribed = True
+            not_subscribed = []
             for channel in channels:
                 try:
                     member = await context.bot.get_chat_member(channel, int(user_id))
                     if member.status not in ["member", "administrator", "creator"]:
                         all_subscribed = False
-                        await update.message.reply_text(
-                            f"You must join {channel} to use this bot.\n"
-                            "Join all required channels and try /start again."
-                        )
-                        logger.info(f"User {user_id} not subscribed to {channel}")
-                        return
+                        not_subscribed.append(channel)
                 except Exception as e:
                     logger.error(f"Error checking {channel} for user {user_id}: {e}")
-                    await update.message.reply_text(
-                        f"Error checking {channel}. Ensure you join it and try /start again."
-                    )
-                    return
+                    all_subscribed = False
+                    not_subscribed.append(channel)
+
             if not all_subscribed:
+                # Build button grid with channel names
+                keyboard = []
+                row = []
+                for channel in not_subscribed:
+                    try:
+                        chat = await context.bot.get_chat(channel)
+                        channel_name = chat.title or channel
+                        channel_url = f"https://t.me/{chat.username}" if chat.username else f"https://t.me/c/{channel[4:]}"
+                    except Exception as e:
+                        logger.error(f"Error fetching info for {channel}: {e}")
+                        channel_name = channel
+                        channel_url = f"https://t.me/c/{channel[4:]}"
+                    row.append(InlineKeyboardButton(channel_name, url=channel_url))
+                    if len(row) == 2:
+                        keyboard.append(row)
+                        row = []
+                if row:
+                    keyboard.append(row)
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await update.message.reply_text(
+                    "You must join all required channels to use this bot.\n"
+                    "Join the channels below and try /start again.",
+                    reply_markup=reply_markup
+                )
+                logger.info(f"User {user_id} prompted to join channels: {not_subscribed}")
                 return
 
     # Handle referral
