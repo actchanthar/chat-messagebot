@@ -13,8 +13,9 @@ async def referral_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
 
     user = await db.get_user(user_id)
-    invite_count = user.get("invite_count", 0)
     channels = await db.get_force_sub_channels()
+    logger.info(f"Force-sub channels for user {user_id}: {channels}")
+    invite_count = user.get("invite_count", 0)
     message = (
         f"Your invites: {invite_count}\n"
         f"Required for withdrawal: {await db.get_setting('invite_threshold', 15)}\n"
@@ -30,6 +31,7 @@ async def referral_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     channels = await db.get_force_sub_channels()
+    logger.info(f"Checking subscription for user {user_id}, channels: {channels}")
     if not channels:
         await update.message.reply_text("No force-sub channels set.")
         return False
@@ -38,15 +40,16 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for channel in channels:
         try:
             member = await context.bot.get_chat_member(channel, int(user_id))
+            logger.info(f"User {user_id} status in {channel}: {member.status}")
             if member.status not in ["member", "administrator", "creator"]:
                 await update.message.reply_text(f"You must join {channel} to count as an invite.")
                 all_subscribed = False
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error checking {channel} for user {user_id}: {e}")
             await update.message.reply_text(f"You must join {channel}.")
             all_subscribed = False
 
     if all_subscribed:
-        # Reward logic
         user = await db.get_user(user_id)
         inviter_id = user.get("inviter_id")
         if inviter_id:
