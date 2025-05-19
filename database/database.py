@@ -41,9 +41,9 @@ class Database:
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
                 "message_timestamps": deque(maxlen=5),
-                "inviter_id": None,  # Who invited this user
-                "invite_count": 0,   # Number of successful invites
-                "invited_users": []  # List of invited user IDs
+                "inviter_id": None,
+                "invite_count": 0,
+                "invited_users": []
             }
             await self.users.insert_one(user)
             logger.info(f"Created user {user_id}")
@@ -71,6 +71,14 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving users: {e}")
             return []
+
+    async def get_user_count(self):
+        try:
+            count = await self.users.count_documents({})
+            return count
+        except Exception as e:
+            logger.error(f"Error counting users: {e}")
+            return 0
 
     async def get_top_users(self, limit=10, by="messages"):
         try:
@@ -115,6 +123,14 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving channels: {e}")
             return []
+
+    async def get_group_messages(self, group_id):
+        try:
+            users = await self.users.find({"group_messages." + group_id: {"$exists": True}}).to_list(length=None)
+            return {user["user_id"]: user["group_messages"].get(group_id, 0) for user in users}
+        except Exception as e:
+            logger.error(f"Error retrieving group messages for {group_id}: {e}")
+            return {}
 
     async def get_setting(self, setting_type, default=None):
         try:
