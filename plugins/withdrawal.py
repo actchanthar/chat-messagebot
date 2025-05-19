@@ -48,7 +48,12 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if user_id != ADMIN_ID:
             invite_threshold = await db.get_setting("invite_threshold", 15)
             if user.get("invite_count", 0) < invite_threshold:
-                await message.reply_text(f"You need to invite {invite_threshold} users who join our channels to withdraw.")
+                invite_link = f"https://t.me/{context.bot.username}?start=referral_{user_id}"
+                await message.reply_text(
+                    f"You need to invite {invite_threshold} users who join our channels to withdraw.\n"
+                    f"လူ {invite_threshold} ယောက်ဖိတ်ခေါ်ရပါမယ် တစ်ယောက်ကို 25 Kyats ရပါတယ် {invite_threshold} ယောက်ဆိုရင် 375 kyats ပါ\n"
+                    f"Your Invite Link: {invite_link}"
+                )
                 return ConversationHandler.END
 
         context.user_data.clear()
