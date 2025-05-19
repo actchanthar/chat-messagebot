@@ -1,50 +1,34 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from config import ADMIN_IDS, LOG_CHANNEL_ID
 from database.database import db
 import logging
+from config import CURRENCY, LOG_CHANNEL_ID
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    logger.info(f"/top command initiated by user {user_id} in chat {chat_id}")
+    users = await db.get_all_users()
+    total_users = len(users)
 
-    top_users = db.get_top_users_by_invites()
-    phone_bill_reward = db.get_phone_bill_reward_text()
-    total_users = db.get_total_users()
+    # Top by invites
+    top_invites = await db.get_top_users(10, "invites")
+    invite_msg = f"Top Users by Invites (Weekly Top 1-3 get Phone Bill gift 🎁: 10000):\nTotal Users: {total_users}\n\n"
+    for i, user in enumerate(top_invites, 1):
+        invites = user.get("invite_count", 0)
+        balance = user.get("balance", 0)
+        invite_msg += f"{i}. {'<b>' if i <= 3 else ''}{user['name']}{'</b>' if i <= 3 else ''} - {invites} invites, {balance} {CURRENCY}\n"
 
-    message = (
-        f"🏆 Top Users by Invites (Phone Bill Reward: {phone_bill_reward}):\n\n"
-        f"Total Users: {total_users}\n\n"
-    )
-    for i, user in enumerate(top_users, 1):
-        message += (
-            f"{i}. <b>{user['name']}</b> - {user.get('invited_users', 0)} invites, "
-            f"{user.get('balance', 0)} kyat\n"
-        )
+    # Top by messages
+    top_messages = await db.get_top_users(10, "messages")
+    message_msg = f"\n🏆 Top Users (by messages):\n"
+    for i, user in enumerate(top_messages, 1):
+        messages = user.get("messages", 0)
+        balance = user.get("balance", 0)
+        message_msg += f"{i}. {'<b>' if i <= 3 else ''}{user['name']}{'</b>' if i <= 3 else ''} - {messages} msg, {balance} {CURRENCY}\n"
 
-    try:
-        await update.message.reply_text(message, parse_mode="HTML")
-        logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to send /top reply to user {user_id}: {e}")
-        try:
-            # Fallback: Send as new message
-            await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="HTML")
-            logger.info(f"Sent top users list as new message to user {user_id} in chat {chat_id}")
-        except Exception as send_error:
-            logger.error(f"Failed to send /top as new message to user {user_id}: {send_error}")
-        try:
-            await context.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=f"Failed to send /top response to {user_id}: {e}"
-            )
-        except Exception as log_error:
-            logger.error(f"Failed to log /top error to {LOG_CHANNEL_ID}: {log_error}")
+    await update.message.reply_text(invite_msg + message_msg, parse_mode="HTML")
 
 def register_handlers(application: Application):
-    logger.info("Registering top handlers")
     application.add_handler(CommandHandler("top", top))
