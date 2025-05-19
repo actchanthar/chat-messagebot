@@ -60,8 +60,9 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await message.reply_text(
-            "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။ "
-            "(Warning ⚠️: Provide accurate details; incorrect info means no refund.)",
+            "Please select a payment method: 💳\n"
+            "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။ "
+            "(Warning ⚠️: အချက်လက်လိုသေချာစွာရေးပါ မှားရေးပါက ငွေများပြန်ရမည်မဟုတ်)",
             reply_markup=reply_markup
         )
         return STEP_PAYMENT_METHOD
@@ -84,8 +85,7 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
     if method == "Phone Bill":
         context.user_data["withdrawal_amount"] = 1000
         await query.message.reply_text(
-            "Phone Bill withdrawals start at 1000 kyat.\n"
-            "Provide your phone number (e.g., 09123456789):"
+            "သင့်ရဲ့ဖုန်းနံဘတ်ကိုပို့ပေးပါ (ဥပမာ : 09123456789 )"
         )
         return STEP_DETAILS
     await query.message.reply_text(
@@ -100,8 +100,8 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     try:
         amount = int(amount_text)
-        if payment_method == "Phone Bill" and amount % 1000 != 0:
-            await update.message.reply_text("Phone Bill amounts must be multiples of 1000 (e.g., 1000, 2000).")
+        if payment_method == "Phone Bill" and (amount < 1000 or amount % 1000 != 0):
+            await update.message.reply_text("Phone Bill amounts must be multiples of 1000 (e.g., 1000, 2000, 3000).")
             return STEP_AMOUNT
         if amount < WITHDRAWAL_THRESHOLD:
             await update.message.reply_text(f"Minimum withdrawal is {WITHDRAWAL_THRESHOLD} {CURRENCY}.")
@@ -115,14 +115,20 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         context.user_data["withdrawal_amount"] = amount
         if payment_method == "KBZ Pay":
             await update.message.reply_text(
-                "Provide KBZ Pay details (e.g., 09123456789 ZAYAR KO KO MIN ZAW) or QR image:"
+                "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n\n💳\n"
+                "ကျေးဇူးပြု၍ သင်၏ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။ "
+                "သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
             )
         elif payment_method == "Wave Pay":
             await update.message.reply_text(
-                "Provide Wave Pay details (e.g., 09123456789 ZAYAR KO KO MIN ZAW) or QR image:"
+                "Please provide your Wave Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n\n💳\n"
+                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။ "
+                "သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
             )
         else:
-            await update.message.reply_text("Provide your phone number (e.g., 09123456789):")
+            await update.message.reply_text(
+                "သင့်ရဲ့ဖုန်းနံဘတ်ကိုပို့ပေးပါ (ဥပမာ : 09123456789 )"
+            )
         return STEP_DETAILS
     except ValueError:
         await update.message.reply_text("Enter a valid number.")
@@ -177,8 +183,22 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 user_id,
                 f"Your withdrawal of {amount} {CURRENCY} is approved. New balance: {new_balance} {CURRENCY}."
             )
-            group_msg = f"@{user.get('username', user['name'])} သည် {amount} ကျပ်ထုတ်ယူခဲ့ပါသည်။ လက်ရှိလက်ကျန် {new_balance}"
-            await context.bot.send_message(GROUP_CHAT_IDS[0], group_msg)
+            # Announce to group and all users
+            announcement = (
+                f"ID: {user_id}\n"
+                f"First name Last name: {user['name']}\n"
+                f"Username: @{update.effective_user.username or 'N/A'}\n"
+                f"သည် စုစုပေါင်း {amount} ငွေထုတ်ယူခဲ့ပါသည်။\n"
+                f"လက်ရှိလက်ကျန်ငွေ {new_balance}"
+            )
+            await context.bot.send_message(GROUP_CHAT_IDS[0], announcement)
+            # Broadcast to all users
+            all_users = await db.get_all_users()
+            for bot_user in all_users:
+                try:
+                    await context.bot.send_message(bot_user["user_id"], announcement)
+                except Exception as e:
+                    logger.error(f"Failed to send announcement to {bot_user['user_id']}: {e}")
     elif action == "reject":
         await query.message.reply_text(f"Rejected {amount} {CURRENCY} for {user_id}.")
         await context.bot.send_message(user_id, f"Your withdrawal of {amount} {CURRENCY} was rejected.")
