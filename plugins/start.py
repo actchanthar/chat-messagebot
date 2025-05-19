@@ -20,6 +20,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if channels:
             all_subscribed = True
             not_subscribed = []
+            channel_details = []
             for channel in channels:
                 try:
                     member = await context.bot.get_chat_member(channel, int(user_id))
@@ -40,6 +41,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         chat = await context.bot.get_chat(channel)
                         channel_name = chat.title or channel
                         channel_url = f"https://t.me/{chat.username}" if chat.username else f"https://t.me/c/{channel[4:]}"
+                        channel_details.append(f"{channel_name}: {channel_url}")
                     except Exception as e:
                         logger.error(f"Error fetching info for {channel}: {e}")
                         channel_name = channel
@@ -57,7 +59,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "Join the channels below and try /start again.",
                     reply_markup=reply_markup
                 )
-                logger.info(f"User {user_id} prompted to join channels: {not_subscribed}")
+                logger.info(f"User {user_id} prompted to join channels: {channel_details}")
                 return
 
     # Handle referral
