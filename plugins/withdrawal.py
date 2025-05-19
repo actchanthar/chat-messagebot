@@ -17,6 +17,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
+ADMIN_ID = "5062124930"
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -43,10 +44,12 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await message.reply_text("You are banned.")
             return ConversationHandler.END
 
-        invite_threshold = await db.get_setting("invite_threshold", 15)
-        if user.get("invite_count", 0) < invite_threshold:
-            await message.reply_text(f"You need to invite {invite_threshold} users who join our channels to withdraw.")
-            return ConversationHandler.END
+        # Skip invite requirement for admin
+        if user_id != ADMIN_ID:
+            invite_threshold = await db.get_setting("invite_threshold", 15)
+            if user.get("invite_count", 0) < invite_threshold:
+                await message.reply_text(f"You need to invite {invite_threshold} users who join our channels to withdraw.")
+                return ConversationHandler.END
 
         context.user_data.clear()
         keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
