@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 from database.database import db
 import logging
 
