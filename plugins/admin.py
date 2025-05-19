@@ -28,6 +28,10 @@ async def addchnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /addchnl <channel_id>")
         return
     channel_id = context.args[0]
+    channels = await db.get_force_sub_channels()
+    if channel_id in channels:
+        await update.message.reply_text(f"Channel {channel_id} already added.")
+        return
     await db.add_channel(channel_id)
     await update.message.reply_text(f"Added {channel_id} to force-sub channels.")
 
