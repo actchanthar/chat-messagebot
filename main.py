@@ -1,3 +1,9 @@
+import os
+
+print("Current directory:", os.getcwd())
+print("Files in current directory:", os.listdir('.'))
+print("Files in plugins:", os.listdir('plugins'))
+
 from telegram.ext import Application
 from config import BOT_TOKEN
 from plugins import (
