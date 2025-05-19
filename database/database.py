@@ -1,9 +1,9 @@
-# database/database.py
 from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
 from collections import deque
+import random
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class Database:
             logger.error(f"Error retrieving user {user_id}: {e}")
             return None
 
-    async def create_user(self, user_id, name, referred_by=None):
+    async def create_user(self, user_id, name):
         try:
             user = {
                 "user_id": user_id,
@@ -41,12 +41,12 @@ class Database:
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
                 "message_timestamps": deque(maxlen=5),
-                "invites": 0,
-                "referred_by": referred_by,
-                "referral_link": f"https://t.me/your_bot?start={user_id}"
+                "inviter_id": None,  # Who invited this user
+                "invite_count": 0,   # Number of successful invites
+                "invited_users": []  # List of invited user IDs
             }
             await self.users.insert_one(user)
-            logger.info(f"Created user {user_id} with name {name}, referred_by: {referred_by}")
+            logger.info(f"Created user {user_id}")
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
@@ -54,11 +54,12 @@ class Database:
 
     async def update_user(self, user_id, updates):
         try:
-            if "message_timestamps" in updates:
-                updates["message_timestamps"] = list(updates["message_timestamps"])
-            result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
-            logger.info(f"Updated user {user_id}: {updates}")
-            return result.modified_count > 0
+            result = await self.users.update_one({"user_id": user_id}, {"$set": updates}, upsert=True)
+            if result.modified_count > 0 or result.upserted_id:
+                logger.info(f"Updated user {user_id}: {updates}")
+                return True
+            logger.info(f"No changes for user {user_id}")
+            return False
         except Exception as e:
             logger.error(f"Error updating user {user_id}: {e}")
             return False
@@ -66,186 +67,33 @@ class Database:
     async def get_all_users(self):
         try:
             users = await self.users.find().to_list(length=None)
-            logger.info(f"Retrieved {len(users)} users")
             return users
         except Exception as e:
-            logger.error(f"Error retrieving all users: {e}")
+            logger.error(f"Error retrieving users: {e}")
             return []
 
     async def get_top_users(self, limit=10, by="messages"):
         try:
-            sort_field = "messages" if by == "messages" else "invites"
-            top_users = await self.users.find(
-                {"banned": False},
-                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "invites": 1, "_id": 0}
-            ).sort(sort_field, -1).limit(limit).to_list(length=limit)
-            logger.info(f"Retrieved top {limit} users by {sort_field}")
+            if by == "invites":
+                top_users = await self.users.find(
+                    {"banned": False},
+                    {"user_id": 1, "name": 1, "invite_count": 1, "balance": 1, "_id": 0}
+                ).sort("invite_count", -1).limit(limit).to_list(length=limit)
+            else:
+                top_users = await self.users.find(
+                    {"banned": False},
+                    {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "_id": 0}
+                ).sort("messages", -1).limit(limit).to_list(length=limit)
+            logger.info(f"Retrieved top {limit} users by {by}: {top_users}")
             return top_users
         except Exception as e:
             logger.error(f"Error retrieving top users: {e}")
             return []
 
-    async def add_group(self, group_id):
+    async def add_channel(self, channel_id):
         try:
-            existing_group = await self.groups.find_one({"group_id": group_id})
-            if existing_group:
-                logger.info(f"Group {group_id} already exists")
-                return "exists"
-            await self.groups.insert_one({"group_id": group_id})
-            logger.info(f"Added group {group_id}")
-            return True
-        except Exception as e:
-            logger.error(f"Error adding group {group_id}: {e}")
-            return False
-
-    async def get_approved_groups(self):
-        try:
-            groups = await self.groups.find({}, {"group_id": 1, "_id": 0}).to_list(length=None)
-            return [group["group_id"] for group in groups]
-        except Exception as e:
-            logger.error(f"Error retrieving approved groups: {e}")
-            return []
-
-    async def get_group_message_count(self, group_id):
-        try:
-            pipeline = [
-                {"$match": {f"group_messages.{group_id}": {"$exists": True}}},
-                {"$group": {"_id": None, "total_messages": {"$sum": f"$group_messages.{group_id}"}}}
-            ]
-            result = await self.users.aggregate(pipeline).to_list(length=None)
-            total_messages = result[0]["total_messages"] if result else 0
-            logger.info(f"Total messages in group {group_id}: {total_messages}")
-            return total_messages
-        except Exception as e:
-            logger.error(f"Error retrieving message count for group {group_id}: {e}")
-            return 0
-
-    async def get_last_reward_time(self):
-        try:
-            reward = await self.rewards.find_one({"type": "weekly"})
-            if not reward:
-                await self.rewards.insert_one({"type": "weekly", "last_reward": datetime.utcnow()})
-                return datetime.utcnow()
-            return reward["last_reward"]
-        except Exception as e:
-            logger.error(f"Error retrieving last reward time: {e}")
-            return datetime.utcnow()
-
-    async def update_reward_time(self):
-        try:
-            await self.rewards.update_one({"type": "weekly"}, {"$set": {"last_reward": datetime.utcnow()}})
-            logger.info("Updated weekly reward time")
-        except Exception as e:
-            logger.error(f"Error updating reward time: {e}")
-
-    async def award_weekly_rewards(self):
-        try:
-            last_reward = await self.get_last_reward_time()
-            if datetime.utcnow() < last_reward + timedelta(days=7):
-                return False
-
-            top_users = await self.get_top_users(3, by="messages")
-            reward_amount = 100
-            for user in top_users:
-                user_id = user["user_id"]
-                current_balance = user.get("balance", 0)
-                await self.update_user(user_id, {"balance": current_balance + reward_amount})
-                logger.info(f"Awarded {reward_amount} kyat to user {user_id}")
-
-            await self.update_reward_time()
-            return True
-        except Exception as e:
-            logger.error(f"Error awarding weekly rewards: {e}")
-            return False
-
-    async def set_phone_bill_reward(self, reward_text):
-        try:
-            await self.settings.update_one(
-                {"type": "phone_bill_reward"},
-                {"$set": {"value": reward_text}},
-                upsert=True
-            )
-            logger.info(f"Set phone_bill_reward to: {reward_text}")
-            return True
-        except Exception as e:
-            logger.error(f"Error setting phone_bill_reward: {e}")
-            return False
-
-    async def get_phone_bill_reward(self):
-        try:
-            setting = await self.settings.find_one({"type": "phone_bill_reward"})
-            return setting["value"] if setting and "value" in setting else "Phone Bill 1000 kyat"
-        except Exception as e:
-            logger.error(f"Error retrieving phone_bill_reward: {e}")
-            return "Phone Bill 1000 kyat"
-
-    async def get_settings(self):
-        try:
-            setting = await self.settings.find_one({"type": "bot_settings"})
-            defaults = {
-                "messages_per_kyat": 3,
-                "required_invites": 15,
-                "force_sub_channels": [],
-                "referral_reward_inviter": 25,
-                "referral_reward_invitee": 50
-            }
-            return setting["value"] if setting and "value" in setting else defaults
-        except Exception as e:
-            logger.error(f"Error retrieving settings: {e}")
-            return defaults
-
-    async def update_settings(self, updates):
-        try:
-            await self.settings.update_one(
-                {"type": "bot_settings"},
-                {"$set": {"value": updates}},
-                upsert=True
-            )
-            logger.info(f"Updated settings: {updates}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating settings: {e}")
-            return False
-
-    async def check_rate_limit(self, user_id, message_text=None):
-        try:
-            user = await self.get_user(user_id)
-            if not user:
-                return False
-
-            current_time = datetime.utcnow()
-            if user_id not in self.message_history:
-                self.message_history[user_id] = deque(maxlen=5)
-
-            timestamps = user.get("message_timestamps", deque(maxlen=5))
-            timestamps.append(current_time)
-            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
-            if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
-                logger.warning(f"Rate limit exceeded for user {user_id}")
-                return True
-
-            if message_text and user_id in self.message_history:
-                if self.message_history[user_id] and self.message_history[user_id][-1] == message_text:
-                    logger.warning(f"Duplicate message from user {user_id}")
-                    return True
-                self.message_history[user_id].append(message_text)
-            else:
-                self.message_history[user_id].append(message_text)
-            return False
-        except Exception as e:
-            logger.error(f"Error checking rate limit for user {user_id}: {e}")
-            return False
-
-    async def add_channel(self, channel_id, channel_name):
-        try:
-            settings = await self.get_settings()
-            channels = settings.get("force_sub_channels", [])
-            if any(c["id"] == channel_id for c in channels):
-                return "exists"
-            channels.append({"id": channel_id, "name": channel_name})
-            settings["force_sub_channels"] = channels
-            await self.update_settings(settings)
-            logger.info(f"Added channel {channel_id}: {channel_name}")
+            await self.settings.update_one({"type": "force_sub_channels"}, {"$addToSet": {"channels": channel_id}}, upsert=True)
+            logger.info(f"Added channel {channel_id}")
             return True
         except Exception as e:
             logger.error(f"Error adding channel {channel_id}: {e}")
@@ -253,23 +101,55 @@ class Database:
 
     async def remove_channel(self, channel_id):
         try:
-            settings = await self.get_settings()
-            channels = settings.get("force_sub_channels", [])
-            channels = [c for c in channels if c["id"] != channel_id]
-            settings["force_sub_channels"] = channels
-            await self.update_settings(settings)
+            await self.settings.update_one({"type": "force_sub_channels"}, {"$pull": {"channels": channel_id}})
             logger.info(f"Removed channel {channel_id}")
             return True
         except Exception as e:
             logger.error(f"Error removing channel {channel_id}: {e}")
             return False
 
-    async def get_channels(self):
+    async def get_force_sub_channels(self):
         try:
-            settings = await self.get_settings()
-            return settings.get("force_sub_channels", [])
+            setting = await self.settings.find_one({"type": "force_sub_channels"})
+            return setting.get("channels", []) if setting else []
         except Exception as e:
             logger.error(f"Error retrieving channels: {e}")
             return []
+
+    async def get_setting(self, setting_type, default=None):
+        try:
+            setting = await self.settings.find_one({"type": setting_type})
+            return setting.get("value", default) if setting else default
+        except Exception as e:
+            logger.error(f"Error retrieving {setting_type}: {e}")
+            return default
+
+    async def set_setting(self, setting_type, value):
+        try:
+            await self.settings.update_one({"type": setting_type}, {"$set": {"value": value}}, upsert=True)
+            logger.info(f"Set {setting_type} to {value}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting {setting_type}: {e}")
+            return False
+
+    async def check_rate_limit(self, user_id, message_text=None):
+        try:
+            user = await self.get_user(user_id)
+            if not user:
+                return False
+            current_time = datetime.utcnow()
+            timestamps = user.get("message_timestamps", deque(maxlen=5))
+            timestamps.append(current_time)
+            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
+            if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
+                return True
+            if message_text and user_id in self.message_history and self.message_history[user_id] == message_text:
+                return True
+            self.message_history[user_id] = message_text
+            return False
+        except Exception as e:
+            logger.error(f"Error checking rate limit for {user_id}: {e}")
+            return False
 
 db = Database()
