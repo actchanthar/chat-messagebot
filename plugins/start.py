@@ -37,7 +37,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("Check Balance", callback_data="balance"),
             InlineKeyboardButton("Withdraw", callback_data="withdraw")
         ],
-        [InlineKeyboardButton("Join Group", url="https://t.me/yourgroup")],
+        [
+            InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
+            InlineKeyboardButton("Earnings Group", url="https://t.me/stranger77777777777")
+        ],
         [InlineKeyboardButton("Referral Users", callback_data="referral_users")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
