@@ -13,6 +13,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Start command by user {user_id} in chat {chat_id}")
 
+    # Handle referral
+    inviter_id = None
+    if context.args and context.args[0].startswith("referral_"):
+        inviter_id = context.args[0].replace("referral_", "")
+        user = await db.get_user(user_id)
+        if not user:
+            user = await db.create_user(user_id, update.effective_user.full_name)
+            await db.update_user(user_id, {"inviter_id": inviter_id})
+            logger.info(f"User {user_id} joined via referral from {inviter_id}")
+            # Notify inviter of new referral
+            if inviter_id and inviter_id != user_id:
+                inviter = await db.get_user(inviter_id)
+                if inviter:
+                    inviter_invites = inviter.get("invite_count", 0)
+                    await context.bot.send_message(
+                        inviter_id,
+                        f"🎉 A new user has joined via your referral! You now have {inviter_invites + 1} invites.\n"
+                        f"Share this link to invite more: https://t.me/{context.bot.username}?start=referral_{inviter_id}"
+                    )
+
     # Skip force-sub for admin
     if user_id != ADMIN_ID:
         channels = await db.get_force_sub_channels()
@@ -61,17 +81,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
                 logger.info(f"User {user_id} prompted to join channels: {channel_details}")
                 return
-
-    # Handle referral
-    if context.args and context.args[0].startswith("referral_"):
-        inviter_id = context.args[0].replace("referral_", "")
-        user = await db.get_user(user_id)
-        if not user:
-            user = await db.create_user(user_id, update.effective_user.full_name)
-            await db.update_user(user_id, {"inviter_id": inviter_id})
-            logger.info(f"User {user_id} joined via referral from {inviter_id}")
             # Reward inviter and invitee if all channels are joined
-            if user_id != ADMIN_ID:
+            elif inviter_id and inviter_id != user_id:
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_invites = inviter.get("invite_count", 0) + 1
