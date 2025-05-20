@@ -15,7 +15,8 @@ async def referral_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = await db.get_user(user_id)
     channels = await db.get_force_sub_channels()
     logger.info(f"Force-sub channels for user {user_id}: {channels}")
-    invite_count = user.get("invite_count", 0)
+    invite_count = user.get("invite_count", 0)  # Ensure default to 0 if missing
+    logger.info(f"Invite count for {user_id}: {invite_count}")
 
     # Get channel names
     channel_names = []
@@ -66,12 +67,10 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
         inviter_id = user.get("inviter_id")
         if inviter_id and not user.get("referral_rewarded", False):
             inviter = await db.get_user(inviter_id)
-            inviter_invites = inviter.get("invite_count", 0) + 1
+            inviter_invites = inviter.get("invite_count", 0)
             inviter_balance = inviter.get("balance", 0) + 25
             await db.update_user(inviter_id, {
-                "invite_count": inviter_invites,
-                "balance": inviter_balance,
-                "invited_users": inviter.get("invited_users", []) + [user_id]
+                "balance": inviter_balance
             })
             await context.bot.send_message(inviter_id, f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}.")
             await db.update_user(user_id, {"balance": user.get("balance", 0) + 50, "referral_rewarded": True})
