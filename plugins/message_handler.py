@@ -1,9 +1,8 @@
 from telegram import Update
 from telegram.ext import Application, MessageHandler, ContextTypes, filters
-from config import GROUP_CHAT_IDS
 from database.database import db
-import datetime
 import logging
+from config import COUNT_MESSAGES
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,33 +10,40 @@ logger = logging.getLogger(__name__)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Message received from user {user_id} in chat {chat_id}")
+    message_text = update.message.text
+    logger.info(f"Message received from user {user_id} in chat {chat_id}: {message_text}")
 
-    if chat_id not in GROUP_CHAT_IDS:
-        logger.info(f"Message from user {user_id} ignored: chat {chat_id} not in GROUP_CHAT_IDS")
+    if await db.check_rate_limit(user_id, message_text):
+        logger.warning(f"Rate limit or duplicate enforced for user {user_id} in chat {chat_id}")
         return
 
-    user = db.get_user(user_id)
+    if not COUNT_MESSAGES:
+        logger.info(f"Message counting disabled. Skipping update in chat {chat_id}.")
+        return
+
+    if chat_id != "-1002061898677":
+        logger.info(f"Chat {chat_id} is not the target group (-1002061898677). Skipping update.")
+        return
+
+    user = await db.get_user(user_id)
     if not user:
-        logger.info(f"User {user_id} not found, creating new user")
-        user = db.create_user(user_id, update.effective_user.full_name)
+        user = await db.create_user(user_id, update.effective_user.full_name)
 
-    if not db.check_rate_limit(user_id):
-        logger.info(f"User {user_id} rate limited in chat {chat_id}")
-        return
+    new_messages = user.get("messages", 0) + 1
+    messages_per_kyat = await db.get_message_rate()  # Default: 3 messages = 1 kyat
+    new_balance = user.get("balance", 0) + (1 / messages_per_kyat)  # Increment balance based on rate
 
-    # Update message timestamps
-    timestamps = user.get("message_timestamps", [])
-    timestamps.append(datetime.datetime.now())
-    db.update_user(user_id, {"message_timestamps": timestamps})
-
-    # Update group message count
     group_messages = user.get("group_messages", {})
-    group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
-    db.update_user(user_id, {"group_messages": group_messages, "messages": user.get("messages", 0) + 1})
+    current_group_messages = group_messages.get(chat_id, 0) + 1
+    group_messages[chat_id] = current_group_messages
 
-    logger.info(f"Updated message count for user {user_id} in chat {chat_id}")
+    await db.update_user(user_id, {
+        "messages": new_messages,
+        "balance": new_balance,
+        "group_messages": group_messages
+    })
+    logger.info(f"Updated messages to {new_messages} and balance to {new_balance} for user {user_id} in group {chat_id}")
 
 def register_handlers(application: Application):
-    logger.info("Registering message handler")
+    logger.info("Registering message handlers")
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
