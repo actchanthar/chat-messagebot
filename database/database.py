@@ -1,14 +1,21 @@
 import os
+import sys
+import logging
+import logging.handlers
 from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
-import logging
 from datetime import datetime, timedelta
 from collections import deque
 
 # Set up logging
+log_file = '/tmp/bot.log'
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
+    level=logging.DEBUG,
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.handlers.RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
+    ]
 )
 logger = logging.getLogger(__name__)
 
