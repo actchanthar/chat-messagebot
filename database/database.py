@@ -15,24 +15,22 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         try:
-            # Validate MongoDB URL
+            # Use environment variable with fallback to config.py
             mongo_url = os.getenv('MONGODB_URL', MONGODB_URL)
-            if not mongo_url:
-                logger.error("MONGODB_URL is not set")
-                raise ValueError("MONGODB_URL is not set")
+            mongo_db_name = os.getenv('MONGODB_NAME', MONGODB_NAME)
+            if not mongo_url or not mongo_db_name:
+                logger.error("MONGODB_URL or MONGODB_NAME is not set")
+                raise ValueError("MONGODB_URL or MONGODB_NAME is not set")
 
-            logger.debug(f"Connecting to MongoDB with URL: {mongo_url[:30]}...")  # Mask sensitive parts
+            logger.debug(f"Connecting to MongoDB with URL: {mongo_url[:30]}...")
             self.mongo_client = AsyncIOMotorClient(mongo_url)
-            self.db = self.mongo_client[MONGODB_NAME]
+            self.db = self.mongo_client[mongo_db_name]
             self.users = self.db.users
             self.groups = self.db.groups
             self.rewards = self.db.rewards
             self.settings = self.db.settings
             self.message_history = {}
             logger.info("MongoDB client initialized successfully")
-
-            # Test connection
-            logger.debug("Testing MongoDB connection")
             self.mongo_client.admin.command('ping')
             logger.info("MongoDB connection test successful")
         except Exception as e:
@@ -152,8 +150,8 @@ class Database:
 class DatabaseWithClient(Database):
     def __init__(self, bot_client):
         try:
-            super().__init__()  # Initialize MongoDB client
-            self.bot_client = bot_client  # Store Telegram bot client
+            super().__init__()
+            self.bot_client = bot_client
             logger.info("DatabaseWithClient initialized with bot client")
         except Exception as e:
             logger.error(f"Failed to initialize DatabaseWithClient: {e}", exc_info=True)
