@@ -1,248 +1,433 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler,
+    CallbackQueryHandler,
+)
+from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS, ADMIN_IDS, DEFAULT_REQUIRED_INVITES
 from database.database import db
 import logging
+import re
+from datetime import datetime, timezone
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Admin user ID (replace with your admin's Telegram user ID)
-ADMIN_USER_ID = "5062124930"  # Updated based on logs; change if different
+STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def load_message_reward_rule():
+    settings = db.get_bot_settings()
+    rule = settings.get("message_reward_rule", {})
+    if not rule:
+        rule = {"messages_required": 3, "reward_amount": 1}
+        db.update_bot_settings({"message_reward_rule": rule})
+        logger.info("Set fallback reward rule: 3 messages = 1 kyat")
+    logger.info(f"Loaded reward rule: {rule}")
+    return rule
+
+message_reward_rule = load_message_reward_rule()
+
+async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    logger.info(f"Withdrawal initiated by user {user_id} via command or button")
+    chat_id = update.effective_chat.id
+    logger.info(f"Setmessage by {user_id} in {chat_id}")
 
-    user = await db.get_user(user_id)
+    if user_id not in ADMIN_IDS:
+        logger.info(f"Non-admin {user_id} attempted /setmessage")
+        await update.message.reply_text("Unauthorized.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /setmessage <count> for message , <messages> message <amount>")
+        return
+
+    command_text = " ".join(context.args)
+    pattern = r"(\d+)\s*for\s*message\s*,\s*(\d+)\s*message\s*(\d+\w*)"
+    match = re.match(pattern, command_text, re.IGNORECASE)
+    if not match:
+        await update.message.reply_text("Invalid format. Use: /setmessage 3 for message , 3 message 1")
+        return
+
+    count, messages, amount_str = match.groups()
+    if int(count) != int(messages):
+        await update.message.reply_text("Error: <count> and <messages> must match.")
+        return
+
+    try:
+        amount = int(amount_str)
+    except ValueError:
+        await update.message.reply_text("Invalid amount. Use a number (e.g., 1).")
+        return
+
+    global message_reward_rule
+    message_reward_rule = {
+        "messages_required": int(count),
+        "reward_amount": amount
+    }
+    result = db.update_bot_settings({"message_reward_rule": message_reward_rule})
+    logger.info(f"Set reward rule by {user_id}: {message_reward_rule}, db result: {result}")
+
+    await update.message.reply_text(f"Rule set: {count} messages earns {amount} {CURRENCY}.")
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=f"Rule Set:\nMessages: {count}\nReward: {amount} {CURRENCY}\nBy Admin: {user_id}"
+    )
+
+async def reset_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    logger.info(f"Reset_messages by {user_id} in {chat_id}")
+
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("Unauthorized.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Usage: /reset_messages <user_id>")
+        return
+
+    target_user_id = context.args[0]
+    user = db.get_user(target_user_id)
     if not user:
-        message = "User not found. Please start the bot with /start."
-        if update.callback_query:
-            try:
-                await update.callback_query.edit_message_text(message)
-            except Exception as e:
-                logger.error(f"Error editing message for user {user_id}: {e}")
-                await update.callback_query.message.reply_text(message)
-        else:
-            await update.effective_message.reply_text(message)
-        logger.warning(f"User {user_id} not found in database")
+        await update.message.reply_text(f"User {target_user_id} not found.")
         return
 
-    # Check if user is admin
-    is_admin = user_id == ADMIN_USER_ID
-    logger.info(f"User {user_id} is_admin: {is_admin}")
+    result = db.update_user(target_user_id, {"group_messages": {}})
+    if not result:
+        await update.message.reply_text(f"Error resetting messages for {target_user_id}.")
+        return
 
-    # Non-admin users need at least 15 invited users and 10,000 kyat
-    if not is_admin:
-        invited_users = user.get("invited_users", 0)
-        if invited_users < 15:
-            message = f"You need to invite at least 15 users to withdraw. You have invited {invited_users} users."
-            if update.callback_query:
-                try:
-                    await update.callback_query.edit_message_text(message)
-                except Exception as e:
-                    logger.error(f"Error editing message for user {user_id}: {e}")
-                    await update.callback_query.message.reply_text(message)
-            else:
-                await update.effective_message.reply_text(message)
-            logger.info(f"User {user_id} has {invited_users} invites, needs 15")
-            return
-        if user.get("balance", 0) < 10000:
-            message = f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
-            if update.callback_query:
-                try:
-                    await update.callback_query.edit_message_text(message)
-                except Exception as e:
-                    logger.error(f"Error editing message for user {user_id}: {e}")
-                    await update.callback_query.message.reply_text(message)
-            else:
-                await update.effective_message.reply_text(message)
-            logger.info(f"User {user_id} balance {user.get('balance', 0)} kyat, needs 10000")
+    await update.message.reply_text(f"Reset message count for {target_user_id}.")
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=f"Message Count Reset:\nUser ID: {target_user_id}\nBy Admin: {user_id}"
+    )
+
+async def count_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    chat_id = str(update.effective_chat.id)
+    message_text = update.message.text[:50] if update.message.text else "Non-text message"
+    logger.info(f"Message from {user_id} in {chat_id}: '{message_text}' | GROUP_CHAT_IDS: {GROUP_CHAT_IDS}")
+
+    if chat_id not in GROUP_CHAT_IDS:
+        logger.debug(f"Chat {chat_id} not in GROUP_CHAT_IDS")
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Warning: Chat {chat_id} not in GROUP_CHAT_IDS for user {user_id}"
+        )
+        return
+
+    user = db.get_user(user_id)
+    if not user:
+        logger.error(f"User {user_id} not found")
+        await context.bot.send_message(chat_id=user_id, text="Run /start to register.")
+        return
+
+    if user.get("banned", False):
+        logger.info(f"User {user_id} is banned")
+        return
+
+    if not message_reward_rule:
+        logger.warning(f"No reward rule for {user_id} in {chat_id}")
+        await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"No reward rule for {user_id} in {chat_id}")
+        return
+
+    group_messages = user.get("group_messages", {})
+    group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
+    balance = float(user.get("balance", 0))
+    update_data = {"group_messages": group_messages}
+    logger.info(f"User {user_id} count: {group_messages[chat_id]}, balance: {balance}, rule: {message_reward_rule}")
+
+    if group_messages[chat_id] >= message_reward_rule["messages_required"]:
+        reward_amount = message_reward_rule["reward_amount"]
+        new_balance = balance + reward_amount
+        update_data["balance"] = new_balance
+        update_data["group_messages"][chat_id] = 0
+        logger.info(f"Applying reward for {user_id}: {reward_amount} {CURRENCY}, new balance: {new_balance}")
+
+        result = db.update_user(user_id, update_data)
+        if not result:
+            logger.error(f"Failed to update {user_id}: {update_data}")
+            await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Error: Failed to update {user_id}")
             return
 
-    # Admin users only need 10,000 kyat
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"Earned {reward_amount} {CURRENCY} for {message_reward_rule['messages_required']} messages! Balance: {new_balance} {CURRENCY}"
+        )
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Reward:\nUser: {user_id}\nMessages: {group_messages[chat_id]}\nReward: {reward_amount} {CURRENCY}\nBalance: {new_balance} {CURRENCY}"
+        )
     else:
-        if user.get("balance", 0) < 10000:
-            message = f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
-            if update.callback_query:
-                try:
-                    await update.callback_query.edit_message_text(message)
-                except Exception as e:
-                    logger.error(f"Error editing message for user {user_id}: {e}")
-                    await update.callback_query.message.reply_text(message)
-            else:
-                await update.effective_message.reply_text(message)
-            logger.info(f"Admin {user_id} balance {user.get('balance', 0)} kyat, needs 10000")
-            return
+        result = db.update_user(user_id, update_data)
+        if not result:
+            logger.error(f"Failed to update {user_id}: {update_data}")
+            await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Error: Failed to update {user_id}")
 
-    # Check withdrawal limit
-    withdrawn_today = user.get("withdrawn_today", 0)
-    if withdrawn_today >= 10000:
-        message = "You have reached the daily withdrawal limit of 10,000 kyat."
-        if update.callback_query:
-            try:
-                await update.callback_query.edit_message_text(message)
-            except Exception as e:
-                logger.error(f"Error editing message for user {user_id}: {e}")
-                await update.callback_query.message.reply_text(message)
-        else:
-            await update.effective_message.reply_text(message)
-        logger.info(f"User {user_id} reached daily withdrawal limit: {withdrawn_today} kyat")
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    user = db.get_user(user_id)
+    if not user:
+        await update.message.reply_text("Run /start to register.")
+        return
+    balance = float(user.get("balance", 0))
+    await update.message.reply_text(f"Your balance: {balance} {CURRENCY}")
+
+async def debug_message_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    chat_id = update.effective_chat.id
+    user = db.get_user(user_id)
+    if not user:
+        await update.message.reply_text("Run /start to register.")
         return
 
+    group_messages = user.get("group_messages", {})
+    balance = float(user.get("balance", 0))
+    banned = user.get("banned", False)
+    rule_info = (
+        f"Messages Required: {message_reward_rule.get('messages_required', 'Not set')}\n"
+        f"Reward Amount: {message_reward_rule.get('reward_amount', 'Not set')} {CURRENCY}"
+    ) if message_reward_rule else "No reward rule set."
+
+    debug_message = (
+        f"Debug:\n"
+        f"User ID: {user_id}\n"
+        f"Username: @{update.effective_user.username or 'N/A'}\n"
+        f"Group Messages: {group_messages}\n"
+        f"Balance: {balance} {CURRENCY}\n"
+        f"Banned: {banned}\n"
+        f"Reward Rule:\n{rule_info}\n"
+        f"GROUP_CHAT_IDS: {GROUP_CHAT_IDS}\n"
+        f"Chat ID: {chat_id}"
+    )
+    await update.message.reply_text(debug_message)
+    await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=f"Debug by {user_id}:\n{debug_message}")
+
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = str(getattr(update.effective_user, 'id', None))
+    if not user_id:
+        logger.error("No user ID in update")
+        await update.message.reply_text("Error: Unable to identify user.")
+        return ConversationHandler.END
+    user_id = str(user_id)
+    chat_id = update.effective_chat.id
+    logger.info(f"Withdraw by {user_id} in {chat_id}")
+
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("Use /withdraw in private chat.")
+        return ConversationHandler.END
+
+    user = db.get_user(user_id)
+    if not user:
+        await update.message.reply_text("Run /start to register.")
+        return ConversationHandler.END
+
+    if user.get("banned", False):
+        await update.message.reply_text("You are banned.")
+        return ConversationHandler.END
+
+    balance = float(user.get("balance", 0))
+    if balance < WITHDRAWAL_THRESHOLD:
+        await update.message.reply_text(f"Need at least {WITHDRAWAL_THRESHOLD} {CURRENCY}. Your balance: {balance} {CURRENCY}")
+        return ConversationHandler.END
+
+    if user_id not in ADMIN_IDS:
+        required_channels = db.get_required_channels() or []
+        if required_channels:
+            subscribed_channels = user.get("subscribed_channels", [])
+            not_subscribed = [ch for ch in required_channels if ch not in subscribed_channels]
+            if not_subscribed:
+                keyboard = [[InlineKeyboardButton(f"Join {ch}", url=f"https://t.me/{ch.replace('-100', '')}")] for ch in not_subscribed]
+                await update.message.reply_text("Join all required channels.", reply_markup=InlineKeyboardMarkup(keyboard))
+                return ConversationHandler.END
+
+        invited_users = user.get("invited_users", 0)
+        if invited_users < DEFAULT_REQUIRED_INVITES:
+            bot_username = (await context.bot.get_me()).username
+            invite_link = f"https://t.me/{bot_username}?start=referral_{user_id}"
+            await update.message.reply_text(
+                f"Need {DEFAULT_REQUIRED_INVITES} invited users. You have {invited_users}.\nInvite Link: {invite_link}"
+            )
+            return ConversationHandler.END
+
+    pending_withdrawals = user.get("pending_withdrawals", [])
+    if pending_withdrawals:
+        await update.message.reply_text("Pending withdrawal exists. Wait for processing.")
+        return ConversationHandler.END
+
+    keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
+    await update.message.reply_text("Select payment method:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return STEP_PAYMENT_METHOD
+
+async def handle_payment_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    user_id = str(query.from_user.id)
+    data = query.data
+    logger.info(f"Payment method selection by {user_id}: {data}")
+
+    await query.answer()
+    if not data.startswith("payment_"):
+        await query.message.reply_text("Invalid method. Use /withdraw.")
+        return ConversationHandler.END
+
+    method = data.replace("payment_", "")
+    if method not in PAYMENT_METHODS:
+        await query.message.reply_text("Invalid method.")
+        return STEP_PAYMENT_METHOD
+
+    context.user_data["payment_method"] = method
+    await query.message.reply_text(f"Enter amount to withdraw (min: {WITHDRAWAL_THRESHOLD} {CURRENCY}).")
+    return STEP_AMOUNT
+
+async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = str(update.effective_user.id)
+    amount_text = update.message.text.strip()
+    logger.info(f"Amount input by {user_id}: {amount_text}")
+
+    payment_method = context.user_data.get("payment_method")
+    if not payment_method:
+        await update.message.reply_text("Error: No payment method. Use /withdraw.")
+        return ConversationHandler.END
+
+    try:
+        amount = int(amount_text)
+        if amount < WITHDRAWAL_THRESHOLD:
+            await update.message.reply_text(f"Minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}.")
+            return STEP_AMOUNT
+
+        user = db.get_user(user_id)
+        balance = float(user.get("balance", 0))
+        if balance < amount:
+            await update.message.reply_text("Insufficient balance.")
+            return ConversationHandler.END
+
+        context.user_data["withdrawal_amount"] = amount
+        await update.message.reply_text(f"Provide your {payment_method} details.")
+        return STEP_DETAILS
+    except ValueError:
+        await update.message.reply_text("Enter a valid number.")
+        return STEP_AMOUNT
+
+async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = str(update.effective_user.id)
+    payment_details = update.message.text
+    logger.info(f"Details by {user_id}: {payment_details}")
+
+    amount = context.user_data.get("withdrawal_amount")
+    payment_method = context.user_data.get("payment_method")
+    if not (amount and payment_method):
+        await update.message.reply_text("Error: Missing data. Use /withdraw.")
+        return ConversationHandler.END
+
+    user = db.get_user(user_id)
+    balance = float(user.get("balance", 0))
+    if balance < amount:
+        await update.message.reply_text("Insufficient balance.")
+        return ConversationHandler.END
+
+    new_balance = balance - amount
+    pending_withdrawal = {
+        "amount": amount,
+        "payment_method": payment_method,
+        "payment_details": payment_details,
+        "status": "pending",
+        "requested_at": datetime.now(timezone.utc)
+    }
+    result = db.update_user(user_id, {
+        "balance": new_balance,
+        "pending_withdrawals": [pending_withdrawal]
+    })
+    if not result:
+        logger.error(f"Failed to deduct amount for {user_id}")
+        await update.message.reply_text("Error submitting request.")
+        return ConversationHandler.END
+
+    withdrawal_message = (
+        f"Withdrawal Request:\n"
+        f"User ID: {user_id}\n"
+        f"Username: @{update.effective_user.username or 'N/A'}\n"
+        f"Amount: {amount} {CURRENCY}\n"
+        f"Method: {payment_method}\n"
+        f"Details: {payment_details}\n"
+        f"Status: PENDING"
+    )
     keyboard = [
         [
-            InlineKeyboardButton("500 kyat", callback_data="withdraw_500"),
-            InlineKeyboardButton("1000 kyat", callback_data="withdraw_1000"),
-        ],
-        [
-            InlineKeyboardButton("2500 kyat", callback_data="withdraw_2500"),
-            InlineKeyboardButton("5000 kyat", callback_data="withdraw_5000"),
-        ],
-        [
-            InlineKeyboardButton("10000 kyat", callback_data="withdraw_10000"),
-        ],
+            InlineKeyboardButton("Approve", callback_data=f"approve_withdrawal_{user_id}_{amount}"),
+            InlineKeyboardButton("Reject", callback_data=f"reject_withdrawal_{user_id}_{amount}")
+        ]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    message_text = (
-        f"Your balance: {user.get('balance', 0)} kyat\n"
-        f"Withdrawn today: {withdrawn_today} kyat\n"
-        "Select withdrawal amount:"
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=withdrawal_message,
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    if update.callback_query:
-        try:
-            await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await update.callback_query.message.reply_text(message_text, reply_markup=reply_markup)
-    else:
-        await update.effective_message.reply_text(message_text, reply_markup=reply_markup)
-    logger.info(f"Displayed withdrawal options to user {user_id}")
+    await update.message.reply_text(f"Withdrawal request for {amount} {CURRENCY} submitted. New balance: {new_balance} {CURRENCY}")
+    return ConversationHandler.END
 
-async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    logger.info(f"Raw callback query received: {query}")  # Log the raw query
-
-    if not query:
-        logger.error("No callback query found in update")
-        return
-
-    try:
-        await query.answer()
-        logger.info(f"Callback query answered for user {query.from_user.id}")
-    except Exception as e:
-        logger.error(f"Error answering callback query for user {query.from_user.id}: {e}")
-        return  # Stop processing if we can't answer the query
-
     user_id = str(query.from_user.id)
-    callback_data = query.data
-    logger.info(f"Callback query processed for user {user_id}: {callback_data}")
+    data = query.data
+    logger.info(f"Admin receipt by {user_id}: {data}")
 
-    if callback_data == "init_withdraw":
-        logger.info(f"Processing init_withdraw callback for user {user_id}")
-        await init_withdraw(update, context)
-        return
+    await query.answer()
+    if data.startswith("approve_withdrawal_"):
+        _, _, target_user_id, amount = data.split("_")
+        amount = int(amount)
+        user = db.get_user(target_user_id)
+        result = db.update_user(target_user_id, {
+            "pending_withdrawals": [],
+            "last_withdrawal": datetime.now(timezone.utc),
+            "withdrawn_today": user.get("withdrawn_today", 0) + amount
+        })
+        if result:
+            await context.bot.send_message(chat_id=target_user_id, text=f"Withdrawal of {amount} {CURRENCY} approved!")
+            await query.message.edit_text(query.message.text + "\nStatus: Approved")
+        else:
+            await query.message.reply_text("Error approving.")
+    elif data.startswith("reject_withdrawal_"):
+        _, _, target_user_id, amount = data.split("_")
+        amount = int(amount)
+        user = db.get_user(target_user_id)
+        new_balance = float(user.get("balance", 0)) + amount
+        result = db.update_user(target_user_id, {
+            "balance": new_balance,
+            "pending_withdrawals": []
+        })
+        if result:
+            await context.bot.send_message(chat_id=target_user_id, text=f"Withdrawal of {amount} {CURRENCY} rejected.")
+            await query.message.edit_text(query.message.text + "\nStatus: Rejected")
+        else:
+            await query.message.reply_text("Error rejecting.")
 
-    if not callback_data.startswith("withdraw_"):
-        logger.warning(f"Invalid callback data for user {user_id}: {callback_data}")
-        try:
-            await query.edit_message_text("Invalid withdrawal option. Please try again.")
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await query.message.reply_text("Invalid withdrawal option. Please try again.")
-        return
-
-    try:
-        amount = int(callback_data.split("_")[1])
-        logger.info(f"Parsed withdrawal amount for user {user_id}: {amount}")
-    except (IndexError, ValueError) as e:
-        logger.error(f"Error parsing withdrawal amount for user {user_id}: {callback_data}, error: {e}")
-        try:
-            await query.edit_message_text("Error processing withdrawal amount. Please try again.")
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await query.message.reply_text("Error processing withdrawal amount. Please try again.")
-        return
-
-    user = await db.get_user(user_id)
-    if not user:
-        try:
-            await query.edit_message_text("User not found.")
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await query.message.reply_text("User not found.")
-        logger.warning(f"User {user_id} not found in database")
-        return
-
-    # Check balance
-    current_balance = user.get("balance", 0)
-    if current_balance < amount:
-        message = f"Insufficient balance. Your balance is {current_balance} kyat."
-        try:
-            await query.edit_message_text(message)
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await query.message.reply_text(message)
-        logger.info(f"User {user_id} insufficient balance: {current_balance} kyat for {amount}")
-        return
-
-    # Check daily withdrawal limit
-    withdrawn_today = user.get("withdrawn_today", 0)
-    if withdrawn_today + amount > 10000:
-        message = f"Withdrawal exceeds daily limit. You can withdraw {10000 - withdrawn_today} kyat today."
-        try:
-            await query.edit_message_text(message)
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await query.message.reply_text(message)
-        logger.info(f"User {user_id} exceeds daily limit: {withdrawn_today} + {amount} > 10000")
-        return
-
-    # Update user balance and withdrawal records
-    new_balance = current_balance - amount
-    try:
-        await db.update_user(
-            user_id,
-            {
-                "balance": new_balance,
-                "withdrawn_today": withdrawn_today + amount,
-                "last_withdrawal": query.message.date,
-            },
-        )
-        logger.info(f"Updated user {user_id} balance to {new_balance}, withdrawn_today to {withdrawn_today + amount}")
-    except Exception as e:
-        logger.error(f"Error updating user {user_id} balance: {e}")
-        try:
-            await query.edit_message_text("Error updating balance. Please try again later.")
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await query.message.reply_text("Error updating balance. Please try again later.")
-        return
-
-    # Add to pending withdrawals
-    try:
-        await db.add_pending_withdrawal(user_id, amount, query.message.date)
-        logger.info(f"Added pending withdrawal of {amount} kyat for user {user_id}")
-    except Exception as e:
-        logger.error(f"Error adding pending withdrawal for user {user_id}: {e}")
-        try:
-            await query.edit_message_text("Error processing withdrawal request. Please try again later.")
-        except Exception as e:
-            logger.error(f"Error editing message for user {user_id}: {e}")
-            await query.message.reply_text("Error processing withdrawal request. Please try again later.")
-        return
-
-    message = (
-        f"Withdrawal of {amount} kyat requested. Your new balance is {new_balance} kyat.\n"
-        "Please wait for admin approval."
-    )
-    try:
-        await query.edit_message_text(message)
-    except Exception as e:
-        logger.error(f"Error editing message for user {user_id}: {e}")
-        await query.message.reply_text(message)
-    logger.info(f"Withdrawal of {amount} kyat requested by user {user_id}, new balance {new_balance}")
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = str(update.effective_user.id)
+    logger.info(f"Cancel by {user_id}")
+    await update.message.reply_text("Withdrawal canceled.")
+    context.user_data.clear()
+    return ConversationHandler.END
 
 def register_handlers(application: Application):
-    logger.info("Registering withdrawal handlers")
-    application.add_handler(CallbackQueryHandler(withdraw_callback, pattern="^(withdraw_|init_withdraw)$"))
-    application.add_handler(CommandHandler("withdraw", init_withdraw))
+    logger.info("Registering handlers")
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("withdraw", withdraw)],
+        states={
+            STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
+            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
+            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve_withdrawal_|reject_withdrawal_)"))
+    application.add_handler(CommandHandler("setmessage", setmessage))
+    application.add_handler(CommandHandler("reset_messages", reset_messages))
+    application.add_handler(CommandHandler("balance", balance))
+    application.add_handler(CommandHandler("debug_message_count", debug_message_count))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(chat_id=GROUP_CHAT_IDS), count_group_message))

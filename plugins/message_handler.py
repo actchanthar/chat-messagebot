@@ -1,6 +1,8 @@
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
+from config import GROUP_CHAT_IDS
 from database.database import db
+import datetime
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -8,52 +10,34 @@ logger = logging.getLogger(__name__)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    message_text = update.message.text
-    logger.info(f"Message received from user {user_id} in chat {chat_id}: {message_text}")
+    chat_id = str(update.effective_chat.id)
+    logger.info(f"Message received from user {user_id} in chat {chat_id}")
 
-    # Only process messages in the specific group chat
-    if chat_id != -1002061898677:
+    if chat_id not in GROUP_CHAT_IDS:
+        logger.info(f"Message from user {user_id} ignored: chat {chat_id} not in GROUP_CHAT_IDS")
         return
 
-    # Check rate limit
-    try:
-        rate_limit_ok = await db.check_rate_limit(user_id, "send_message")
-        if not rate_limit_ok:
-            logger.info(f"User {user_id} rate limited for sending messages")
-            return  # Silently ignore if rate-limited
-    except Exception as e:
-        logger.error(f"Error checking rate limit for user {user_id}: {e}")
-        return  # Silently ignore to avoid error message in group
-
-    user = await db.get_user(user_id)
+    user = db.get_user(user_id)
     if not user:
-        logger.warning(f"User {user_id} not found in database")
+        logger.info(f"User {user_id} not found, creating new user")
+        user = db.create_user(user_id, update.effective_user.full_name)
+
+    if not db.check_rate_limit(user_id):
+        logger.info(f"User {user_id} rate limited in chat {chat_id}")
         return
 
-    # Update message count
-    current_messages = user.get("group_messages", {}).get(str(chat_id), 0)
-    new_messages = current_messages + 1
-    balance = user.get("balance", 0)
-    new_balance = balance + (new_messages // 3)  # 3 messages = 1 kyat
+    # Update message timestamps
+    timestamps = user.get("message_timestamps", [])
+    timestamps.append(datetime.datetime.now())
+    db.update_user(user_id, {"message_timestamps": timestamps})
 
-    await db.update_user(
-        user_id,
-        {
-            f"group_messages.{chat_id}": new_messages,
-            "balance": new_balance
-        }
-    )
+    # Update group message count
+    group_messages = user.get("group_messages", {})
+    group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
+    db.update_user(user_id, {"group_messages": group_messages, "messages": user.get("messages", 0) + 1})
 
-    # Notify user if they earned 10 kyat
-    if new_messages % 30 == 0:  # 30 messages = 10 kyat
-        await context.bot.send_message(
-            chat_id,
-            f"🎉 {update.effective_user.full_name} earned 10 kyat! Total balance: {new_balance} kyat"
-        )
-
-    logger.info(f"Updated user {user_id} message count to {new_messages}, balance to {new_balance}")
+    logger.info(f"Updated message count for user {user_id} in chat {chat_id}")
 
 def register_handlers(application: Application):
-    logger.info("Registering message handlers")
+    logger.info("Registering message handler")
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

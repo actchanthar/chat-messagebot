@@ -1,55 +1,46 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
+from config import LOG_CHANNEL_ID
 from database.database import db
+import datetime
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Admin user ID (replace with your admin's Telegram user ID)
-ADMIN_USER_ID = "5062124930"
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    logger.info(f"Help command initiated by user {user_id}")
+    chat_id = update.effective_chat.id
+    logger.info(f"/help command initiated by user {user_id} in chat {chat_id}")
 
-    # Check if user is admin
-    is_admin = user_id == ADMIN_USER_ID
+    message = (
+        "Available commands:\n"
+        "/start - Start the bot\n"
+        "/top - View top users by invites\n"
+        "/withdraw - Withdraw funds\n"
+        "/users or /dfusers - Delete failed broadcast users (admin)\n"
+        "/broadcast <message> - Broadcast a message (admin)\n"
+        "/SetPhoneBill <text> - Set phone bill reward (admin)\n"
+        "/addbonus <user_id> <amount> - Add bonus (admin)\n"
+        "/setinvite <number> - Set required invites (admin)"
+    )
 
-    help_text = "Available commands:\n\n"
-    help_text += "/start - Welcome message and profile creation.\n"
-    help_text += "/balance - Check your balance.\n"
-    help_text += "/withdraw - Initiate a withdrawal.\n"
-    help_text += "/top - Show top users by invites and messages.\n"
+    # Track help command usage
+    db.update_user(user_id, {"last_help": datetime.datetime.now()})
 
-    if is_admin:
-        help_text += "\nAdmin-only commands:\n"
-        help_text += "/rest - Reset message counts.\n"
-        help_text += "/addgroup <group_id> - Add group for message counting.\n"
-        help_text += "/checkgroup <group_id> - Check group message count.\n"
-        help_text += "/SetPhoneBill <reward_text> - Set Phone Bill reward text.\n"
-        help_text += "/broadcast <message> - Send message to all users.\n"
-        help_text += "/pbroadcast <message> - Send pinned message to all users.\n"
-        help_text += "/users - Show total user count.\n"
-        help_text += "/addchnl <channel_id> <name> - Add channel for forced subscription.\n"
-        help_text += "/delchnl <channel_id> - Remove channel.\n"
-        help_text += "/listchnl - List all forced subscription channels.\n"
-        help_text += "/setinvite <number> - Set invite threshold for withdrawals.\n"
-        help_text += "/Add_bonus <user_id> <amount> - Add bonus to user.\n"
-        help_text += "/setmessage <number> - Set messages per kyat.\n"
-        help_text += "/debug_message_count - Debug message counts.\n"
-        help_text += "/restwithdraw <user_id|ALL> - Reset withdrawal records.\n"
-        help_text += "/clone <mongodb_url> - Clone database to new MongoDB URL.\n"
-        help_text += "/on - Enable message counting.\n"
-
-    help_text += "\n/referral_users - Show referral stats and link.\n"
-    help_text += "/couple - Randomly match two users (10-minute cooldown).\n"
-    help_text += "/transfer <user_id> <amount> - Transfer balance to another user.\n"
-    help_text += "/checksubscription - Check user's subscription status.\n"
-
-    await update.message.reply_text(help_text)
-    logger.info(f"Sent help text to user {user_id}")
+    try:
+        await update.message.reply_text(message)
+        logger.info(f"Sent help message to user {user_id} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send /help response to user {user_id}: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=f"Failed to send /help response to {user_id}: {e}"
+            )
+        except Exception as log_error:
+            logger.error(f"Failed to log /help error to {LOG_CHANNEL_ID}: {log_error}")
 
 def register_handlers(application: Application):
     logger.info("Registering help handlers")
-    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("help", help))
