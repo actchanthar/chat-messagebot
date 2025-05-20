@@ -12,17 +12,20 @@ async def setinvite(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("You are not authorized.")
         return
 
-    if not context.args:
-        await update.message.reply_text("Usage: /setinvite <number>")
-        return
-
     try:
+        if not context.args:
+            await update.message.reply_text("Usage: /setinvite <number>")
+            return
+
         number = int(context.args[0])
         await db.set_setting("invite_requirement", number)
         await update.message.reply_text(f"Invite requirement set to {number}.")
     except ValueError:
         await update.message.reply_text("Please provide a valid number.")
+    except Exception as e:
+        logger.error(f"Error in setinvite for user {user_id}: {e}")
+        await update.message.reply_text("An error occurred. Please try again.")
 
 def register_handlers(application: Application):
     logger.info("Registering setinvite handlers")
-    application.add_handler(CommandHandler("setinvite", setinvite))
+    application.add_handler(CommandHandler("setinvite", setinvite, block=False))
