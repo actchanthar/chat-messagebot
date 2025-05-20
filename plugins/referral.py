@@ -1,93 +1,25 @@
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def referral_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def referral_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    query = update.callback_query
-    if query:
-        await query.answer()
+    logger.info(f"Referral_users command by user {user_id}")
 
     user = await db.get_user(user_id)
+    if not user:
+        await update.message.reply_text("Please start with /start first.")
+        return
+
+    referrals = await db.get_referrals(user_id)
     channels = await db.get_force_sub_channels()
-    logger.info(f"Force-sub channels for user {user_id}: {channels}")
-    invite_count = user.get("invite_count", 0)  # Ensure default to 0 if missing
-    logger.info(f"Invite count for {user_id}: {invite_count}")
-
-    # Get channel names
-    channel_names = []
-    for channel in channels:
-        try:
-            chat = await context.bot.get_chat(channel)
-            channel_name = chat.title or channel
-            channel_names.append(channel_name)
-        except Exception as e:
-            logger.error(f"Error fetching info for {channel}: {e}")
-            channel_names.append(channel)
-
-    message = (
-        f"Your invites: {invite_count}\n"
-        f"Required for withdrawal: {await db.get_setting('invite_threshold', 15)}\n"
-        f"Channels to join: {', '.join(channel_names) if channel_names else 'No channels set'}\n"
-        f"Earn 25 kyat per invite when they join all channels!"
-    )
-
-    if query:
-        await query.message.reply_text(message)
-    else:
-        await update.message.reply_text(message)
-
-async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    channels = await db.get_force_sub_channels()
-    logger.info(f"Checking subscription for user {user_id}, channels: {channels}")
-    if not channels:
-        await update.message.reply_text("No force-sub channels set.")
-        return False
-
-    all_subscribed = True
-    for channel in channels:
-        try:
-            member = await context.bot.get_chat_member(channel, int(user_id))
-            logger.info(f"User {user_id} status in {channel}: {member.status}")
-            if member.status not in ["member", "administrator", "creator"]:
-                await update.message.reply_text(f"You must join {channel} to count as an invite.")
-                all_subscribed = False
-        except Exception as e:
-            logger.error(f"Error checking {channel} for user {user_id}: {e}")
-            await update.message.reply_text(f"You must join {channel}.")
-            all_subscribed = False
-
-    if all_subscribed:
-        user = await db.get_user(user_id)
-        inviter_id = user.get("inviter_id")
-        if inviter_id and not user.get("referral_rewarded", False):
-            inviter = await db.get_user(inviter_id)
-            inviter_invites = inviter.get("invite_count", 0)
-            inviter_balance = inviter.get("balance", 0) + 25
-            await db.update_user(inviter_id, {
-                "balance": inviter_balance
-            })
-            # Fetch updated inviter data to ensure we have the latest invite_count
-            updated_inviter = await db.get_user(inviter_id)
-            inviter_invites = updated_inviter.get("invite_count", 0)
-            await context.bot.send_message(
-                inviter_id,
-                f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}."
-            )
-            await db.update_user(user_id, {
-                "balance": user.get("balance", 0) + 50,
-                "referral_rewarded": True
-            })
-            await update.message.reply_text("You joined all channels! +50 kyat.")
-        return True
-    return False
+    valid_referrals = sum(1 for ref in referrals if all(await db.check_user_subscription(ref, ch) for ch in channels))
+    await update.message.reply_text(f"You have {valid_referrals} valid referrals.")
 
 def register_handlers(application: Application):
-    application.add_handler(CallbackQueryHandler(referral_users, pattern="^referral_users$"))
-    application.add_handler(CommandHandler("checksubscription", check_subscription))
+    logger.info("Registering referral handlers")
     application.add_handler(CommandHandler("referral_users", referral_users))
