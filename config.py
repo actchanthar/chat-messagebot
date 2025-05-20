@@ -1,7 +1,7 @@
 # config.py
 # Bot token
 BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
-BOT_USERNAME = "@actearnbot"  # Bot username for referral links
+BOT_USERNAME = "@actearnbot"
 
 # MongoDB settings
 MONGODB_NAME = "actchat1"
@@ -27,4 +27,4 @@ ADMIN_IDS = ["5062124930"]
 DEFAULT_REQUIRED_INVITES = 15
 
 # Force-subscription settings
-REQUIRED_CHANNELS = ["-1002097823468", "-1002171798406"]
+REQUIRED_CHANNELS = ["@ChannelOne", "@ChannelTwo"]  # Replace with actual channel usernames or invite links
