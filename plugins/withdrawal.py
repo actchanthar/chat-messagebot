@@ -15,7 +15,10 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     user = await db.get_user(user_id)
     if not user:
-        await update.effective_message.reply_text("User not found. Please start the bot with /start.")
+        if update.callback_query:
+            await update.callback_query.message.reply_text("User not found. Please start the bot with /start.")
+        else:
+            await update.effective_message.reply_text("User not found. Please start the bot with /start.")
         logger.warning(f"User {user_id} not found in database")
         return
 
@@ -27,31 +30,49 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not is_admin:
         invited_users = user.get("invited_users", 0)
         if invited_users < 15:
-            await update.effective_message.reply_text(
-                f"You need to invite at least 15 users to withdraw. You have invited {invited_users} users."
-            )
+            if update.callback_query:
+                await update.callback_query.message.reply_text(
+                    f"You need to invite at least 15 users to withdraw. You have invited {invited_users} users."
+                )
+            else:
+                await update.effective_message.reply_text(
+                    f"You need to invite at least 15 users to withdraw. You have invited {invited_users} users."
+                )
             logger.info(f"User {user_id} has {invited_users} invites, needs 15")
             return
         if user.get("balance", 0) < 10000:
-            await update.effective_message.reply_text(
-                f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
-            )
+            if update.callback_query:
+                await update.callback_query.message.reply_text(
+                    f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
+                )
+            else:
+                await update.effective_message.reply_text(
+                    f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
+                )
             logger.info(f"User {user_id} balance {user.get('balance', 0)} kyat, needs 10000")
             return
 
     # Admin users only need 10,000 kyat
     else:
         if user.get("balance", 0) < 10000:
-            await update.effective_message.reply_text(
-                f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
-            )
+            if update.callback_query:
+                await update.callback_query.message.reply_text(
+                    f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
+                )
+            else:
+                await update.effective_message.reply_text(
+                    f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
+                )
             logger.info(f"Admin {user_id} balance {user.get('balance', 0)} kyat, needs 10000")
             return
 
     # Check withdrawal limit
     withdrawn_today = user.get("withdrawn_today", 0)
     if withdrawn_today >= 10000:
-        await update.effective_message.reply_text("You have reached the daily withdrawal limit of 10,000 kyat.")
+        if update.callback_query:
+            await update.callback_query.message.reply_text("You have reached the daily withdrawal limit of 10,000 kyat.")
+        else:
+            await update.effective_message.reply_text("You have reached the daily withdrawal limit of 10,000 kyat.")
         logger.info(f"User {user_id} reached daily withdrawal limit: {withdrawn_today} kyat")
         return
 
@@ -69,12 +90,20 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.effective_message.reply_text(
-        f"Your balance: {user.get('balance', 0)} kyat\n"
-        f"Withdrawn today: {withdrawn_today} kyat\n"
-        "Select withdrawal amount:",
-        reply_markup=reply_markup,
-    )
+    if update.callback_query:
+        await update.callback_query.message.reply_text(
+            f"Your balance: {user.get('balance', 0)} kyat\n"
+            f"Withdrawn today: {withdrawn_today} kyat\n"
+            "Select withdrawal amount:",
+            reply_markup=reply_markup,
+        )
+    else:
+        await update.effective_message.reply_text(
+            f"Your balance: {user.get('balance', 0)} kyat\n"
+            f"Withdrawn today: {withdrawn_today} kyat\n"
+            "Select withdrawal amount:",
+            reply_markup=reply_markup,
+        )
     logger.info(f"Displayed withdrawal options to user {user_id}")
 
 async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -91,10 +120,16 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if not callback_data.startswith("withdraw_"):
         logger.warning(f"Invalid callback data for user {user_id}: {callback_data}")
+        await query.message.reply_text("Invalid withdrawal option. Please try again.")
         return
 
-    amount = int(callback_data.split("_")[1])
-    logger.info(f"Withdrawal callback for user {user_id}, amount {amount}")
+    try:
+        amount = int(callback_data.split("_")[1])
+        logger.info(f"Withdrawal callback for user {user_id}, amount {amount}")
+    except (IndexError, ValueError) as e:
+        logger.error(f"Error parsing withdrawal amount for user {user_id}: {callback_data}, error: {e}")
+        await query.message.reply_text("Error processing withdrawal amount. Please try again.")
+        return
 
     user = await db.get_user(user_id)
     if not user:
@@ -103,9 +138,10 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     # Check balance
-    if user.get("balance", 0) < amount:
-        await query.message.reply_text(f"Insufficient balance. Your balance is {user.get('balance', 0)} kyat.")
-        logger.info(f"User {user_id} insufficient balance: {user.get('balance', 0)} kyat for {amount}")
+    current_balance = user.get("balance", 0)
+    if current_balance < amount:
+        await query.message.reply_text(f"Insufficient balance. Your balance is {current_balance} kyat.")
+        logger.info(f"User {user_id} insufficient balance: {current_balance} kyat for {amount}")
         return
 
     # Check daily withdrawal limit
@@ -118,20 +154,30 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     # Update user balance and withdrawal records
-    new_balance = user.get("balance", 0) - amount
-    await db.update_user(
-        user_id,
-        {
-            "balance": new_balance,
-            "withdrawn_today": withdrawn_today + amount,
-            "last_withdrawal": query.message.date,
-        },
-    )
-    logger.info(f"Updated user {user_id} balance to {new_balance}, withdrawn_today to {withdrawn_today + amount}")
+    new_balance = current_balance - amount
+    try:
+        await db.update_user(
+            user_id,
+            {
+                "balance": new_balance,
+                "withdrawn_today": withdrawn_today + amount,
+                "last_withdrawal": query.message.date,
+            },
+        )
+        logger.info(f"Updated user {user_id} balance to {new_balance}, withdrawn_today to {withdrawn_today + amount}")
+    except Exception as e:
+        logger.error(f"Error updating user {user_id} balance: {e}")
+        await query.message.reply_text("Error updating balance. Please try again later.")
+        return
 
     # Add to pending withdrawals
-    await db.add_pending_withdrawal(user_id, amount, query.message.date)
-    logger.info(f"Added pending withdrawal of {amount} kyat for user {user_id}")
+    try:
+        await db.add_pending_withdrawal(user_id, amount, query.message.date)
+        logger.info(f"Added pending withdrawal of {amount} kyat for user {user_id}")
+    except Exception as e:
+        logger.error(f"Error adding pending withdrawal for user {user_id}: {e}")
+        await query.message.reply_text("Error processing withdrawal request. Please try again later.")
+        return
 
     await query.message.reply_text(
         f"Withdrawal of {amount} kyat requested. Your new balance is {new_balance} kyat.\n"
