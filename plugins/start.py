@@ -28,11 +28,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_invites = inviter.get("invite_count", 0)
-                    await context.bot.send_message(
-                        inviter_id,
-                        f"🎉 A new user has joined via your referral! You now have {inviter_invites + 1} invites.\n"
-                        f"Share this link to invite more: https://t.me/{context.bot.username}?start=referral_{inviter_id}"
-                    )
+                    try:
+                        await context.bot.send_message(
+                            inviter_id,
+                            f"🎉 A new user has joined via your referral! You now have {inviter_invites + 1} invites.\n"
+                            f"Share this link to invite more: https://t.me/{context.bot.username}?start=referral_{inviter_id}"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to notify inviter {inviter_id}: {e}")
 
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name)
@@ -87,24 +90,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
             # Reward inviter and invitee if all channels are joined
             elif inviter_id and inviter_id != user_id and not user.get("referral_rewarded", False):
+                logger.info(f"Processing referral reward for user {user_id} invited by {inviter_id}")
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_invites = inviter.get("invite_count", 0) + 1
                     inviter_balance = inviter.get("balance", 0) + 25
-                    await db.update_user(inviter_id, {
-                        "invite_count": inviter_invites,
-                        "balance": inviter_balance,
-                        "invited_users": inviter.get("invited_users", []) + [user_id]
-                    })
-                    await context.bot.send_message(
-                        inviter_id,
-                        f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}."
-                    )
-                    await db.update_user(user_id, {
-                        "balance": user.get("balance", 0) + 50,
-                        "referral_rewarded": True
-                    })
-                    await update.message.reply_text("You joined all channels via referral! +50 kyat.")
+                    try:
+                        await db.update_user(inviter_id, {
+                            "invite_count": inviter_invites,
+                            "balance": inviter_balance,
+                            "invited_users": inviter.get("invited_users", []) + [user_id]
+                        })
+                        await context.bot.send_message(
+                            inviter_id,
+                            f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}."
+                        )
+                        await db.update_user(user_id, {
+                            "balance": user.get("balance", 0) + 50,
+                            "referral_rewarded": True
+                        })
+                        await update.message.reply_text("You joined all channels via referral! +50 kyat.")
+                        logger.info(f"Reward applied: {inviter_id} +25 kyat, {user_id} +50 kyat")
+                    except Exception as e:
+                        logger.error(f"Error applying referral reward for {user_id} and {inviter_id}: {e}")
 
     referral_link = f"https://t.me/{context.bot.username}?start=referral_{user_id}"
     welcome_message = (
