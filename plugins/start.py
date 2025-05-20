@@ -16,7 +16,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         referrer_id = context.args[0]
         user = await db.get_user(user_id)
         if not user:
-            user = await db.create_user(user_id, update.effective_user.full_name)
+            try:
+                user = await db.create_user(user_id, update.effective_user.full_name)
+                if not user:
+                    raise ValueError("User creation failed")
+            except Exception as e:
+                logger.error(f"Error creating user {user_id} during referral: {e}")
+                await update.message.reply_text("Error creating your account. Please try again later.")
+                return
             channels = await db.get_channels()
             all_joined = True
             for channel in channels:
@@ -41,7 +48,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user = await db.get_user(user_id)
     if not user:
-        user = await db.create_user(user_id, update.effective_user.full_name)
+        try:
+            user = await db.create_user(user_id, update.effective_user.full_name)
+            if not user:
+                raise ValueError("User creation failed")
+        except Exception as e:
+            logger.error(f"Error creating user {user_id}: {e}")
+            await update.message.reply_text("Error creating your account. Please try again later.")
+            return
 
     # Ensure referral_link exists
     referral_link = user.get("referral_link", f"https://t.me/ACTChatBot?start={user_id}")
