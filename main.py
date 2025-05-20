@@ -19,6 +19,16 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
+    # Log all updates
+    async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        logger.info(f"Received update: {update}")
+
+    application.add_handler(
+        type(None),  # Matches all updates
+        log_update,
+        group=-1  # Run before other handlers
+    )
+
     # Register error handler
     application.add_error_handler(error_handler)
 
