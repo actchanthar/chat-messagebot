@@ -24,7 +24,11 @@ def main():
     transfer.register_handlers(application)
     setinvite.register_handlers(application)
     setmessage.register_handlers(application)
-    application.run_polling()
+    try:
+        application.run_polling()
+    except Exception as e:
+        print(f"Error running bot: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
