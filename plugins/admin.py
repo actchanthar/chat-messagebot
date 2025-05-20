@@ -10,34 +10,6 @@ logger = logging.getLogger(__name__)
 ADMIN_ID = "5062124930"
 
 
-async def check_invites(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) != ADMIN_ID:
-        await update.message.reply_text("Unauthorized.")
-        return
-    if not context.args:
-        await update.message.reply_text("Usage: /checkinvites <user_id>")
-        return
-    user_id = context.args[0]
-    user = await db.get_user(user_id)
-    if user:
-        invite_count = user.get("invite_count", 0)
-        invited_users = user.get("invited_users", [])
-        await update.message.reply_text(
-            f"User {user_id} has {invite_count} invites.\n"
-            f"Invited users: {', '.join(invited_users) if invited_users else 'None'}"
-        )
-        logger.info(f"Admin checked invites for {user_id}: {invite_count}")
-    else:
-        await update.message.reply_text(f"User {user_id} not found.")
-        logger.info(f"Admin checked invites for {user_id}: not found")
-
-def register_handlers(application: Application):
-    application.add_handler(CommandHandler("checkinvites", check_invites))
-
-# Register this in your main file:
-# from admin import register_handlers as admin_handlers
-# admin_handlers(application)
-
 async def setinvite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_ID:
         await update.message.reply_text("Unauthorized.")
