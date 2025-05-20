@@ -1,43 +1,37 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from config import ADMIN_IDS, LOG_CHANNEL_ID
 from database.database import db
 import logging
+from config import ADMIN_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def delete_failed_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    logger.info(f"/users or /dfusers command initiated by user {user_id} in chat {chat_id}")
-
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("Only admins can delete failed broadcast users.")
-        logger.info(f"User {user_id} attempted /users or /dfusers but is not an admin")
+        await update.message.reply_text("You are not authorized.")
         return
 
-    deleted_count = db.delete_failed_broadcast_users()
-    message = f"Successfully deleted {deleted_count} users with failed broadcasts."
-
     try:
+        users = await db.get_all_users()
+        total_users = len(users)
+        if not users:
+            await update.message.reply_text("No users found.")
+            return
+
+        # Show total count and optionally list users
+        message = f"Total Users: {total_users}\n\n"
+        if context.args and context.args[0].lower() == "list":
+            message += "User IDs:\n"
+            for user in users:
+                message += f"- {user['user_id']} ({user['name']})\n"
+        
         await update.message.reply_text(message)
-        logger.info(f"Deleted {deleted_count} failed broadcast users by user {user_id}")
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"Admin {user_id} deleted {deleted_count} failed broadcast users."
-        )
     except Exception as e:
-        logger.error(f"Failed to send /users or /dfusers response to user {user_id}: {e}")
-        try:
-            await context.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=f"Failed to send /users or /dfusers response to {user_id}: {e}"
-            )
-        except Exception as log_error:
-            logger.error(f"Failed to log /users or /dfusers error to {LOG_CHANNEL_ID}: {log_error}")
+        logger.error(f"Error in users command for user {user_id}: {e}")
+        await update.message.reply_text("An error occurred while fetching users.")
 
 def register_handlers(application: Application):
     logger.info("Registering users handlers")
-    application.add_handler(CommandHandler("users", delete_failed_users))
-    application.add_handler(CommandHandler("dfusers", delete_failed_users))
+    application.add_handler(CommandHandler("users", users, block=False))
