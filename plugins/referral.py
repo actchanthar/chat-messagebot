@@ -72,8 +72,17 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await db.update_user(inviter_id, {
                 "balance": inviter_balance
             })
-            await context.bot.send_message(inviter_id, f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}.")
-            await db.update_user(user_id, {"balance": user.get("balance", 0) + 50, "referral_rewarded": True})
+            # Fetch updated inviter data to ensure we have the latest invite_count
+            updated_inviter = await db.get_user(inviter_id)
+            inviter_invites = updated_inviter.get("invite_count", 0)
+            await context.bot.send_message(
+                inviter_id,
+                f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}."
+            )
+            await db.update_user(user_id, {
+                "balance": user.get("balance", 0) + 50,
+                "referral_rewarded": True
+            })
             await update.message.reply_text("You joined all channels! +50 kyat.")
         return True
     return False
