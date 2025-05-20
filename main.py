@@ -7,24 +7,31 @@ from plugins import (
 )
 import logging
 
-# Configure logging to capture initialization errors
+# Configure logging with higher verbosity
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.DEBUG  # Changed to DEBUG for more details
 )
 logger = logging.getLogger(__name__)
 
 def main():
     try:
+        logger.debug("Starting bot initialization")
         # Build the Telegram application
         logger.info("Building Telegram application")
         application = Application.builder().token(BOT_TOKEN).build()
         logger.info("Telegram application built successfully")
 
-        # Initialize the database with the bot client
-        logger.info("Initializing database")
+        # Initialize the database
+        logger.info("Initializing database with bot client")
         init_db(application.bot)
         logger.info("Database initialized successfully")
+
+        # Verify database initialization
+        from database.database import db
+        if db is None:
+            logger.error("Database initialization failed: db is None")
+            raise RuntimeError("Database initialization failed")
 
         # Register all plugin handlers
         logger.info("Registering plugin handlers")
@@ -43,14 +50,14 @@ def main():
         transfer.register_handlers(application)
         referral.register_handlers(application)
         admin.register_handlers(application)
-        logger.info("All plugin handlers registered")
+        logger.info("All plugin handlers registered successfully")
 
         # Start polling
         logger.info("Starting bot polling")
         application.run_polling()
     except Exception as e:
-        logger.error(f"Error in main: {e}")
-        raise  # Re-raise to ensure Heroku logs the error and restarts if needed
+        logger.error(f"Fatal error in main: {e}", exc_info=True)
+        raise  # Ensure Heroku logs the full stack trace
 
 if __name__ == "__main__":
     main()
