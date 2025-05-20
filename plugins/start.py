@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from database.database import db
 import logging
 
@@ -34,7 +34,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         "invite_count": inviter_invites,
                         "invited_users": inviter.get("invited_users", []) + [user_id]
                     })
-                    updated_inviter = await db.get_user(inviter_id)  # Verify update
+                    updated_inviter = await db.get_user(inviter_id)
                     logger.info(f"After update: {inviter_id} invite_count={updated_inviter.get('invite_count', 0)}")
                     try:
                         await context.bot.send_message(
@@ -69,7 +69,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     not_subscribed.append(channel)
 
             if not all_subscribed:
-                # Build button grid with channel names
                 keyboard = []
                 row = []
                 for channel in not_subscribed:
@@ -97,16 +96,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
                 logger.info(f"User {user_id} prompted to join channels: {channel_details}")
                 return
-            # Reward invitee if all channels are joined
             elif inviter_id and inviter_id != user_id and not user.get("referral_rewarded", False):
                 logger.info(f"Processing channel join reward for user {user_id} invited by {inviter_id}")
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_balance = inviter.get("balance", 0) + 25
-                    inviter_invites = inviter.get("invite_count", 0)  # Fetch latest count
+                    inviter_invites = inviter.get("invite_count", 0)
                     try:
                         await db.update_user(inviter_id, {"balance": inviter_balance})
-                        # Fetch updated inviter data to ensure we have the latest invite_count
                         updated_inviter = await db.get_user(inviter_id)
                         inviter_invites = updated_inviter.get("invite_count", 0)
                         await context.bot.send_message(
@@ -146,6 +143,115 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
     logger.info(f"Sent welcome to user {user_id}")
 
+async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query:
+        user_id = str(query.from_user.id)
+        logger.info(f"Balance check requested by user {user_id}")
+        try:
+            user = await db.get_user(user_id)
+            if user:
+                balance = user.get("balance", 0)
+                await query.message.reply_text(f"Your current balance is {balance} kyat.")
+                logger.info(f"Balance {balance} sent to user {user_id}")
+            else:
+                await query.message.reply_text("User not found. Please start the bot with /start.")
+                logger.error(f"User {user_id} not found for balance check")
+        except Exception as e:
+            logger.error(f"Error checking balance for {user_id}: {e}")
+            await query.message.reply_text("An error occurred while checking your balance. Please try again later.")
+        await query.answer()
+
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query:
+        user_id = str(query.from_user.id)
+        logger.info(f"Withdraw requested by user {user_id}")
+        try:
+            user = await db.get_user(user_id)
+            if not user:
+                await query.message.reply_text("User not found. Please start the bot with /start.")
+                logger.error(f"User {user_id} not found for withdraw")
+                await query.answer()
+                return
+
+            invite_count = user.get("invite_count", 0)
+            balance = user.get("balance", 0)
+            withdrawn_today = user.get("withdrawn_today", 0)
+            last_withdrawal = user.get("last_withdrawal")
+            invite_threshold = await db.get_setting("invite_threshold", 15)
+            min_balance = await db.get_setting("min_balance", 1000)  # Minimum balance for withdrawal
+            daily_limit = await db.get_setting("daily_limit", 5000)  # Daily withdrawal limit
+
+            # Check invite threshold
+            if invite_count < invite_threshold:
+                await query.message.reply_text(
+                    f"You need at least {invite_threshold} invites to withdraw. "
+                    f"You currently have {invite_count} invites."
+                )
+                logger.info(f"User {user_id} failed withdraw: insufficient invites ({invite_count}/{invite_threshold})")
+                await query.answer()
+                return
+
+            # Check balance
+            if balance < min_balance:
+                await query.message.reply_text(
+                    f"Your balance ({balance} kyat) is below the minimum withdrawal amount of {min_balance} kyat."
+                )
+                logger.info(f"User {user_id} failed withdraw: insufficient balance ({balance}/{min_balance})")
+                await query.answer()
+                return
+
+            # Check daily withdrawal limit
+            current_time = datetime.utcnow()
+            if last_withdrawal and last_withdrawal.date() == current_time.date():
+                if withdrawn_today >= daily_limit:
+                    await query.message.reply_text(
+                        f"You've reached the daily withdrawal limit of {daily_limit} kyat. Try again tomorrow."
+                    )
+                    logger.info(f"User {user_id} failed withdraw: daily limit reached ({withdrawn_today}/{daily_limit})")
+                    await query.answer()
+                    return
+                amount_to_withdraw = min(balance, daily_limit - withdrawn_today)
+            else:
+                amount_to_withdraw = min(balance, daily_limit)
+                withdrawn_today = 0  # Reset if it's a new day
+
+            # Process withdrawal
+            new_balance = balance - amount_to_withdraw
+            await db.update_user(user_id, {
+                "balance": new_balance,
+                "withdrawn_today": withdrawn_today + amount_to_withdraw,
+                "last_withdrawal": current_time
+            })
+            await query.message.reply_text(
+                f"Withdrawal successful! You withdrew {amount_to_withdraw} kyat. "
+                f"Your new balance is {new_balance} kyat."
+            )
+            logger.info(f"User {user_id} withdrew {amount_to_withdraw} kyat, new balance: {new_balance}")
+
+            # Notify admin (optional)
+            try:
+                await context.bot.send_message(
+                    ADMIN_ID,
+                    f"User {user_id} withdrew {amount_to_withdraw} kyat. Remaining balance: {new_balance} kyat."
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify admin about withdrawal for {user_id}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error processing withdraw for {user_id}: {e}")
+            await query.message.reply_text("An error occurred while processing your withdrawal. Please try again later.")
+        await query.answer()
+
 def register_handlers(application: Application):
-    logger.info("Registering start handlers")
+    logger.info("Registering start, balance, and withdraw handlers")
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(check_balance, pattern="^balance$"))
+    application.add_handler(CallbackQueryHandler(withdraw, pattern="^withdraw$"))
+
+if __name__ == "__main__":
+    from telegram.ext import ApplicationBuilder
+    application = ApplicationBuilder().token("YOUR_BOT_TOKEN").build()
+    register_handlers(application)
+    application.run_polling()
