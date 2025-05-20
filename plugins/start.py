@@ -103,7 +103,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_balance = inviter.get("balance", 0) + 25
-                    inviter_invites = inviter.get("invite_count", 0)
+                    inviter_invites = inviter.get("invite_count", 0)  # Fetch latest count
                     try:
                         await db.update_user(inviter_id, {"balance": inviter_balance})
                         await context.bot.send_message(
