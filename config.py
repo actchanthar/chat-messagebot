@@ -1,7 +1,8 @@
 # config.py
 # Bot token
 BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
-BOT_USERNAME = "@actearnbot"  # Replace with your bot’s username, e.g., "@MyBot"
+BOT_USERNAME = "@actearnbot"  # Bot username for referral links
+
 # MongoDB settings
 MONGODB_NAME = "actchat1"
 MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/actchat1?retryWrites=true&w=majority&appName=Cluster0"
@@ -22,8 +23,8 @@ LOG_CHANNEL_ID = "-1002555129360"
 PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
 
 # Admin and referral settings
-ADMIN_IDS = ["5062124930"]  # List of admin user IDs
+ADMIN_IDS = ["5062124930"]
 DEFAULT_REQUIRED_INVITES = 15
 
 # Force-subscription settings
-REQUIRED_CHANNELS = ["-1002097823468", "-1002171798406"]  # Replace with actual channel IDs
+REQUIRED_CHANNELS = ["-1002097823468", "-1002171798406"]
