@@ -13,14 +13,20 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Top command by user {user_id} in chat {chat_id}")
 
     try:
-        if await db.check_rate_limit(user_id):
-            logger.info(f"Rate limit hit for user {user_id}")
-            return
+        # Skip rate limit for testing; re-enable if needed
+        # if await db.check_rate_limit(user_id):
+        #     logger.info(f"Rate limit hit for user {user_id}")
+        #     return
 
-        if await db.award_weekly_rewards():
-            phone_bill_reward = await db.get_phone_bill_reward()
-            await update.message.reply_text(f"Weekly rewards of 100 kyat awarded to top 3 inviters! ({phone_bill_reward})")
+        # Award weekly rewards
+        try:
+            if await db.award_weekly_rewards():
+                phone_bill_reward = await db.get_phone_bill_reward()
+                await update.message.reply_text(f"Weekly rewards of 100 kyat awarded to top 3 inviters! ({phone_bill_reward})")
+        except Exception as e:
+            logger.error(f"Error in award_weekly_rewards: {e}")
 
+        # Fetch users
         users = await db.get_all_users()
         if not users:
             await update.message.reply_text("No users available yet.")
@@ -30,6 +36,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         target_group = "-1002061898677"
         phone_bill_reward = await db.get_phone_bill_reward()
 
+        # Sort by invites
         sorted_by_invites = sorted(
             users,
             key=lambda x: x.get("invited_users", 0),
@@ -42,8 +49,10 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         for i, user in enumerate(sorted_by_invites, 1):
             invites = user.get("invited_users", 0)
             balance = user.get("balance", 0)
-            invite_top_message += f"{i}. <b>{user['name']}</b> - {invites} invites, {balance} {CURRENCY}\n" if i <= 3 else f"{i}. {user['name']} - {invites} invites, {balance} {CURRENCY}\n"
+            name = user.get("name", "Unknown")
+            invite_top_message += f"{i}. <b>{name}</b> - {invites} invites, {balance} {CURRENCY}\n" if i <= 3 else f"{i}. {name} - {invites} invites, {balance} {CURRENCY}\n"
 
+        # Sort by messages
         sorted_by_messages = sorted(
             users,
             key=lambda x: x.get("group_messages", {}).get(target_group, 0),
@@ -55,9 +64,11 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         for i, user in enumerate(sorted_by_messages, 1):
             messages = user.get("group_messages", {}).get(target_group, 0)
             balance = user.get("balance", 0)
-            message_top_message += f"{i}. <b>{user['name']}</b> - {messages} msg, {balance} {CURRENCY}\n" if i <= 3 else f"{i}. {user['name']} - {messages} msg, {balance} {CURRENCY}\n"
+            name = user.get("name", "Unknown")
+            message_top_message += f"{i}. <b>{name}</b> - {messages} msg, {balance} {CURRENCY}\n" if i <= 3 else f"{i}. {name} - {messages} msg, {balance} {CURRENCY}\n"
 
         await update.message.reply_text(invite_top_message + message_top_message, parse_mode="HTML")
+        logger.info(f"Displayed leaderboard for user {user_id}")
     except Exception as e:
         logger.error(f"Error in top command for user {user_id}: {e}", exc_info=True)
         try:
