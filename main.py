@@ -1,35 +1,15 @@
-from telegram import Update
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import Application
 from config import BOT_TOKEN
+from database.database import init_db
 from plugins import (
-    start, withdrawal, balance, top, help, message_handler, broadcast,
-    users, addgroup, checkgroup, setphonebill, channel_management,
-    misc, clone, on
+    start, withdrawal, balance, top, help, message_handler, broadcast, users,
+    addgroup, checkgroup, setphonebill, couple, transfer, referral, admin
 )
-import logging
-
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error(f"Error processing update {update}: command '{update.effective_message.text if update.effective_message else 'unknown'}' caused error {context.error}")
-    # Only send error message in private chats, not in groups
-    if update and update.effective_chat and update.effective_chat.type == "private":
-        await update.effective_message.reply_text("An error occurred. Please try again later.")
-
-async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.info(f"Received update: {update}")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
+    init_db(application.bot)  # Initialize database with bot client
 
-    # Add handler to log all updates with the lowest group priority
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, log_update), group=-1)
-
-    # Register error handler
-    application.add_error_handler(error_handler)
-
-    # Register all handlers
     start.register_handlers(application)
     withdrawal.register_handlers(application)
     balance.register_handlers(application)
@@ -41,10 +21,10 @@ def main():
     addgroup.register_handlers(application)
     checkgroup.register_handlers(application)
     setphonebill.register_handlers(application)
-    channel_management.register_handlers(application)
-    misc.register_handlers(application)
-    clone.register_handlers(application)
-    on.register_handlers(application)
+    couple.register_handlers(application)
+    transfer.register_handlers(application)
+    referral.register_handlers(application)
+    admin.register_handlers(application)
 
     application.run_polling()
 
