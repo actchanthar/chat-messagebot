@@ -29,11 +29,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_invites = inviter.get("invite_count", 0) + 1
-                    logger.info(f"Incrementing invite_count for {inviter_id}: {inviter_invites}")
+                    logger.info(f"Before update: {inviter_id} invite_count={inviter.get('invite_count', 0)}")
                     await db.update_user(inviter_id, {
                         "invite_count": inviter_invites,
                         "invited_users": inviter.get("invited_users", []) + [user_id]
                     })
+                    updated_inviter = await db.get_user(inviter_id)  # Verify update
+                    logger.info(f"After update: {inviter_id} invite_count={updated_inviter.get('invite_count', 0)}")
                     try:
                         await context.bot.send_message(
                             inviter_id,
@@ -101,9 +103,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_balance = inviter.get("balance", 0) + 25
-                    inviter_invites = inviter.get("invite_count", 0)  # Fetch current count
+                    inviter_invites = inviter.get("invite_count", 0)
                     try:
-                        # Update inviter's balance only (invite_count already incremented)
                         await db.update_user(inviter_id, {"balance": inviter_balance})
                         await context.bot.send_message(
                             inviter_id,
@@ -114,7 +115,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             "referral_rewarded": True
                         })
                         await update.message.reply_text("You joined all channels via referral! +50 kyat.")
-                        logger.info(f"Reward applied: {inviter_id} +25 kyat, {user_id} +50 kyat, total invites: {inviter_invites}")
+                        logger.info(f"Reward applied: {inviter_id} +25 kyat, {user_id} +50 kyat, inviter invites: {inviter_invites}")
                     except Exception as e:
                         logger.error(f"Error applying referral reward for {user_id} and {inviter_id}: {e}")
 
