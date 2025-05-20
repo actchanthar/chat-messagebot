@@ -30,7 +30,11 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         target_group = "-1002061898677"
         phone_bill_reward = await db.get_phone_bill_reward()
 
-        sorted_by_invites = sorted(users, key=lambda x: x.get("invited_users", 0), reverse=True)[:10]
+        sorted_by_invites = sorted(
+            users,
+            key=lambda x: x.get("invited_users", 0),
+            reverse=True
+        )[:10]
         invite_top_message = (
             f"Top Users by Invites (၇ ရက်တစ်ခါ Top 1-3 ကို ဖုန်းဘေ လက်ဆောင် ပေးပါတယ် 🎁: {phone_bill_reward}):\n\n"
             f"Total Users: {total_users}\n\n"
@@ -40,7 +44,11 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             balance = user.get("balance", 0)
             invite_top_message += f"{i}. <b>{user['name']}</b> - {invites} invites, {balance} {CURRENCY}\n" if i <= 3 else f"{i}. {user['name']} - {invites} invites, {balance} {CURRENCY}\n"
 
-        sorted_by_messages = sorted(users, key=lambda x: x.get("group_messages", {}).get(target_group, 0), reverse=True)[:10]
+        sorted_by_messages = sorted(
+            users,
+            key=lambda x: x.get("group_messages", {}).get(target_group, 0),
+            reverse=True
+        )[:10]
         message_top_message = (
             "\n🏆 Top Users (by messages):\n\n"
         )
@@ -51,7 +59,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         await update.message.reply_text(invite_top_message + message_top_message, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"Error in top command for user {user_id}: {e}")
+        logger.error(f"Error in top command for user {user_id}: {e}", exc_info=True)
         try:
             await update.message.reply_text("An error occurred while fetching the leaderboard. Try again later.")
         except Exception as reply_e:
