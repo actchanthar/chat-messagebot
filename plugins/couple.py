@@ -10,25 +10,29 @@ logger = logging.getLogger(__name__)
 
 async def couple(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    last_couple_time = await db.get_setting("last_couple_time", datetime.min)
-    if datetime.utcnow() < last_couple_time + timedelta(minutes=10):
-        await update.message.reply_text("Couple selection is on cooldown. Try again later.")
-        return
+    try:
+        last_couple_time = await db.get_setting("last_couple_time", datetime.min)
+        if datetime.utcnow() < last_couple_time + timedelta(minutes=10):
+            await update.message.reply_text("Couple selection is on cooldown. Try again later.")
+            return
 
-    users = await db.get_all_users()
-    if len(users) < 2:
-        await update.message.reply_text("Not enough users to select a couple.")
-        return
+        users = await db.get_all_users()
+        if len(users) < 2:
+            await update.message.reply_text("Not enough users to select a couple.")
+            return
 
-    couple_users = sample(users, 2)
-    user1, user2 = couple_users
-    message = (
-        f"{user1['name']} သူသည် {user2['name']} သင်နဲ့ဖူးစာဖက်ပါ ရီးစားရှာ‌ ပေးတာပါ\n"
-        "ပိုက်ဆံပေးစရာမလိုပါဘူး 😅 ရန်မဖြစ်ကြပါနဲ့ 💙"
-    )
-    await update.message.reply_text(message)
-    await db.set_setting("last_couple_time", datetime.utcnow())
+        couple_users = sample(users, 2)
+        user1, user2 = couple_users
+        message = (
+            f"{user1['name']} သူသည် {user2['name']} သင်နဲ့ဖူးစာဖက်ပါ ရီးစားရှာ‌ ပေးတာပါ\n"
+            "ပိုက်ဆံပေးစရာမလိုပါဘူး 😅 ရန်မဖြစ်ကြပါနဲ့ 💙"
+        )
+        await update.message.reply_text(message)
+        await db.set_setting("last_couple_time", datetime.utcnow())
+    except Exception as e:
+        logger.error(f"Error in couple for user {user_id}: {e}")
+        await update.message.reply_text("An error occurred. Please try again.")
 
 def register_handlers(application: Application):
     logger.info("Registering couple handlers")
-    application.add_handler(CommandHandler("couple", couple))
+    application.add_handler(CommandHandler("couple", couple, block=False))
