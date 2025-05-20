@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import BOT_USERNAME, REQUIRED_CHANNELS
+from config import BOT_USERNAME
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,11 +53,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     top_message += f"{i}. <b>{user['name']}</b> - {group_messages} messages, {balance} kyat\n" if i <= 3 else f"{i}. {user['name']} - {group_messages} messages, {balance} kyat\n"
                 welcome_message += top_message
 
+        # Fetch required channels from database
+        required_channels = await db.get_required_channels()
         welcome_message += (
             "\nUse the buttons below to check your balance, withdraw, or join our group.\n"
             "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n"
             "Join our channels to enable withdrawals:\n" +
-            "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in REQUIRED_CHANNELS])
+            "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in required_channels])
         )
 
         keyboard = [
@@ -72,7 +74,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
         logger.info(f"Sent welcome message to user {user_id}")
     except Exception as e:
-        logger.error(f"Error in start for user {user_id}: {e}")
+        logger.error(f"Error in start for user {user_id}: {e}", exc_info=True)
         try:
             await update.message.reply_text("An error occurred. Please try again or contact @actearnbot.")
         except Exception as reply_e:
