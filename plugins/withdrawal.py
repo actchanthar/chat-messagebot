@@ -125,6 +125,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         logger.info(f"Callback query answered for user {query.from_user.id}")
     except Exception as e:
         logger.error(f"Error answering callback query for user {query.from_user.id}: {e}")
+        return  # Stop processing if we can't answer the query
 
     user_id = str(query.from_user.id)
     callback_data = query.data
