@@ -1,8 +1,12 @@
 import logging
 import logging.handlers
 import sys
+import os
+from telegram.ext import Application
+from database.database import init_db
+from plugins import start, balance, message_handler
 
-# Set up logging before imports
+# Set up logging
 log_file = '/tmp/bot.log'
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -16,56 +20,38 @@ logger = logging.getLogger(__name__)
 logger.debug("Logging initialized in main.py")
 
 try:
-    import os
-    from telegram.ext import Application
-    from config import BOT_TOKEN
-    from database.database import init_db
-    from plugins import start, balance, message_handler
-
-    logger.debug("Imports completed successfully")
+    BOT_TOKEN = os.getenv('BOT_TOKEN', '7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo')
+    logger.debug(f"Using BOT_TOKEN (partial): {BOT_TOKEN[:10]}...")
 
     def main():
         try:
             logger.debug("Starting bot initialization")
             logger.debug(f"Python version: {sys.version}")
-            logger.debug(f"Telegram.ext version: {Application.__module__}")
+            logger.debug(f"Working directory: {os.getcwd()}")
+            logger.debug(f"Files in directory: {os.listdir('.')}")
 
-            # Log environment variables
-            logger.info("Checking environment variables")
-            required_vars = ['BOT_TOKEN', 'MONGODB_URL', 'MONGODB_NAME']
-            env_vars = {var: os.getenv(var) for var in required_vars}
-            missing_vars = [var for var in required_vars if not env_vars[var]]
-            if missing_vars:
-                logger.warning(f"Missing environment variables: {', '.join(missing_vars)}. Using config.py values.")
-            else:
-                logger.info(f"Environment variables found: {', '.join(var for var in required_vars if env_vars[var])}")
-
-            # Use environment variable with fallback to config.py
-            bot_token = os.getenv('BOT_TOKEN', BOT_TOKEN)
-            logger.debug(f"Using BOT_TOKEN (partial): {bot_token[:10]}...")
-
-            # Build the Telegram application
+            # Build Telegram application
             logger.info("Building Telegram application")
-            application = Application.builder().token(bot_token).build()
+            application = Application.builder().token(BOT_TOKEN).build()
             logger.info("Telegram application built successfully")
 
-            # Initialize the database
-            logger.info("Initializing database with bot client")
+            # Initialize database
+            logger.info("Initializing database")
             init_db(application.bot)
             logger.info("Database initialized successfully")
 
-            # Verify database initialization
+            # Verify database
             from database.database import db
             if db is None:
                 logger.error("Database initialization failed: db is None")
                 raise RuntimeError("Database initialization failed")
 
-            # Register minimal plugin handlers
+            # Register handlers
             logger.info("Registering plugin handlers")
             start.register_handlers(application)
             balance.register_handlers(application)
             message_handler.register_handlers(application)
-            logger.info("Plugin handlers registered successfully")
+            logger.info("Handlers registered successfully")
 
             # Start polling
             logger.info("Starting bot polling")
