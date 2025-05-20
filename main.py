@@ -1,5 +1,7 @@
 import os
 import sys
+import logging
+import logging.handlers
 from telegram.ext import Application
 from config import BOT_TOKEN
 from database.database import init_db
@@ -7,14 +9,15 @@ from plugins import (
     start, withdrawal, balance, top, help, message_handler, broadcast, users,
     addgroup, checkgroup, setphonebill, couple, transfer, referral, admin
 )
-import logging
 
-# Set up logging as early as possible
+# Set up logging with both stdout and file handlers
+log_file = '/tmp/bot.log'  # Heroku allows writing to /tmp
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG,
     handlers=[
-        logging.StreamHandler(sys.stdout)  # Ensure logs go to stdout for Heroku
+        logging.StreamHandler(sys.stdout),
+        logging.handlers.RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
     ]
 )
 logger = logging.getLogger(__name__)
@@ -22,13 +25,10 @@ logger = logging.getLogger(__name__)
 def main():
     try:
         logger.debug("Starting bot initialization")
-
-        # Log Python and package versions for debugging
         logger.debug(f"Python version: {sys.version}")
         logger.debug(f"Telegram.ext version: {Application.__module__}")
 
-        # Use environment variables with fallback to config.py
-        bot_token = os.getenv('BOT_TOKEN', BOT_TOKEN)
+        # Log environment variables
         logger.info("Checking environment variables")
         required_vars = ['BOT_TOKEN', 'MONGODB_URL', 'MONGODB_NAME']
         env_vars = {var: os.getenv(var) for var in required_vars}
@@ -37,6 +37,9 @@ def main():
             logger.warning(f"Missing environment variables: {', '.join(missing_vars)}. Using config.py values.")
         else:
             logger.info(f"Environment variables found: {', '.join(var for var in required_vars if env_vars[var])}")
+
+        # Use environment variable with fallback to config.py
+        bot_token = os.getenv('BOT_TOKEN', BOT_TOKEN)
 
         # Build the Telegram application
         logger.info("Building Telegram application")
