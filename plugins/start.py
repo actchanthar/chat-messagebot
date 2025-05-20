@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
+from config import BOT_USERNAME, REQUIRED_CHANNELS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,7 +18,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = await db.create_user(user_id, update.effective_user.full_name, inviter_id)
         logger.info(f"Created new user {user_id} with inviter {inviter_id}")
 
-    referral_link = f"https://t.me/{context.bot.username}?start={user_id}"
+    referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
     welcome_message = (
         "စာပို့ရင်း ငွေရှာမယ်:\n"
         f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
@@ -25,6 +26,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
         f"Your referral link: {referral_link}\n"
         "Invite friends to earn 25 kyats per join, they get 50 kyats!\n"
+        "Join our channels to unlock withdrawals.\n"
     )
 
     users = await db.get_all_users()
@@ -49,7 +51,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     welcome_message += (
         "\nUse the buttons below to check your balance, withdraw, or join our group.\n"
-        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n"
+        "Join our channels to enable withdrawals:\n" +
+        "\n".join([f"https://t.me/{channel_id.replace('-100', '')}" for channel_id in REQUIRED_CHANNELS])
     )
 
     keyboard = [
