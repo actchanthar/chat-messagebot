@@ -42,11 +42,12 @@ class Database:
                 "last_activity": datetime.utcnow(),
                 "message_timestamps": deque(maxlen=5),
                 "inviter_id": None,
-                "invite_count": 0,
-                "invited_users": []
+                "invite_count": 0,  # Ensure invite_count is initialized
+                "invited_users": [],
+                "referral_rewarded": False
             }
             await self.users.insert_one(user)
-            logger.info(f"Created user {user_id}")
+            logger.info(f"Created user {user_id} with invite_count=0")
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
@@ -54,9 +55,16 @@ class Database:
 
     async def update_user(self, user_id, updates):
         try:
+            # Log the current state before update
+            current_user = await self.get_user(user_id)
+            logger.info(f"Before update: user {user_id} invite_count={current_user.get('invite_count', 0) if current_user else 'N/A'}")
+            
             result = await self.users.update_one({"user_id": user_id}, {"$set": updates}, upsert=True)
             if result.modified_count > 0 or result.upserted_id:
                 logger.info(f"Updated user {user_id}: {updates}")
+                # Verify the update
+                updated_user = await self.get_user(user_id)
+                logger.info(f"After update: user {user_id} invite_count={updated_user.get('invite_count', 0) if updated_user else 'N/A'}")
                 return True
             logger.info(f"No changes for user {user_id}")
             return False
