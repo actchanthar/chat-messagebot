@@ -106,6 +106,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     inviter_invites = inviter.get("invite_count", 0)  # Fetch latest count
                     try:
                         await db.update_user(inviter_id, {"balance": inviter_balance})
+                        # Fetch updated inviter data to ensure we have the latest invite_count
+                        updated_inviter = await db.get_user(inviter_id)
+                        inviter_invites = updated_inviter.get("invite_count", 0)
                         await context.bot.send_message(
                             inviter_id,
                             f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}"
