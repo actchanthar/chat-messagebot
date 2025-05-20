@@ -8,7 +8,7 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
-from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS
+from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS, ADMIN_IDS, REQUIRED_CHANNELS
 from database.database import db
 import logging
 from datetime import datetime, timezone
@@ -26,8 +26,11 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"Withdraw initiated by user {user_id} in chat {chat_id} via {'button' if query else 'command'}")
 
     if query:
-        await query.answer()
-        logger.info(f"Callback query answered for user {user_id}")
+        try:
+            await query.answer()
+            logger.info(f"Callback query answered for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error answering callback for user {user_id}: {e}")
 
     if update.effective_chat.type != "private":
         logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
@@ -45,11 +48,14 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
-    # Check invite requirement (skip for admin)
-    if user_id != "5062124930":
+    if user_id not in ADMIN_IDS:
         invite_requirement = await db.get_setting("invite_requirement", 15)
         if user.get("invited_users", 0) < invite_requirement:
             await message.reply_text(f"You need to invite at least {invite_requirement} users who have joined the channels to withdraw.")
+            return ConversationHandler.END
+        if not user.get("joined_channels", False):
+            channels_text = "\n".join([f"https://t.me/{channel_id.replace('-100', '')}" for channel_id in REQUIRED_CHANNELS])
+            await message.reply_text(f"Please join all required channels and use /checksubscription:\n{channels_text}")
             return ConversationHandler.END
 
     context.user_data.clear()
@@ -103,6 +109,9 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     try:
         amount = int(message.text.strip())
+        if payment_method == "Phone Bill" and amount % 1000 != 0:
+            await message.reply_text("Phone Bill withdrawals must be in 1000 kyat increments (e.g., 1000, 2000).")
+            return STEP_AMOUNT
         if amount < WITHDRAWAL_THRESHOLD:
             await message.reply_text(f"Minimum withdrawal is {WITHDRAWAL_THRESHOLD} {CURRENCY}. Try again.")
             return STEP_AMOUNT
@@ -176,13 +185,18 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Status: PENDING ⏳"
     )
 
-    log_msg = await context.bot.send_message(
-        chat_id=LOG_CHANNEL_ID,
-        text=log_message,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    await context.bot.pin_chat_message(chat_id=LOG_CHANNEL_ID, message_id=log_msg.message_id, disable_notification=True)
+    try:
+        log_msg = await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=log_message,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+        await context.bot.pin_chat_message(chat_id=LOG_CHANNEL_ID, message_id=log_msg.message_id, disable_notification=True)
+    except Exception as e:
+        logger.error(f"Failed to send/pin withdrawal request for {user_id}: {e}")
+        await message.reply_text("Error submitting request. Try again later.")
+        return ConversationHandler.END
 
     await message.reply_text(f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Await approval.")
     return ConversationHandler.END
@@ -227,8 +241,21 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"Your withdrawal of {amount} {CURRENCY} has been approved! New balance: {new_balance} {CURRENCY}."
+            text=f"Your withdrawal of {amount} {CURRENCY} has been approved! New balance: {new_balance} {CURRENCY}.\n"
+                 f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။ လက်ကျန်ငွေ: {new_balance} {CURRENCY}."
         )
+
+        # Announce to bot users (like /users)
+        users = await db.get_all_users()
+        for u in users:
+            try:
+                await context.bot.send_message(
+                    chat_id=u["user_id"],
+                    text=f"User @{user.get('username', user['name'])} သည် စုစုပေါင်း {amount} {CURRENCY} ငွေထုတ်ယူခဲ့ပါသည်။\n"
+                         f"လက်ရှိလက်ကျန်ငွေ {new_balance} {CURRENCY}"
+                )
+            except Exception as e:
+                logger.error(f"Failed to announce to user {u['user_id']}: {e}")
 
     elif data.startswith("reject_withdrawal_"):
         _, _, user_id, amount = data.split("_")
@@ -237,7 +264,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.message.reply_text(f"Withdrawal rejected for user {user_id}. Amount: {amount} {CURRENCY}.")
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected. Contact @actanibot for issues."
+            text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected. Contact @actearnbot for issues."
         )
 
     elif data.startswith("post_approval_"):
