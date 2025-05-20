@@ -25,7 +25,7 @@ def main():
     setinvite.register_handlers(application)
     setmessage.register_handlers(application)
     try:
-        application.run_polling()
+        application.run_polling(allowed_updates=["message", "callback_query"])
     except Exception as e:
         print(f"Error running bot: {e}")
         raise
