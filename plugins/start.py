@@ -13,11 +13,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Start command by user {user_id} in chat {chat_id}")
 
-    # Handle referral
+    user = await db.get_user(user_id)
     inviter_id = None
+
+    # Handle referral
     if context.args and context.args[0].startswith("referral_"):
         inviter_id = context.args[0].replace("referral_", "")
-        user = await db.get_user(user_id)
         if not user:
             user = await db.create_user(user_id, update.effective_user.full_name)
             await db.update_user(user_id, {"inviter_id": inviter_id})
@@ -32,6 +33,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         f"🎉 A new user has joined via your referral! You now have {inviter_invites + 1} invites.\n"
                         f"Share this link to invite more: https://t.me/{context.bot.username}?start=referral_{inviter_id}"
                     )
+
+    if not user:
+        user = await db.create_user(user_id, update.effective_user.full_name)
 
     # Skip force-sub for admin
     if user_id != ADMIN_ID:
@@ -82,7 +86,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.info(f"User {user_id} prompted to join channels: {channel_details}")
                 return
             # Reward inviter and invitee if all channels are joined
-            elif inviter_id and inviter_id != user_id:
+            elif inviter_id and inviter_id != user_id and not user.get("referral_rewarded", False):
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_invites = inviter.get("invite_count", 0) + 1
@@ -96,12 +100,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         inviter_id,
                         f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}."
                     )
-                    await db.update_user(user_id, {"balance": user.get("balance", 0) + 50})
+                    await db.update_user(user_id, {
+                        "balance": user.get("balance", 0) + 50,
+                        "referral_rewarded": True
+                    })
                     await update.message.reply_text("You joined all channels via referral! +50 kyat.")
-
-    user = await db.get_user(user_id)
-    if not user:
-        user = await db.create_user(user_id, update.effective_user.full_name)
 
     referral_link = f"https://t.me/{context.bot.username}?start=referral_{user_id}"
     welcome_message = (
