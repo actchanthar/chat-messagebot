@@ -13,6 +13,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     message_text = update.message.text
     logger.info(f"Message received from user {user_id} in chat {chat_id}: {message_text}")
 
+    if db is None:
+        logger.error("Database not initialized, cannot process message")
+        return
+
     if await db.check_rate_limit(user_id, message_text):
         logger.warning(f"Rate limit or duplicate enforced for user {user_id} in chat {chat_id}")
         return
@@ -31,7 +35,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     new_messages = user.get("messages", 0) + 1
     messages_per_kyat = await db.get_message_rate()  # Default: 3 messages = 1 kyat
-    new_balance = user.get("balance", 0) + (1 / messages_per_kyat)  # Increment balance based on rate
+    new_balance = user.get("balance", 0) + (1 / messages_per_kyat)
 
     group_messages = user.get("group_messages", {})
     current_group_messages = group_messages.get(chat_id, 0) + 1
