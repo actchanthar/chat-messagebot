@@ -20,7 +20,7 @@ class Database:
     async def get_user(self, user_id):
         try:
             user = await self.users.find_one({"user_id": user_id})
-            logger.info(f"Retrieved user {user_id} from database: {user}")
+            logger.info(f"Retrieved user {user_id}: {user}")
             return user
         except Exception as e:
             logger.error(f"Error retrieving user {user_id}: {e}")
@@ -45,7 +45,7 @@ class Database:
                 "joined_channels": False
             }
             result = await self.users.insert_one(user)
-            logger.info(f"Created new user {user_id} with name {name}, inviter {inviter_id}")
+            logger.info(f"Created user {user_id} with inviter {inviter_id}")
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
@@ -60,7 +60,7 @@ class Database:
                     updates_log["message_timestamps"] = f"[{len(updates['message_timestamps'])} timestamps]"
                 logger.info(f"Updated user {user_id}: {updates_log}")
                 return True
-            logger.info(f"No changes made to user {user_id}")
+            logger.info(f"No changes for user {user_id}")
             return False
         except Exception as e:
             logger.error(f"Error updating user {user_id}: {e}")
@@ -69,10 +69,10 @@ class Database:
     async def get_all_users(self):
         try:
             users = await self.users.find().to_list(length=None)
-            logger.info(f"Retrieved all users: {len(users)} users")
+            logger.info(f"Retrieved {len(users)} users")
             return users
         except Exception as e:
-            logger.error(f"Error retrieving all users: {e}")
+            logger.error(f"Error retrieving users: {e}")
             return []
 
     async def get_top_users(self, limit=10):
@@ -147,7 +147,6 @@ class Database:
             last_reward = await self.get_last_reward_time()
             if datetime.utcnow() < last_reward + timedelta(days=7):
                 return False
-
             users = await self.get_all_users()
             top_users = sorted(users, key=lambda x: x.get("invited_users", 0), reverse=True)[:3]
             reward_amount = 100
@@ -198,7 +197,7 @@ class Database:
                 logger.warning(f"Rate limit exceeded for user {user_id}")
                 return True
             if message_text and user_id in self.message_history and self.message_history[user_id] == message_text:
-                logger.warning(f"Duplicate message detected for user {user_id}")
+                logger.warning(f"Duplicate message for user {user_id}")
                 return True
             if message_text:
                 self.message_history[user_id] = message_text
