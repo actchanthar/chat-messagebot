@@ -8,7 +8,7 @@ from plugins import (
 )
 import logging
 
-# Set up logging as early as possible
+# Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG
@@ -19,22 +19,17 @@ def main():
     try:
         logger.debug("Starting bot initialization")
 
-        # Verify Heroku config vars
+        # Use environment variables with fallback to config.py
+        bot_token = os.getenv('BOT_TOKEN', BOT_TOKEN)
         logger.info("Checking environment variables")
         required_vars = ['BOT_TOKEN', 'MONGODB_URL', 'MONGODB_NAME']
         missing_vars = [var for var in required_vars if not os.getenv(var)]
         if missing_vars:
-            error_msg = f"Missing environment variables: {', '.join(missing_vars)}"
-            logger.error(error_msg)
-            raise EnvironmentError(error_msg)
-
-        # Verify BOT_TOKEN matches config
-        if os.getenv('BOT_TOKEN') != BOT_TOKEN:
-            logger.warning("Environment BOT_TOKEN does not match config.BOT_TOKEN")
+            logger.warning(f"Missing environment variables: {', '.join(missing_vars)}. Falling back to config.py values.")
 
         # Build the Telegram application
         logger.info("Building Telegram application")
-        application = Application.builder().token(BOT_TOKEN).build()
+        application = Application.builder().token(bot_token).build()
         logger.info("Telegram application built successfully")
 
         # Initialize the database
@@ -72,7 +67,7 @@ def main():
         application.run_polling()
     except Exception as e:
         logger.error(f"Fatal error in main: {e}", exc_info=True)
-        raise  # Ensure Heroku captures the error
+        raise
 
 if __name__ == "__main__":
     main()
