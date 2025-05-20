@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(f"Update {update} caused error {context.error}")
-    if update and update.effective_message:
+    # Only send error message in private chats, not in groups
+    if update and update.effective_chat and update.effective_chat.type == "private":
         await update.effective_message.reply_text("An error occurred. Please try again later.")
 
 async def log_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
