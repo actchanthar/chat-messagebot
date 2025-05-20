@@ -19,15 +19,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Handle referral
     if context.args and context.args[0].startswith("referral_"):
         inviter_id = context.args[0].replace("referral_", "")
+        logger.info(f"Referral detected: user {user_id} invited by {inviter_id}")
         if not user:
             user = await db.create_user(user_id, update.effective_user.full_name)
             await db.update_user(user_id, {"inviter_id": inviter_id})
-            logger.info(f"User {user_id} joined via referral from {inviter_id}")
-            # Update inviter's invite count immediately
+            logger.info(f"New user {user_id} created with inviter {inviter_id}")
+            # Increment inviter's invite count
             if inviter_id and inviter_id != user_id:
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_invites = inviter.get("invite_count", 0) + 1
+                    logger.info(f"Incrementing invite_count for {inviter_id}: {inviter_invites}")
                     await db.update_user(inviter_id, {
                         "invite_count": inviter_invites,
                         "invited_users": inviter.get("invited_users", []) + [user_id]
@@ -38,6 +40,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                             f"🎉 A new user has joined via your referral! You now have {inviter_invites} invites.\n"
                             f"Share this link to invite more: https://t.me/{context.bot.username}?start=referral_{inviter_id}"
                         )
+                        logger.info(f"Sent referral notification to {inviter_id}")
                     except Exception as e:
                         logger.error(f"Failed to notify inviter {inviter_id}: {e}")
 
@@ -92,9 +95,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
                 logger.info(f"User {user_id} prompted to join channels: {channel_details}")
                 return
-            # Reward invitee if all channels are joined (inviter already rewarded)
+            # Reward invitee if all channels are joined
             elif inviter_id and inviter_id != user_id and not user.get("referral_rewarded", False):
-                logger.info(f"Processing referral reward for user {user_id} invited by {inviter_id}")
+                logger.info(f"Processing channel join reward for user {user_id} invited by {inviter_id}")
                 inviter = await db.get_user(inviter_id)
                 if inviter:
                     inviter_balance = inviter.get("balance", 0) + 25
