@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import REQUIRED_CHANNELS, BOT_USERNAME
+from config import BOT_USERNAME
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,10 +19,10 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text("You have already joined the required channels.")
             return
 
+        required_channels = await db.get_required_channels()
         all_joined = True
-        for channel_id in REQUIRED_CHANNELS:
+        for channel_id in required_channels:
             try:
-                # Handle both username (@ChannelName) and invite links (https://t.me/+abc123)
                 channel_ref = channel_id.lstrip('@') if channel_id.startswith('@') else channel_id
                 member = await context.bot.get_chat_member(channel_ref, int(user_id))
                 if member.status not in ["member", "administrator", "creator"]:
@@ -53,10 +53,10 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     except Exception as e:
                         logger.error(f"Failed to notify inviter {inviter_id}: {e}")
         else:
-            channels_text = "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in REQUIRED_CHANNELS])
+            channels_text = "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in required_channels])
             await update.message.reply_text(f"Please join all required channels:\n{channels_text}\nThen use /checksubscription again.")
     except Exception as e:
-        logger.error(f"Error in checksubscription for user {user_id}: {e}")
+        logger.error(f"Error in checksubscription for user {user_id}: {e}", exc_info=True)
         try:
             await update.message.reply_text("An error occurred. Please try again or contact @actearnbot.")
         except Exception as reply_e:
