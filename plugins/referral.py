@@ -16,10 +16,22 @@ async def referral_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channels = await db.get_force_sub_channels()
     logger.info(f"Force-sub channels for user {user_id}: {channels}")
     invite_count = user.get("invite_count", 0)
+
+    # Get channel names
+    channel_names = []
+    for channel in channels:
+        try:
+            chat = await context.bot.get_chat(channel)
+            channel_name = chat.title or channel
+            channel_names.append(channel_name)
+        except Exception as e:
+            logger.error(f"Error fetching info for {channel}: {e}")
+            channel_names.append(channel)
+
     message = (
         f"Your invites: {invite_count}\n"
         f"Required for withdrawal: {await db.get_setting('invite_threshold', 15)}\n"
-        f"Channels to join: {', '.join(channels) if channels else 'No channels set'}\n"
+        f"Channels to join: {', '.join(channel_names) if channel_names else 'No channels set'}\n"
         f"Earn 25 kyat per invite when they join all channels!"
     )
 
@@ -52,7 +64,7 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if all_subscribed:
         user = await db.get_user(user_id)
         inviter_id = user.get("inviter_id")
-        if inviter_id:
+        if inviter_id and not user.get("referral_rewarded", False):
             inviter = await db.get_user(inviter_id)
             inviter_invites = inviter.get("invite_count", 0) + 1
             inviter_balance = inviter.get("balance", 0) + 25
@@ -62,7 +74,7 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "invited_users": inviter.get("invited_users", []) + [user_id]
             })
             await context.bot.send_message(inviter_id, f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}.")
-            await db.update_user(user_id, {"balance": user.get("balance", 0) + 50})
+            await db.update_user(user_id, {"balance": user.get("balance", 0) + 50, "referral_rewarded": True})
             await update.message.reply_text("You joined all channels! +50 kyat.")
         return True
     return False
