@@ -12,7 +12,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error(f"Update {update} caused error {context.error}")
+    logger.error(f"Error processing update {update}: command '{update.effective_message.text if update.effective_message else 'unknown'}' caused error {context.error}")
     # Only send error message in private chats, not in groups
     if update and update.effective_chat and update.effective_chat.type == "private":
         await update.effective_message.reply_text("An error occurred. Please try again later.")
@@ -29,7 +29,7 @@ def main():
     # Register error handler
     application.add_error_handler(error_handler)
 
-    # Register other handlers
+    # Register all handlers
     start.register_handlers(application)
     withdrawal.register_handlers(application)
     balance.register_handlers(application)
