@@ -223,4 +223,27 @@ class Database:
             logger.error(f"Error setting {setting_type}: {e}")
             return False
 
+    async def add_required_channel(self, channel_id):
+        try:
+            current_channels = await self.get_setting("required_channels", [])
+            if channel_id in current_channels:
+                logger.info(f"Channel {channel_id} already in required channels")
+                return "exists"
+            current_channels.append(channel_id)
+            await self.set_setting("required_channels", current_channels)
+            logger.info(f"Added channel {channel_id} to required channels")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding channel {channel_id}: {e}")
+            return False
+
+    async def get_required_channels(self):
+        try:
+            channels = await self.get_setting("required_channels", [])
+            logger.info(f"Retrieved required channels: {channels}")
+            return channels
+        except Exception as e:
+            logger.error(f"Error retrieving required channels: {e}")
+            return []
+
 db = Database()
