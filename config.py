@@ -27,4 +27,4 @@ ADMIN_IDS = ["5062124930"]
 DEFAULT_REQUIRED_INVITES = 15
 
 # Force-subscription settings
-REQUIRED_CHANNELS = ["@ChannelOne", "@ChannelTwo"]  # Replace with actual channel usernames or invite links
+REQUIRED_CHANNELS = ["@tiktokcelemyanmar"]  # Fallback list; bot uses database
