@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         try:
+            # Log start of initialization
+            logger.debug("Starting Database initialization")
+
             # Use environment variable with fallback to config.py
             mongo_url = os.getenv('MONGODB_URL', MONGODB_URL)
             mongo_db_name = os.getenv('MONGODB_NAME', MONGODB_NAME)
@@ -163,6 +166,7 @@ class Database:
 class DatabaseWithClient(Database):
     def __init__(self, bot_client):
         try:
+            logger.debug("Starting DatabaseWithClient initialization")
             super().__init__()
             self.bot_client = bot_client
             logger.info("DatabaseWithClient initialized with bot client")
