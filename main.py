@@ -5,13 +5,10 @@ import logging.handlers
 from telegram.ext import Application
 from config import BOT_TOKEN
 from database.database import init_db
-from plugins import (
-    start, withdrawal, balance, top, help, message_handler, broadcast, users,
-    addgroup, checkgroup, setphonebill, couple, transfer, referral, admin
-)
+from plugins import start, balance, message_handler  # Temporarily limit plugins
 
-# Set up logging with both stdout and file handlers
-log_file = '/tmp/bot.log'  # Heroku allows writing to /tmp
+# Set up logging
+log_file = '/tmp/bot.log'
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG,
@@ -40,6 +37,7 @@ def main():
 
         # Use environment variable with fallback to config.py
         bot_token = os.getenv('BOT_TOKEN', BOT_TOKEN)
+        logger.debug(f"Using BOT_TOKEN (partial): {bot_token[:10]}...")
 
         # Build the Telegram application
         logger.info("Building Telegram application")
@@ -57,24 +55,12 @@ def main():
             logger.error("Database initialization failed: db is None")
             raise RuntimeError("Database initialization failed")
 
-        # Register all plugin handlers
+        # Register minimal plugin handlers
         logger.info("Registering plugin handlers")
         start.register_handlers(application)
-        withdrawal.register_handlers(application)
         balance.register_handlers(application)
-        top.register_handlers(application)
-        help.register_handlers(application)
         message_handler.register_handlers(application)
-        broadcast.register_handlers(application)
-        users.register_handlers(application)
-        addgroup.register_handlers(application)
-        checkgroup.register_handlers(application)
-        setphonebill.register_handlers(application)
-        couple.register_handlers(application)
-        transfer.register_handlers(application)
-        referral.register_handlers(application)
-        admin.register_handlers(application)
-        logger.info("All plugin handlers registered successfully")
+        logger.info("Plugin handlers registered successfully")
 
         # Start polling
         logger.info("Starting bot polling")
