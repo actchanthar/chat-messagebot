@@ -103,14 +103,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         })
                         await context.bot.send_message(
                             inviter_id,
-                            f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}."
+                            f"Your invite joined all channels! +25 kyat. Total invites: {inviter_invites}"
                         )
                         await db.update_user(user_id, {
                             "balance": user.get("balance", 0) + 50,
                             "referral_rewarded": True
                         })
                         await update.message.reply_text("You joined all channels via referral! +50 kyat.")
-                        logger.info(f"Reward applied: {inviter_id} +25 kyat, {user_id} +50 kyat")
+                        logger.info(f"Reward applied: {inviter_id} +25 kyat, {user_id} +50 kyat, invites: {inviter_invites}")
                     except Exception as e:
                         logger.error(f"Error applying referral reward for {user_id} and {inviter_id}: {e}")
 
