@@ -43,12 +43,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name)
 
+    # Ensure referral_link exists
+    referral_link = user.get("referral_link", f"https://t.me/ACTChatBot?start={user_id}")
+    if "referral_link" not in user:
+        await db.update_user(user_id, {"referral_link": referral_link})
+
     welcome_message = (
         "စာပို့ရင်း ငွေရှာမယ်:\n"
         f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
         "Earn money by sending messages in the group! (3 messages = 1 kyat)\n"
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ (၃ စာတိုလျှင် ၁ ကျပ်)။\n\n"
-        f"Your referral link: {user['referral_link']}\n"
+        f"Your referral link: {referral_link}\n"
         "Invite friends to earn 25 kyat per successful invite!\n"
     )
 
