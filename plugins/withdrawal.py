@@ -120,6 +120,12 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
+    logger.info(f"Raw callback query received: {query}")  # Log the raw query
+
+    if not query:
+        logger.error("No callback query found in update")
+        return
+
     try:
         await query.answer()
         logger.info(f"Callback query answered for user {query.from_user.id}")
@@ -129,7 +135,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     user_id = str(query.from_user.id)
     callback_data = query.data
-    logger.info(f"Callback query received from user {user_id}: {callback_data}")
+    logger.info(f"Callback query processed for user {user_id}: {callback_data}")
 
     if callback_data == "init_withdraw":
         logger.info(f"Processing init_withdraw callback for user {user_id}")
