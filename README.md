@@ -1,38 +1,43 @@
-# ACT Chat Bot
-A Telegram bot for earning money by sending messages, inviting users, and managing withdrawals.
+# Chat Bot
+A Telegram bot for earning money by sending messages and inviting users. Deployed on Heroku.
+
+## Setup
+1. Clone the repository: `git clone https://github.com/actchanthar/chat-messagebot.git`
+2. Install dependencies: `pip install -r requirements.txt`
+3. Set environment variables in Heroku (or locally):
+   - `BOT_TOKEN`: Your Telegram bot token
+   - `MONGODB_URL`: MongoDB connection string
+   - `MONGODB_NAME`: MongoDB database name
+4. Deploy to Heroku: `git push heroku main`
 
 ## Features
-- Earn 1 kyat for every 3 messages in the target group (-1002061898677).
-- Referral system: 25 kyat per successful invite, 50 kyat for invited users who join channels.
-- Withdrawals via KBZ Pay, Wave Pay, or Phone Bill (1000 kyat minimum for Phone Bill).
-- Forced subscription to channels for withdrawals.
-- Weekly rewards for top 3 users by messages and invites.
-- Admin commands for managing groups, channels, and bonuses.
+- Earn 1 kyat per 3 messages (configurable with `/setmessage`).
+- Withdraw earnings via KBZ Pay, Wave Pay, or Phone Bill.
+- Referral system: 25 kyats per invited user who joins channels, 50 kyats for joiners.
+- Force subscription to channels for withdrawals.
+- Weekly rewards for top 3 inviters.
 
 ## Commands
-- `/start` - Welcome message with referral link and top users.
-- `/balance` - Check current balance.
-- `/withdraw` - Request withdrawal (requires joining channels and meeting invite threshold).
-- `/top` - Show top 10 users by messages and invites.
-- `/help` - List available commands.
+- `/start` - Welcome message, referral link, and channel list.
+- `/withdraw` - Initiate withdrawal (requires 15 invites unless admin).
+- `/balance` - Show current balance.
+- `/top` - Show top 10 users by invites and messages.
+- `/help` - List commands.
 - `/rest` - Reset message counts (admin-only).
-- `/addgroup <group_id>` - Add group for message counting (admin-only).
-- `/checkgroup <group_id>` - Check group message count (admin-only).
-- `/SetPhoneBill <reward_text>` - Set Phone Bill reward text (admin-only).
-- `/broadcast <message>` - Send message to all users (admin-only).
-- `/pbroadcast <message>` - Send pinned message to all users (admin-only).
-- `/users` - Show total user count (admin-only).
-- `/addchnl <channel_id> <name>` - Add channel for forced subscription (admin-only).
-- `/delchnl <channel_id>` - Remove channel (admin-only).
-- `/listchnl` - List all forced subscription channels (admin-only).
-- `/checksubscription` - Check user's subscription status.
-- `/setinvite <number>` - Set invite threshold for withdrawals (admin-only).
-- `/Add_bonus <user_id> <amount>` - Add bonus to user (admin-only).
-- `/setmessage <number>` - Set messages per kyat (admin-only).
-- `/debug_message_count` - Debug message counts (admin-only).
-- `/referral_users` - Show referral stats and link.
-- `/couple` - Randomly match two users (10-minute cooldown).
-- `/transfer <user_id> <amount>` - Transfer balance to another user.
-- `/restwithdraw <user_id|ALL>` - Reset withdrawal records (admin-only).
-- `/clone <mongodb_url>` - Clone database to new MongoDB URL (admin-only).
-- `/on` - Enable message counting
+- `/addgroup` - Add group for message counting (admin-only).
+- `/checkgroup` - Check group message counts (admin-only).
+- `/SetPhoneBill` - Set Phone Bill reward text (admin-only).
+- `/broadcast` - Send message to all users (admin-only).
+- `/users` - Show total user count or list users (admin-only).
+- `/setinvite` - Set invite requirement (admin-only).
+- `/checksubscription` - Verify channel membership, award kyats.
+- `/couple` - Pair two users randomly (10-min cooldown).
+- `/transfer` - Transfer balance to another user.
+- `/setmessage` - Set messages per kyat (admin-only).
+- `/addchnl` - Add a channel to force subscription list (admin-only).
+
+## Deployment Notes
+- Ensure MongoDB is accessible.
+- Check logs: `heroku logs --tail`
+- Verify bot permissions in groups/channels.
+- Update `REQUIRED_CHANNELS` in `config.py` with correct channel usernames or invite links.
