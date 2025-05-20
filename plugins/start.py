@@ -57,7 +57,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "\nUse the buttons below to check your balance, withdraw, or join our group.\n"
             "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n"
             "Join our channels to enable withdrawals:\n" +
-            "\n".join([f"https://t.me/{channel_id.replace('-100', '')}" for channel_id in REQUIRED_CHANNELS])
+            "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in REQUIRED_CHANNELS])
         )
 
         keyboard = [
