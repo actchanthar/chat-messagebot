@@ -11,6 +11,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
 
+    if db is None:
+        logger.error("Database not initialized, cannot process /start")
+        await update.message.reply_text("Bot is experiencing issues. Please try again later.")
+        return
+
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name)
