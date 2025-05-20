@@ -12,11 +12,11 @@ async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("You are not authorized.")
         return
 
-    if not context.args:
-        await update.message.reply_text("Usage: /setmessage <number>")
-        return
-
     try:
+        if not context.args:
+            await update.message.reply_text("Usage: /setmessage <number>")
+            return
+
         number = int(context.args[0])
         if number <= 0:
             raise ValueError
@@ -24,7 +24,10 @@ async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(f"Set {number} messages per kyat.")
     except ValueError:
         await update.message.reply_text("Please provide a valid positive number.")
+    except Exception as e:
+        logger.error(f"Error in setmessage for user {user_id}: {e}")
+        await update.message.reply_text("An error occurred. Please try again.")
 
 def register_handlers(application: Application):
     logger.info("Registering setmessage handlers")
-    application.add_handler(CommandHandler("setmessage", setmessage))
+    application.add_handler(CommandHandler("setmessage", setmessage, block=False))
