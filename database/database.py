@@ -33,7 +33,7 @@ class Database:
                 "name": name,
                 "balance": 0,
                 "messages": 0,
-                "group_messages": {"-1002061898677": 0},
+                "group_messages": {"-1002061898677": 0, "-1001756870040": 0},  # Initialize for all groups
                 "withdrawn_today": 0,
                 "last_withdrawal": None,
                 "banned": False,
@@ -41,7 +41,7 @@ class Database:
                 "last_activity": datetime.utcnow(),
                 "message_timestamps": deque(maxlen=5),
                 "inviter": inviter_id if inviter_id and await self.get_user(inviter_id) else None,
-                "invited_users": 0,
+                "invited_users": 0,  # Initialize to prevent sorting errors
                 "joined_channels": False
             }
             result = await self.users.insert_one(user)
@@ -241,9 +241,9 @@ class Database:
         try:
             channels = await self.get_setting("required_channels", [])
             logger.info(f"Retrieved required channels: {channels}")
-            return channels
+            return channels if channels else ["@tiktokcelemyanmar"]  # Fallback
         except Exception as e:
             logger.error(f"Error retrieving required channels: {e}")
-            return []
+            return ["@tiktokcelemyanmar"]
 
 db = Database()
