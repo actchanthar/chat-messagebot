@@ -1,3 +1,4 @@
+import os
 from telegram.ext import Application
 from config import BOT_TOKEN
 from database.database import init_db
@@ -7,16 +8,30 @@ from plugins import (
 )
 import logging
 
-# Configure logging with higher verbosity
+# Set up logging as early as possible
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG  # Changed to DEBUG for more details
+    level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
 
 def main():
     try:
         logger.debug("Starting bot initialization")
+
+        # Verify Heroku config vars
+        logger.info("Checking environment variables")
+        required_vars = ['BOT_TOKEN', 'MONGODB_URL', 'MONGODB_NAME']
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if missing_vars:
+            error_msg = f"Missing environment variables: {', '.join(missing_vars)}"
+            logger.error(error_msg)
+            raise EnvironmentError(error_msg)
+
+        # Verify BOT_TOKEN matches config
+        if os.getenv('BOT_TOKEN') != BOT_TOKEN:
+            logger.warning("Environment BOT_TOKEN does not match config.BOT_TOKEN")
+
         # Build the Telegram application
         logger.info("Building Telegram application")
         application = Application.builder().token(BOT_TOKEN).build()
@@ -57,7 +72,7 @@ def main():
         application.run_polling()
     except Exception as e:
         logger.error(f"Fatal error in main: {e}", exc_info=True)
-        raise  # Ensure Heroku logs the full stack trace
+        raise  # Ensure Heroku captures the error
 
 if __name__ == "__main__":
     main()
