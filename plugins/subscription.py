@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import FORCE_SUB_CHANNELS
+from config import REQUIRED_CHANNELS, BOT_USERNAME
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,9 +19,9 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     all_joined = True
-    for channel_id in FORCE_SUB_CHANNELS:
+    for channel_id in REQUIRED_CHANNELS:
         try:
-            member = await context.bot.get_chat_member(channel_id, user_id)
+            member = await context.bot.get_chat_member(channel_id, int(user_id))
             if member.status not in ["member", "administrator", "creator"]:
                 all_joined = False
                 break
@@ -42,12 +42,16 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                     "invited_users": new_invited,
                     "balance": inviter.get("balance", 0) + 25
                 })
-                await context.bot.send_message(
-                    chat_id=inviter_id,
-                    text=f"Your invitee {update.effective_user.full_name} joined the channels. You got 25 kyats!"
-                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=inviter_id,
+                        text=f"Your invitee {update.effective_user.full_name} joined the channels. You got 25 kyats!"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to notify inviter {inviter_id}: {e}")
     else:
-        await update.message.reply_text("Please join all required channels and try again.")
+        channels_text = "\n".join([f"https://t.me/{BOT_USERNAME.replace('@', '')}?start=join_{channel_id}" for channel_id in REQUIRED_CHANNELS])
+        await update.message.reply_text(f"Please join all required channels:\n{channels_text}\nThen use /checksubscription again.")
 
 def register_handlers(application: Application):
     logger.info("Registering subscription handlers")
