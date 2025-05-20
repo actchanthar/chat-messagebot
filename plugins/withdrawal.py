@@ -2,7 +2,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database.database import db
 import logging
-import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         message = "User not found. Please start the bot with /start."
         if update.callback_query:
             try:
-                await update.callback_query.message.edit_text(message)
+                await update.callback_query.edit_message_text(message)
             except Exception as e:
                 logger.error(f"Error editing message for user {user_id}: {e}")
                 await update.callback_query.message.reply_text(message)
@@ -39,7 +38,7 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             message = f"You need to invite at least 15 users to withdraw. You have invited {invited_users} users."
             if update.callback_query:
                 try:
-                    await update.callback_query.message.edit_text(message)
+                    await update.callback_query.edit_message_text(message)
                 except Exception as e:
                     logger.error(f"Error editing message for user {user_id}: {e}")
                     await update.callback_query.message.reply_text(message)
@@ -51,7 +50,7 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             message = f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
             if update.callback_query:
                 try:
-                    await update.callback_query.message.edit_text(message)
+                    await update.callback_query.edit_message_text(message)
                 except Exception as e:
                     logger.error(f"Error editing message for user {user_id}: {e}")
                     await update.callback_query.message.reply_text(message)
@@ -66,7 +65,7 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             message = f"You need at least 10,000 kyat to withdraw. Your balance is {user.get('balance', 0)} kyat."
             if update.callback_query:
                 try:
-                    await update.callback_query.message.edit_text(message)
+                    await update.callback_query.edit_message_text(message)
                 except Exception as e:
                     logger.error(f"Error editing message for user {user_id}: {e}")
                     await update.callback_query.message.reply_text(message)
@@ -81,7 +80,7 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         message = "You have reached the daily withdrawal limit of 10,000 kyat."
         if update.callback_query:
             try:
-                await update.callback_query.message.edit_text(message)
+                await update.callback_query.edit_message_text(message)
             except Exception as e:
                 logger.error(f"Error editing message for user {user_id}: {e}")
                 await update.callback_query.message.reply_text(message)
@@ -111,7 +110,7 @@ async def init_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
     if update.callback_query:
         try:
-            await update.callback_query.message.edit_text(message_text, reply_markup=reply_markup)
+            await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await update.callback_query.message.reply_text(message_text, reply_markup=reply_markup)
@@ -123,6 +122,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     query = update.callback_query
     try:
         await query.answer()
+        logger.info(f"Callback query answered for user {query.from_user.id}")
     except Exception as e:
         logger.error(f"Error answering callback query for user {query.from_user.id}: {e}")
 
@@ -138,7 +138,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not callback_data.startswith("withdraw_"):
         logger.warning(f"Invalid callback data for user {user_id}: {callback_data}")
         try:
-            await query.message.edit_text("Invalid withdrawal option. Please try again.")
+            await query.edit_message_text("Invalid withdrawal option. Please try again.")
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await query.message.reply_text("Invalid withdrawal option. Please try again.")
@@ -146,23 +146,20 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         amount = int(callback_data.split("_")[1])
-        logger.info(f"Withdrawal callback for user {user_id}, amount {amount}")
+        logger.info(f"Parsed withdrawal amount for user {user_id}: {amount}")
     except (IndexError, ValueError) as e:
         logger.error(f"Error parsing withdrawal amount for user {user_id}: {callback_data}, error: {e}")
         try:
-            await query.message.edit_text("Error processing withdrawal amount. Please try again.")
+            await query.edit_message_text("Error processing withdrawal amount. Please try again.")
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await query.message.reply_text("Error processing withdrawal amount. Please try again.")
         return
 
-    # Add a small delay to avoid Telegram API rate limits
-    await asyncio.sleep(0.5)
-
     user = await db.get_user(user_id)
     if not user:
         try:
-            await query.message.edit_text("User not found.")
+            await query.edit_message_text("User not found.")
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await query.message.reply_text("User not found.")
@@ -174,7 +171,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if current_balance < amount:
         message = f"Insufficient balance. Your balance is {current_balance} kyat."
         try:
-            await query.message.edit_text(message)
+            await query.edit_message_text(message)
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await query.message.reply_text(message)
@@ -186,7 +183,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if withdrawn_today + amount > 10000:
         message = f"Withdrawal exceeds daily limit. You can withdraw {10000 - withdrawn_today} kyat today."
         try:
-            await query.message.edit_text(message)
+            await query.edit_message_text(message)
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await query.message.reply_text(message)
@@ -208,14 +205,11 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except Exception as e:
         logger.error(f"Error updating user {user_id} balance: {e}")
         try:
-            await query.message.edit_text("Error updating balance. Please try again later.")
+            await query.edit_message_text("Error updating balance. Please try again later.")
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await query.message.reply_text("Error updating balance. Please try again later.")
         return
-
-    # Add a small delay to avoid Telegram API rate limits
-    await asyncio.sleep(0.5)
 
     # Add to pending withdrawals
     try:
@@ -224,7 +218,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except Exception as e:
         logger.error(f"Error adding pending withdrawal for user {user_id}: {e}")
         try:
-            await query.message.edit_text("Error processing withdrawal request. Please try again later.")
+            await query.edit_message_text("Error processing withdrawal request. Please try again later.")
         except Exception as e:
             logger.error(f"Error editing message for user {user_id}: {e}")
             await query.message.reply_text("Error processing withdrawal request. Please try again later.")
@@ -235,7 +229,7 @@ async def withdraw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         "Please wait for admin approval."
     )
     try:
-        await query.message.edit_text(message)
+        await query.edit_message_text(message)
     except Exception as e:
         logger.error(f"Error editing message for user {user_id}: {e}")
         await query.message.reply_text(message)
