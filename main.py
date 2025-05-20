@@ -1,4 +1,5 @@
 import os
+import sys
 from telegram.ext import Application
 from config import BOT_TOKEN
 from database.database import init_db
@@ -8,10 +9,13 @@ from plugins import (
 )
 import logging
 
-# Set up logging
+# Set up logging as early as possible
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG
+    level=logging.DEBUG,
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # Ensure logs go to stdout for Heroku
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -19,13 +23,20 @@ def main():
     try:
         logger.debug("Starting bot initialization")
 
+        # Log Python and package versions for debugging
+        logger.debug(f"Python version: {sys.version}")
+        logger.debug(f"Telegram.ext version: {Application.__module__}")
+
         # Use environment variables with fallback to config.py
         bot_token = os.getenv('BOT_TOKEN', BOT_TOKEN)
         logger.info("Checking environment variables")
         required_vars = ['BOT_TOKEN', 'MONGODB_URL', 'MONGODB_NAME']
-        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        env_vars = {var: os.getenv(var) for var in required_vars}
+        missing_vars = [var for var in required_vars if not env_vars[var]]
         if missing_vars:
-            logger.warning(f"Missing environment variables: {', '.join(missing_vars)}. Falling back to config.py values.")
+            logger.warning(f"Missing environment variables: {', '.join(missing_vars)}. Using config.py values.")
+        else:
+            logger.info(f"Environment variables found: {', '.join(var for var in required_vars if env_vars[var])}")
 
         # Build the Telegram application
         logger.info("Building Telegram application")
@@ -70,4 +81,5 @@ def main():
         raise
 
 if __name__ == "__main__":
+    logger.debug("Entering main script")
     main()
