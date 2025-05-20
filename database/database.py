@@ -1,10 +1,11 @@
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
 from collections import deque
 
-# Configure logging
+# Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.DEBUG
@@ -14,15 +15,26 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self):
         try:
-            logger.debug(f"Connecting to MongoDB with URL: {MONGODB_URL}")
-            self.mongo_client = AsyncIOMotorClient(MONGODB_URL)
+            # Validate MongoDB URL
+            mongo_url = os.getenv('MONGODB_URL', MONGODB_URL)
+            if not mongo_url:
+                logger.error("MONGODB_URL is not set")
+                raise ValueError("MONGODB_URL is not set")
+
+            logger.debug(f"Connecting to MongoDB with URL: {mongo_url[:30]}...")  # Mask sensitive parts
+            self.mongo_client = AsyncIOMotorClient(mongo_url)
             self.db = self.mongo_client[MONGODB_NAME]
             self.users = self.db.users
             self.groups = self.db.groups
             self.rewards = self.db.rewards
             self.settings = self.db.settings
-            self.message_history = {}  # In-memory cache for duplicate checking
+            self.message_history = {}
             logger.info("MongoDB client initialized successfully")
+
+            # Test connection
+            logger.debug("Testing MongoDB connection")
+            self.mongo_client.admin.command('ping')
+            logger.info("MongoDB connection test successful")
         except Exception as e:
             logger.error(f"Failed to initialize MongoDB client: {e}", exc_info=True)
             raise
