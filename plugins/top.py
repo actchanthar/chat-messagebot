@@ -13,7 +13,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Top command by user {user_id} in chat {chat_id}")
 
     try:
-        # Skip rate limit for testing; re-enable if needed
+        # Skip rate limit for now to avoid blocking
         # if await db.check_rate_limit(user_id):
         #     logger.info(f"Rate limit hit for user {user_id}")
         #     return
@@ -36,10 +36,10 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         target_group = "-1002061898677"
         phone_bill_reward = await db.get_phone_bill_reward()
 
-        # Sort by invites
+        # Sort by invites, handle invalid invited_users
         sorted_by_invites = sorted(
             users,
-            key=lambda x: x.get("invited_users", 0),
+            key=lambda x: x.get("invited_users", 0) if isinstance(x.get("invited_users"), (int, float)) else len(x.get("invited_users", [])) if isinstance(x.get("invited_users"), list) else 0,
             reverse=True
         )[:10]
         invite_top_message = (
@@ -47,7 +47,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"Total Users: {total_users}\n\n"
         )
         for i, user in enumerate(sorted_by_invites, 1):
-            invites = user.get("invited_users", 0)
+            invites = user.get("invited_users", 0) if isinstance(user.get("invited_users"), (int, float)) else len(user.get("invited_users", [])) if isinstance(user.get("invited_users"), list) else 0
             balance = user.get("balance", 0)
             name = user.get("name", "Unknown")
             invite_top_message += f"{i}. <b>{name}</b> - {invites} invites, {balance} {CURRENCY}\n" if i <= 3 else f"{i}. {name} - {invites} invites, {balance} {CURRENCY}\n"
