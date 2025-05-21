@@ -20,11 +20,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         user = await db.get_user(user_id)
         if not user:
-            user = await db.create_user(user_id, update.effective_user.full_name)
+            user = await db.create_user(user_id, update.effective_user.full_name or "Unknown")
             logger.info(f"Created new user {user_id} in message handler")
             if not user:
                 logger.error(f"Failed to create user {user_id}")
                 return
+
+        await db.update_user(user_id, {"username": update.effective_user.username})
 
         if user.get("banned", False):
             return
