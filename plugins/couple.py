@@ -2,32 +2,35 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 from database.database import db
 import logging
+from datetime import datetime, timedelta
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def couple(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def couple(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    logger.info(f"Couple command by user {user_id}")
+    last_couple_time = await db.get_last_couple_time()
+    current_time = datetime.utcnow()
 
-    user = await db.get_user(user_id)
-    if not user:
-        await update.message.reply_text("User not found. Please start with /start.")
+    if (current_time - last_couple_time).total_seconds() < 600:  # 10 minutes
+        remaining = 600 - int((current_time - last_couple_time).total_seconds())
+        await update.message.reply_text(f"Please wait {remaining // 60} minutes and {remaining % 60} seconds for the next couple!")
         return
 
-    partner = await db.get_random_couple(user_id)
-    if not partner:
-        await update.message.reply_text("Not enough users or you're on cooldown (10 minutes). Try again later.")
+    users = await db.get_random_users(count=2)
+    if len(users) < 2:
+        await update.message.reply_text("Not enough users to form a couple!")
         return
 
-    message = (
-        f"{update.effective_user.full_name} သည် {partner['name']} သင်နဲ့ဖူးစာဖက်ပါ 💙\n"
-        "ပိုက်ဆံပေးစရာမလိုပါဘူး 😅 ရန်မဖြစ်ကြပါနဲ့\n"
-        "(10 မိနစ်တစ်ခါ auto ရွေးပေးတာပါ)"
+    user1, user2 = users
+    mention1 = f'<a href="tg://user?id={user1["user_id"]}">{user1["name"]}</a>'
+    mention2 = f'<a href="tg://user?id={user2["user_id"]}">{user2["name"]}</a>'
+    await update.message.reply_text(
+        f"{mention1} သူသည် {mention2} သင်နဲ့ဖူးစာဖက်ပါ ရီးစားရှာပေးတာပါ\n"
+        "ပိုက်ဆံပေးစရာမလိုပါဘူး 😅 ရန်မဖြစ်ကြပါနဲ့",
+        parse_mode="HTML"
     )
-    await update.message.reply_text(message)
-    logger.info(f"Matched {user_id} with {partner['user_id']} for couple command")
+    await db.set_last_couple_time(current_time)
 
 def register_handlers(application):
-    logger.info("Registering couple handlers")
     application.add_handler(CommandHandler("couple", couple))
