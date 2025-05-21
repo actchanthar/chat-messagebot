@@ -1,78 +1,114 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-from config import ADMIN_IDS, LOG_CHANNEL_ID
+from telegram.ext import CommandHandler, ContextTypes
+from database.database import db
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from database.database import db
+ADMIN_ID = "5062124930"
 
-async def dfusers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def check_admin(user_id, update):
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("Unauthorized")
+        return False
+    return True
+
+async def setinvite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    if user_id not in ADMIN_IDS:
-        logger.info(f"Non-admin {user_id} attempted /dfusers")
-        await update.message.reply_text("You are not authorized to use this command.")
+    if not await check_admin(user_id, update) or not context.args:
         return
-
     try:
-        deleted_count = await db.delete_failed_broadcast_users()
-        logger.info(f"Admin {user_id} deleted {deleted_count} users with failed broadcasts")
-        await update.message.reply_text(f"Successfully deleted {deleted_count} users with failed broadcasts.")
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"Admin {user_id} deleted {deleted_count} users with failed broadcasts."
-        )
-    except Exception as e:
-        logger.error(f"Error deleting failed broadcast users by {user_id}: {e}")
-        await update.message.reply_text("Error deleting users. Please try again later.")
+        value = int(context.args[0])
+        await db.set_invite_requirement(value)
+        await update.message.reply_text(f"Invite requirement set to {value}.")
+    except ValueError:
+        await update.message.reply_text("Please provide a number.")
 
-async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    try:
-        top_users = await db.get_top_users_by_invites(limit=10)
-        if not top_users:
-            await update.message.reply_text("No users found.")
-            return
-
-        reward_text = await db.get_phone_bill_reward_text()
-        message = f"🏆 Top Users by Invites ({reward_text}):\n\n"
-        for i, user in enumerate(top_users, 1):
-            username = user.get("username", user.get("name", "Unknown"))
-            invites = user.get("invited_users", 0)
-            message += f"{i}. @{username} - {invites} invites\n"
-
-        await update.message.reply_text(message)
-        logger.info(f"Top users displayed for user {update.effective_user.id}")
-    except Exception as e:
-        logger.error(f"Error processing /top for user {update.effective_user.id}: {e}")
-        await update.message.reply_text("Error retrieving top users. Please try again later.")
-
-async def set_phone_bill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def addchnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    if user_id not in ADMIN_IDS:
-        logger.info(f"Non-admin {user_id} attempted /SetPhoneBill")
-        await update.message.reply_text("You are not authorized to use this command.")
+    if not await check_admin(user_id, update) or not context.args:
         return
+    channel_id = context.args[0]
+    await db.add_force_sub_channel(channel_id)
+    await update.message.reply_text(f"Added channel {channel_id} for force subscription.")
 
-    if not context.args:
-        await update.message.reply_text("Please provide a reward text. Usage: /SetPhoneBill <text>")
+async def delchnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not await check_admin(user_id, update) or not context.args:
         return
+    channel_id = context.args[0]
+    await db.remove_force_sub_channel(channel_id)
+    await update.message.reply_text(f"Removed channel {channel_id} from force subscription.")
 
-    reward_text = " ".join(context.args)
+async def listchnl(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not await check_admin(user_id, update):
+        return
+    channels = await db.get_force_sub_channels()
+    message = "Force Subscription Channels:\n" + "\n".join(channels) if channels else "No channels set."
+    await update.message.reply_text(message)
+
+async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not await check_admin(user_id, update) or len(context.args) < 2:
+        return
+    target_id, amount = context.args[0], int(context.args[1])
+    user = await db.get_user(target_id)
+    if user:
+        new_balance = user.get("balance", 0) + amount
+        await db.update_user(target_id, {"balance": new_balance})
+        await update.message.reply_text(f"Added {amount} kyats to user {target_id}.")
+        await context.bot.send_message(target_id, f"You received a bonus of {amount} kyats!")
+
+async def setmessage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not await check_admin(user_id, update) or not context.args:
+        return
     try:
-        await db.set_phone_bill_reward_text(reward_text)
-        logger.info(f"Admin {user_id} set Phone Bill reward text to: {reward_text}")
-        await update.message.reply_text(f"Phone Bill reward text set to: {reward_text}")
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"Admin {user_id} set Phone Bill reward text to: {reward_text}"
-        )
-    except Exception as e:
-        logger.error(f"Error setting Phone Bill reward text by {user_id}: {e}")
-        await update.message.reply_text("Error setting reward text. Please try again later.")
+        value = int(context.args[0])
+        await db.set_message_rate(value)
+        await update.message.reply_text(f"Set message rate to {value} messages = 1 kyat.")
+    except ValueError:
+        await update.message.reply_text("Please provide a number.")
 
-def register_handlers(application: Application):
-    logger.info("Registering admin handlers")
-    application.add_handler(CommandHandler("dfusers", dfusers))
-    application.add_handler(CommandHandler("top", top))
-    application.add_handler(CommandHandler("SetPhoneBill", set_phone_bill))
+async def transfer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /transfer <user_id> <amount>")
+        return
+    target_id, amount = context.args[0], int(context.args[1])
+    sender = await db.get_user(user_id)
+    receiver = await db.get_user(target_id)
+    if not sender or not receiver or sender["balance"] < amount:
+        await update.message.reply_text("Transfer failed: Insufficient balance or user not found.")
+        return
+    await db.update_user(user_id, {"balance": sender["balance"] - amount})
+    await db.update_user(target_id, {"balance": receiver["balance"] + amount})
+    await update.message.reply_text(f"Transferred {amount} kyats to {target_id}.")
+    await context.bot.send_message(target_id, f"You received {amount} kyats from {sender['name']}!")
+
+async def on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not await check_admin(user_id, update):
+        return
+    await db.set_count_messages(True)
+    await update.message.reply_text("Message counting enabled.")
+
+async def off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if not await check_admin(user_id, update):
+        return
+    await db.set_count_messages(False)
+    await update.message.reply_text("Message counting disabled.")
+
+def register_handlers(application):
+    application.add_handler(CommandHandler("setinvite", setinvite))
+    application.add_handler(CommandHandler("addchnl", addchnl))
+    application.add_handler(CommandHandler("delchnl", delchnl))
+    application.add_handler(CommandHandler("listchnl", listchnl))
+    application.add_handler(CommandHandler("add_bonus", add_bonus))
+    application.add_handler(CommandHandler("setmessage", setmessage))
+    application.add_handler(CommandHandler("transfer", transfer))
+    application.add_handler(CommandHandler("on", on))
+    application.add_handler(CommandHandler("off", off))
