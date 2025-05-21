@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import BOT_USERNAME
+from config import BOT_USERNAME, REQUIRED_CHANNELS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,8 +16,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         user = await db.get_user(user_id)
         if not user:
-            for _ in range(2):  # Retry once
-                user = await db.create_user(user_id, update.effective_user.full_name, inviter_id)
+            for _ in range(2):
+                user = await db.create_user(user_id, update.effective_user.full_name or "Unknown", inviter_id)
                 if user:
                     break
             if not user:
@@ -25,10 +25,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
             logger.info(f"Created new user {user_id} with inviter {inviter_id}")
 
+        await db.update_user(user_id, {"username": update.effective_user.username})
+
         referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
         welcome_message = (
             "စာပို့ရင်း ငွေရှာမယ်:\n"
-            f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
+            f"Welcome to the Chat Bot, {update.effective_user.full_name or 'User'}! 🎉\n\n"
             "⚠️ Force-Sub Required: Join our channel to use this bot!\n"
             "ဤဘော့ကို အသုံးပြုရန် ကျွန်ုပ်တို့၏ ချန်နယ်သို့ ဝင်ရောက်ပါ။\n\n"
             "Earn money by sending messages in the group!\n"
@@ -63,7 +65,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "\nUse the buttons below to join our channel, check your balance, withdraw, or join our group.\n"
             "အောက်ပါခလုတ်များကို အသုံးပြုပြီး ချန်နယ်သို့ဝင်ရောက်ပါ၊ လက်ကျန်ငွေစစ်ဆေးပါ၊ ငွေထုတ်ယူပါ သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ပါ။\n"
             "Required channel:\n" +
-            "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in required_channels])
+            "\n".join([f"https://t.me/{channel.lstrip('@')}" for channel in required_channels])
         )
 
         keyboard = [
