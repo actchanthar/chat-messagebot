@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import CURRENCY, DEFAULT_REQUIRED_INVITES
+from config import CURRENCY, REQUIRED_CHANNELS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,13 +17,27 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("Please start with /start first.")
             return
 
+        await db.update_user(user_id, {"username": update.effective_user.username})
+
         balance = user.get("balance", 0)
         invited_users = user.get("invited_users", 0) if isinstance(user.get("invited_users"), (int, float)) else len(user.get("invited_users", [])) if isinstance(user.get("invited_users"), list) else 0
-        await update.message.reply_text(
+        invite_requirement = await db.get_setting("invite_requirement", 15)
+        channels_joined = user.get("joined_channels", False)
+
+        message = (
             f"Your balance: {balance} {CURRENCY}\n"
-            f"Invited users: {invited_users}/{DEFAULT_REQUIRED_INVITES}\n"
-            "Use /withdraw to request a withdrawal after joining required channels."
+            f"Invited users: {invited_users}/{invite_requirement}\n"
         )
+        if not channels_joined:
+            channels_text = "\n".join([f"https://t.me/{channel.lstrip('@')}" for channel in await db.get_required_channels()])
+            message += (
+                f"Please join all required channels to withdraw:\n{channels_text}\n"
+                "Then use /checksubscription."
+            )
+        else:
+            message += "Use /withdraw to request a withdrawal."
+
+        await update.message.reply_text(message)
     except Exception as e:
         logger.error(f"Error in balance for user {user_id}: {e}", exc_info=True)
         try:
