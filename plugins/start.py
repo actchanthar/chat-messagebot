@@ -26,6 +26,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         welcome_message = (
             "စာပို့ရင်း ငွေရှာမယ်:\n"
             f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
+            "⚠️ Force-Sub Required: Join our channel to use this bot!\n"
+            "ဤဘော့ကို အသုံးပြုရန် ကျွန်ုပ်တို့၏ ချန်နယ်သို့ ဝင်ရောက်ပါ။\n\n"
             "Earn money by sending messages in the group!\n"
             "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
             f"Your referral link: {referral_link}\n"
@@ -53,16 +55,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     top_message += f"{i}. <b>{user['name']}</b> - {group_messages} messages, {balance} kyat\n" if i <= 3 else f"{i}. {user['name']} - {group_messages} messages, {balance} kyat\n"
                 welcome_message += top_message
 
-        # Fetch required channels from database
         required_channels = await db.get_required_channels()
         welcome_message += (
-            "\nUse the buttons below to check your balance, withdraw, or join our group.\n"
-            "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n"
-            "Join our channels to enable withdrawals:\n" +
+            "\nUse the buttons below to join our channel, check your balance, withdraw, or join our group.\n"
+            "အောက်ပါခလုတ်များကို အသုံးပြုပြီး ချန်နယ်သို့ဝင်ရောက်ပါ၊ လက်ကျန်ငွေစစ်ဆေးပါ၊ ငွေထုတ်ယူပါ သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ပါ။\n"
+            "Required channel:\n" +
             "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in required_channels])
         )
 
         keyboard = [
+            [InlineKeyboardButton("Join Channel", url=f"https://t.me/{required_channels[0].lstrip('@')}")],
             [
                 InlineKeyboardButton("Check Balance", callback_data="balance"),
                 InlineKeyboardButton("Withdraw", callback_data="withdraw")
