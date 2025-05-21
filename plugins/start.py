@@ -3,6 +3,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
 from config import BOT_USERNAME, REQUIRED_CHANNELS
+import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,12 +17,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         user = await db.get_user(user_id)
         if not user:
-            for _ in range(2):
+            for attempt in range(3):
                 user = await db.create_user(user_id, update.effective_user.full_name or "Unknown", inviter_id)
                 if user:
                     break
+                logger.warning(f"Attempt {attempt + 1} failed to create user {user_id}")
+                await asyncio.sleep(0.5)
             if not user:
-                await update.message.reply_text("Error creating user. Please try again or contact @actearnbot.")
+                logger.error(f"Failed to create user {user_id} after 3 attempts")
+                try:
+                    await update.message.reply_text("Error creating user. Please try again or contact @actearnbot.")
+                except Exception as e:
+                    logger.error(f"Failed to send error message to {user_id}: {e}")
                 return
             logger.info(f"Created new user {user_id} with inviter {inviter_id}")
 
@@ -78,14 +85,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
-        logger.info(f"Sent welcome message to user {user_id}")
+        try:
+            await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
+            logger.info(f"Sent welcome message to user {user_id}")
+            await asyncio.sleep(0.1)  # Rate limit delay
+        except Exception as e:
+            logger.error(f"Failed to send welcome message to {user_id}: {e}", exc_info=True)
+            try:
+                await update.message.reply_text("An error occurred. Please try again or contact @actearnbot.")
+            except Exception as e2:
+                logger.error(f"Failed to send error message to {user_id}: {e2}")
     except Exception as e:
         logger.error(f"Error in start for user {user_id}: {e}", exc_info=True)
         try:
             await update.message.reply_text("An error occurred. Please try again or contact @actearnbot.")
-        except Exception as reply_e:
-            logger.error(f"Failed to send error message to {user_id}: {reply_e}")
+        except Exception as e2:
+            logger.error(f"Failed to send error message to {user_id}: {e2}")
 
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
