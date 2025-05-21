@@ -18,10 +18,12 @@ print("Loading main.py")
 async def main():
     try:
         logger.info("Initializing application...")
+        print("Building application")
         application = Application.builder().token(BOT_TOKEN).build()
 
         # Register handlers
         logger.info("Registering handlers...")
+        print("Registering handlers")
         start.register_handlers(application)
         withdrawal.register_handlers(application)
         balance.register_handlers(application)
@@ -47,6 +49,7 @@ async def main():
 
         # Start polling
         logger.info("Starting bot polling...")
+        print("Starting polling")
         await application.initialize()
         await application.start()
         await application.updater.start_polling(
@@ -54,18 +57,23 @@ async def main():
             allowed_updates=["message", "callback_query", "chat_member"]
         )
         logger.info("Bot is running. Press Ctrl+C to stop.")
+        print("Bot is running")
         while True:
             await asyncio.sleep(3600)
     except Exception as e:
         logger.error(f"Error in main: {e}", exc_info=True)
+        print(f"Error: {e}")
         raise
     finally:
         logger.info("Shutting down bot...")
+        print("Shutting down bot")
         if 'application' in locals():
             await application.updater.stop()
             await application.stop()
             await application.shutdown()
         logger.info("Bot shutdown complete.")
+        print("Bot shutdown complete")
 
 if __name__ == "__main__":
+    print("Running main")
     asyncio.run(main())
