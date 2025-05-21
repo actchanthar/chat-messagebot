@@ -14,10 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def main():
     try:
-        # Initialize the application
         application = Application.builder().token(BOT_TOKEN).build()
-
-        # Register all handlers
         start.register_handlers(application)
         withdrawal.register_handlers(application)
         balance.register_handlers(application)
@@ -40,21 +37,16 @@ async def main():
         transfer.register_handlers(application)
         toggle_counting.register_handlers(application)
         pbroadcast.register_handlers(application)
-
-        # Start polling
         logger.info("Starting bot polling...")
         await application.initialize()
         await application.start()
         await application.updater.start_polling(
-            drop_pending_updates=True,  # Ignore updates received while bot was offline
+            drop_pending_updates=True,
             allowed_updates=["message", "callback_query", "chat_member"]
         )
-
-        # Keep the bot running until stopped
         logger.info("Bot is running. Press Ctrl+C to stop.")
         while True:
-            await asyncio.sleep(3600)  # Sleep to keep the event loop alive
-
+            await asyncio.sleep(3600)
     except KeyboardInterrupt:
         logger.info("Received KeyboardInterrupt, shutting down...")
     except Exception as e:
