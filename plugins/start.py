@@ -1,108 +1,82 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import CommandHandler, ContextTypes, CallbackQueryHandler
 from database.database import db
+from config import REQUIRED_CHANNELS, BOT_USERNAME
 import logging
-from config import REQUIRED_CHANNELS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
+    user = update.effective_user
+    user_id = str(user.id)
     chat_id = update.effective_chat.id
-    args = context.args
-    referrer_id = args[0] if args else None
-    logger.info(f"Start command by user {user_id} in chat {chat_id}, referrer: {referrer_id}")
+    logger.info(f"Start command received from user {user_id} in chat {chat_id}")
 
-    user = await db.get_user(user_id)
-    if not user:
-        user = await db.create_user(user_id, update.effective_user.full_name, referrer_id)
-        if referrer_id:
-            channels = await db.get_channels()
-            all_subscribed = True
-            for channel in channels:
+    # Initialize user in database
+    await db.add_user(
+        user_id=user_id,
+        name=user.first_name or "Unknown",
+        username=user.username or None,
+        balance=0,
+        invites=0,
+        message_count=0,
+        banned=False
+    )
+
+    # Check if user is in a private chat
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("Please use /start in a private chat to interact with the bot.")
+        return
+
+    # Check subscription to required channels
+    joined_channels = []
+    for channel_id in REQUIRED_CHANNELS:
+        try:
+            member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user.id)
+            if member.status in ["member", "administrator", "creator"]:
+                joined_channels.append(channel_id)
+        except Exception as e:
+            logger.error(f"Error checking membership for user {user_id} in channel {channel_id}: {e}")
+
+    if len(joined_channels) == len(REQUIRED_CHANNELS):
+        # User is subscribed to all required channels
+        referral_id = context.args[0] if context.args else None
+        if referral_id and referral_id != user_id:
+            referrer = await db.get_user(referral_id)
+            if referrer:
+                await db.increment_invites(referral_id)
+                await db.add_balance(referral_id, 25)  # Bonus for referrer
+                await db.add_balance(user_id, 50)     # Bonus for new user
                 try:
-                    member = await context.bot.get_chat_member(channel["channel_id"], int(user_id))
-                    if member.status not in ["member", "administrator", "creator"]:
-                        all_subscribed = False
-                    else:
-                        await db.update_user_subscription(user_id, channel["channel_id"], True)
+                    await context.bot.send_message(
+                        chat_id=referral_id,
+                        text=f"A new user joined via your referral link! You earned a 25 kyat bonus."
+                    )
                 except Exception as e:
-                    logger.error(f"Error checking subscription for user {user_id} in channel {channel['channel_id']}: {e}")
-                    all_subscribed = False
-            if all_subscribed:
-                await db.add_invite(referrer_id, user_id)
-                await db.update_user(referrer_id, {"balance": (await db.get_user(referrer_id)).get("balance", 0) + 25})
-                await db.update_user(user_id, {"balance": user.get("balance", 0) + 50})
-                await context.bot.send_message(
-                    chat_id=referrer_id,
-                    text=f"Your invite link was used by {update.effective_user.full_name}! You earned 25 kyat."
-                )
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="You joined via an invite and earned 50 kyat!"
-                )
+                    logger.error(f"Failed to notify referrer {referral_id}: {e}")
 
-    welcome_message = (
-        f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n"
-        "Earn money by sending messages in the group!\n"
-        "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n"
-        "3 messages = 1 kyat\n"
-    )
-
-    users = await db.get_all_users()
-    target_group = "-1002061898677"
-    sorted_users = sorted(
-        users,
-        key=lambda x: x.get("group_messages", {}).get(target_group, 0),
-        reverse=True
-    )[:10]
-    if sorted_users and sorted_users[0].get("group_messages", {}).get(target_group, 0) > 0:
-        phone_bill_reward = await db.get_phone_bill_reward()
-        top_message = (
-            f"🏆 Top Users (by messages):\n\n"
-            f"(၇ ရက်တစ်ခါ Top 1-3 ကို {phone_bill_reward} မဲဖောက်ပေးပါတယ် 🎁: 10000):\n\n"
+        await update.message.reply_text(
+            f"Welcome, {user.first_name}! 🎉\n"
+            "You have joined all required channels.\n"
+            f"Use /balance to check your balance, /withdraw to cash out, and /referral_users to invite friends.\n"
+            f"Bot Username: {BOT_USERNAME}"
         )
-        for i, user in enumerate(sorted_users, 1):
-            group_messages = user.get("group_messages", {}).get(target_group, 0)
-            balance = user.get("balance", 0)
-            top_message += f"{i}. <b>{user['name']}</b> - {group_messages} msg, {balance} kyat\n" if i <= 3 else \
-                           f"{i}. {user['name']} - {group_messages} msg, {balance} kyat\n"
-        welcome_message += top_message
-
-    sorted_users_invites = sorted(users, key=lambda x: x.get("invites", 0), reverse=True)[:10]
-    if sorted_users_invites and sorted_users_invites[0].get("invites", 0) > 0:
-        top_invites = (
-            f"\n🏆 Top Users (by invites):\n\n"
-            f"(၇ ရက်တစ်ခါ Top 1-3 ကို {phone_bill_reward} မဲဖောက်ပေးပါတယ် 🎁: 10000):\n\n"
+    else:
+        # Prompt user to join channels
+        keyboard = [
+            [InlineKeyboardButton("Join Channel", url=f"https://t.me/{(await context.bot.get_chat(channel_id)).username}")]
+            for channel_id in REQUIRED_CHANNELS if channel_id not in joined_channels
+        ]
+        keyboard.append([InlineKeyboardButton("Check Subscription ✅", callback_data="check_subscription")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Please join the following channels to start using the bot:\n"
+            "အောက်ပါချန်နယ်များကိုဝင်ရောက်ပါ။",
+            reply_markup=reply_markup
         )
-        for i, user in enumerate(sorted_users_invites, 1):
-            invites = user.get("invites", 0)
-            balance = user.get("balance", 0)
-            top_invites += f"{i}. <b>{user['name']}</b> - {invites} invites, {balance} kyat\n" if i <= 3 else \
-                           f"{i}. {user['name']} - {invites} invites, {balance} kyat\n"
-        welcome_message += top_invites
 
-    welcome_message += (
-        "\nUse the buttons below to check your balance, withdraw, or join our group.\n"
-        f"Your referral link: t.me/{context.bot.username}?start={user_id}\n"
-        "Invite users to earn 25 kyat per invite (they must join required channels for you to earn)!"
-    )
-
-    keyboard = [
-        [
-            InlineKeyboardButton("Check Balance", callback_data="balance"),
-            InlineKeyboardButton("Withdraw", callback_data="withdraw")
-        ],
-        [InlineKeyboardButton("Join Group", url="https://t.me/yourgroup")]
-    ]
-    for channel in await db.get_channels():
-        keyboard.append([InlineKeyboardButton(f"Join {channel['name']}", url=f"https://t.me/{channel['channel_id']}")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
-    logger.info(f"Sent welcome message to user {user_id}")
-
-def register_handlers(application: Application):
+def register_handlers(application):
     logger.info("Registering start handlers")
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(start, pattern="^start$"))
