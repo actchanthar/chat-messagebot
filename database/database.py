@@ -19,6 +19,10 @@ class Database:
     async def get_user(self, user_id):
         try:
             user = await self.users.find_one({"user_id": user_id})
+            if user:
+                # Fix invalid invited_users
+                if isinstance(user.get("invited_users"), list):
+                    await self.update_user(user_id, {"invited_users": len(user["invited_users"]) if user["invited_users"] else 0})
             logger.info(f"Retrieved user {user_id}: {user}")
             return user
         except Exception as e:
@@ -38,7 +42,7 @@ class Database:
                 "banned": False,
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
-                "message_timestamps": [],  # Use list instead of deque
+                "message_timestamps": [],
                 "inviter": inviter_id if inviter_id and await self.get_user(inviter_id) else None,
                 "invited_users": 0,
                 "joined_channels": False
@@ -147,7 +151,11 @@ class Database:
             if datetime.utcnow() < last_reward + timedelta(days=7):
                 return False
             users = await self.get_all_users()
-            top_users = sorted(users, key=lambda x: x.get("invited_users", 0), reverse=True)[:3]
+            top_users = sorted(
+                users,
+                key=lambda x: x.get("invited_users", 0) if isinstance(x.get("invited_users"), (int, float)) else len(x.get("invited_users", [])) if isinstance(x.get("invited_users"), list) else 0,
+                reverse=True
+            )[:3]
             reward_amount = 100
             for user in top_users:
                 user_id = user["user_id"]
@@ -191,7 +199,6 @@ class Database:
                 self.message_history[user_id] = []
             timestamps = user.get("message_timestamps", [])
             timestamps.append(current_time)
-            # Enforce maxlen=5
             if len(timestamps) > 5:
                 timestamps = timestamps[-5:]
             await self.update_user(user_id, {"message_timestamps": timestamps})
@@ -249,7 +256,6 @@ class Database:
             return ["@tiktokcelemyanmar"]
 
     async def fix_users(self):
-        """Migration to fix invalid invited_users fields."""
         try:
             users = await self.users.find().to_list(length=None)
             for user in users:
