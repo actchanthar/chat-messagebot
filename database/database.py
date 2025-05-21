@@ -1,302 +1,287 @@
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-    ConversationHandler,
-    CallbackQueryHandler,
-)
-from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS, ADMIN_IDS, REQUIRED_CHANNELS
-from database.database import db
+from motor.motor_asyncio import AsyncIOMotorClient
+from config import MONGODB_URL, MONGODB_NAME, REQUIRED_CHANNELS
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
+import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
+class Database:
+    def __init__(self):
+        self.client = AsyncIOMotorClient(MONGODB_URL)
+        self.db = self.client[MONGODB_NAME]
+        self.users = self.db.users
+        self.groups = self.db.groups
+        self.rewards = self.db.rewards
+        self.settings = self.db.settings
+        self.message_history = {}
+        self.lock = asyncio.Lock()
 
-async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    query = update.callback_query
-    message = update.message if update.message else query.message if query else None
-    logger.info(f"Withdraw initiated by user {user_id} in chat {chat_id} via {'button' if query else 'command'}")
-
-    if query:
+    async def get_user(self, user_id):
         try:
-            await query.answer()
-            logger.info(f"Callback query answered for user {user_id}")
+            async with self.lock:
+                user = await self.users.find_one({"user_id": user_id})
+                if user and isinstance(user.get("invited_users"), list):
+                    await self.update_user(user_id, {"invited_users": len(user["invited_users"]) if user["invited_users"] else 0})
+                logger.info(f"Retrieved user {user_id}: {user}")
+                return user
         except Exception as e:
-            logger.error(f"Error answering callback for user {user_id}: {e}")
+            logger.error(f"Error retrieving user {user_id}: {e}")
+            return None
 
-    if update.effective_chat.type != "private":
-        logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
-        await message.reply_text("Please use /withdraw in a private chat.")
-        return ConversationHandler.END
+    async def create_user(self, user_id, name, inviter_id=None):
+        try:
+            async with self.lock:
+                existing_user = await self.get_user(user_id)
+                if existing_user:
+                    logger.info(f"User {user_id} already exists")
+                    return existing_user
+                user = {
+                    "user_id": user_id,
+                    "name": name,
+                    "balance": 0,
+                    "messages": 0,
+                    "group_messages": {"-1002061898677": 0, "-1001756870040": 0},
+                    "withdrawn_today": 0,
+                    "last_withdrawal": None,
+                    "banned": False,
+                    "notified_10kyat": False,
+                    "last_activity": datetime.utcnow(),
+                    "message_timestamps": [],
+                    "inviter": inviter_id if inviter_id and await self.get_user(inviter_id) else None,
+                    "invited_users": 0,
+                    "joined_channels": False,
+                    "username": None
+                }
+                result = await self.users.insert_one(user)
+                logger.info(f"Created user {user_id} with inviter {inviter_id}")
+                return user
+        except Exception as e:
+            logger.error(f"Error creating user {user_id}: {e}")
+            return None
 
-    user = await db.get_user(user_id)
-    if not user:
-        logger.error(f"User {user_id} not found")
-        await message.reply_text("User not found. Please start with /start.")
-        return ConversationHandler.END
+    async def update_user(self, user_id, updates):
+        try:
+            async with self.lock:
+                result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
+                if result.modified_count > 0:
+                    updates_log = {k: v for k, v in updates.items()}
+                    if "message_timestamps" in updates_log:
+                        updates_log["message_timestamps"] = f"[{len(updates['message_timestamps'])} timestamps]"
+                    logger.info(f"Updated user {user_id}: {updates_log}")
+                    return True
+                logger.info(f"No changes for user {user_id}")
+                return False
+        except Exception as e:
+            logger.error(f"Error updating user {user_id}: {e}")
+            return False
 
-    if user.get("banned", False):
-        logger.info(f"User {user_id} is banned")
-        await message.reply_text("You are banned from using this bot.")
-        return ConversationHandler.END
+    async def get_all_users(self):
+        try:
+            users = await self.users.find().to_list(length=None)
+            logger.info(f"Retrieved {len(users)} users")
+            return users
+        except Exception as e:
+            logger.error(f"Error retrieving users: {e}")
+            return []
 
-    if user_id not in ADMIN_IDS:
-        invite_requirement = await db.get_setting("invite_requirement", 15)
-        if user.get("invited_users", 0) < invite_requirement:
-            await message.reply_text(f"You need to invite at least {invite_requirement} users who have joined the channels to withdraw.")
-            return ConversationHandler.END
-        if not user.get("joined_channels", False):
-            channels_text = "\n".join([f"https://t.me/{channel_id.replace('-100', '')}" for channel_id in REQUIRED_CHANNELS])
-            await message.reply_text(f"Please join all required channels and use /checksubscription:\n{channels_text}")
-            return ConversationHandler.END
+    async def get_top_users(self, limit=10):
+        try:
+            top_users = await self.users.find(
+                {"banned": False},
+                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "invited_users": 1, "_id": 0}
+            ).sort("messages", -1).limit(limit).to_list(length=limit)
+            logger.info(f"Retrieved top {limit} users: {top_users}")
+            return top_users
+        except Exception as e:
+            logger.error(f"Error retrieving top users: {e}")
+            return []
 
-    context.user_data.clear()
-    logger.info(f"Cleared user_data for user {user_id}")
+    async def add_group(self, group_id):
+        try:
+            existing_group = await self.groups.find_one({"group_id": group_id})
+            if existing_group:
+                logger.info(f"Group {group_id} already exists")
+                return "exists"
+            result = await self.groups.insert_one({"group_id": group_id})
+            logger.info(f"Added group {group_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding group {group_id}: {e}")
+            return False
 
-    keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await message.reply_text(
-        "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။\n(Warning ⚠️: အချက်လက်လိုသေချာစွာရေးပါ မှားရေးပါက ငွေများပြန်ရမည်မဟုတ်)",
-        reply_markup=reply_markup
-    )
-    logger.info(f"Prompted user {user_id} for payment method selection")
-    return STEP_PAYMENT_METHOD
+    async def get_approved_groups(self):
+        try:
+            groups = await self.groups.find({}, {"group_id": 1, "_id": 0}).to_list(length=None)
+            group_ids = [group["group_id"] for group in groups]
+            logger.info(f"Retrieved approved groups: {group_ids}")
+            return group_ids
+        except Exception as e:
+            logger.error(f"Error retrieving approved groups: {e}")
+            return []
 
-async def handle_payment_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    user_id = str(update.effective_user.id)
-    data = query.data
-    logger.info(f"Payment method selection by user {user_id}: {data}")
+    async def get_group_message_count(self, group_id):
+        try:
+            pipeline = [
+                {"$match": {f"group_messages.{group_id}": {"$exists": True}}},
+                {"$group": {"_id": None, "total_messages": {"$sum": f"$group_messages.{group_id}"}}}
+            ]
+            result = await self.users.aggregate(pipeline).to_list(length=None)
+            total_messages = result[0]["total_messages"] if result else 0
+            logger.info(f"Total messages in group {group_id}: {total_messages}")
+            return total_messages
+        except Exception as e:
+            logger.error(f"Error retrieving message count for group {group_id}: {e}")
+            return 0
 
-    if not data.startswith("payment_"):
-        await query.message.reply_text("Invalid payment method. Please start again with /withdraw.")
-        return ConversationHandler.END
+    async def get_last_reward_time(self):
+        try:
+            reward = await self.rewards.find_one({"type": "weekly"})
+            if not reward:
+                await self.rewards.insert_one({"type": "weekly", "last_reward": datetime.utcnow()})
+                return datetime.utcnow()
+            return reward["last_reward"]
+        except Exception as e:
+            logger.error(f"Error retrieving last reward time: {e}")
+            return datetime.utcnow()
 
-    method = data.replace("payment_", "")
-    if method not in PAYMENT_METHODS:
-        await query.message.reply_text("Invalid payment method. Please try again.")
-        return STEP_PAYMENT_METHOD
+    async def update_reward_time(self):
+        try:
+            await self.rewards.update_one({"type": "weekly"}, {"$set": {"last_reward": datetime.utcnow()}})
+            logger.info("Updated weekly reward time")
+        except Exception as e:
+            logger.error(f"Error updating reward time: {e}")
 
-    context.user_data["payment_method"] = method
+    async def award_weekly_rewards(self):
+        try:
+            last_reward = await self.get_last_reward_time()
+            if datetime.utcnow() < last_reward + timedelta(days=7):
+                return False
+            users = await self.get_all_users()
+            top_users = sorted(
+                users,
+                key=lambda x: x.get("invited_users", 0) if isinstance(x.get("invited_users"), (int, float)) else len(x.get("invited_users", [])) if isinstance(x.get("invited_users"), list) else 0,
+                reverse=True
+            )[:3]
+            reward_amount = 100
+            for user in top_users:
+                user_id = user["user_id"]
+                current_balance = user.get("balance", 0)
+                await self.update_user(user_id, {"balance": current_balance + reward_amount})
+                logger.info(f"Awarded {reward_amount} kyat to user {user_id} for invites")
+            await self.update_reward_time()
+            return True
+        except Exception as e:
+            logger.error(f"Error awarding weekly rewards: {e}")
+            return False
 
-    if method == "Phone Bill":
-        context.user_data["withdrawal_amount"] = 1000
-        await query.message.reply_text(
-            "သင့်ရဲ့ဖုန်းနံပါတ်ကိုပို့ပေးပါ (ဥပမာ: 09123456789)\n"
-            "Phone Bill top-up is fixed at 1000 kyat increments (e.g., 1000, 2000, 3000)."
-        )
-        return STEP_DETAILS
-
-    await query.message.reply_text(
-        f"Please enter the amount (minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}). 💸\n"
-        f"ငွေထုတ်ရန် ပမာဏကိုရေးပို့ပါ အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှထုတ်လို့ရမှာပါ"
-    )
-    return STEP_AMOUNT
-
-async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = str(update.effective_user.id)
-    message = update.message
-    payment_method = context.user_data.get("payment_method")
-
-    try:
-        amount = int(message.text.strip())
-        if payment_method == "Phone Bill" and amount % 1000 != 0:
-            await message.reply_text("Phone Bill withdrawals must be in 1000 kyat increments (e.g., 1000, 2000).")
-            return STEP_AMOUNT
-        if amount < WITHDRAWAL_THRESHOLD:
-            await message.reply_text(f"Minimum withdrawal is {WITHDRAWAL_THRESHOLD} {CURRENCY}. Try again.")
-            return STEP_AMOUNT
-
-        user = await db.get_user(user_id)
-        if user.get("balance", 0) < amount:
-            await message.reply_text("Insufficient balance. Check with /balance.")
-            return ConversationHandler.END
-
-        last_withdrawal = user.get("last_withdrawal")
-        withdrawn_today = user.get("withdrawn_today", 0)
-        current_time = datetime.now(timezone.utc)
-        if last_withdrawal and last_withdrawal.date() == current_time.date():
-            if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                await message.reply_text(f"Daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} exceeded.")
-                return STEP_AMOUNT
-        else:
-            withdrawn_today = 0
-
-        context.user_data["withdrawal_amount"] = amount
-        context.user_data["withdrawn_today"] = withdrawn_today
-
-        if payment_method == "KBZ Pay":
-            await message.reply_text(
-                "Please provide your KBZ Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n\n💳\n"
-                "ကျေးဇူးပြု၍ သင်၏ KBZ Pay အကောင့်အသေးစိတ်ကို ပေးပါ။ သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
+    async def set_phone_bill_reward(self, reward_text):
+        try:
+            await self.settings.update_one(
+                {"type": "phone_bill_reward"},
+                {"$set": {"value": reward_text}},
+                upsert=True
             )
-        elif payment_method == "Wave Pay":
-            await message.reply_text(
-                "Please provide your Wave Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n\n💳\n"
-                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ။ သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
-            )
-        return STEP_DETAILS
-    except ValueError:
-        await message.reply_text("Please enter a valid number (e.g., 100).")
-        return STEP_AMOUNT
+            logger.info(f"Set phone_bill_reward to: {reward_text}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting phone_bill_reward: {e}")
+            return False
 
-async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user_id = str(update.effective_user.id)
-    message = update.message
-    amount = context.user_data.get("withdrawal_amount")
-    payment_method = context.user_data.get("payment_method")
-    withdrawn_today = context.user_data.get("withdrawn_today", 0)
+    async def get_phone_bill_reward(self):
+        try:
+            setting = await self.settings.find_one({"type": "phone_bill_reward"})
+            return setting["value"] if setting and "value" in setting else "Phone Bill 1000 kyat"
+        except Exception as e:
+            logger.error(f"Error retrieving phone_bill_reward: {e}")
+            return "Phone Bill 1000 kyat"
 
-    if not amount or not payment_method:
-        await message.reply_text("Error: Missing data. Start again with /withdraw.")
-        return ConversationHandler.END
+    async def check_rate_limit(self, user_id, message_text=None):
+        try:
+            user = await self.get_user(user_id)
+            if not user:
+                return False
+            current_time = datetime.utcnow()
+            if user_id not in self.message_history:
+                self.message_history[user_id] = []
+            timestamps = user.get("message_timestamps", [])
+            timestamps.append(current_time)
+            if len(timestamps) > 5:
+                timestamps = timestamps[-5:]
+            await self.update_user(user_id, {"message_timestamps": timestamps})
+            if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
+                logger.warning(f"Rate limit exceeded for user {user_id}")
+                return True
+            if message_text and user_id in self.message_history and self.message_history[user_id] == message_text:
+                logger.warning(f"Duplicate message for user {user_id}")
+                return True
+            if message_text:
+                self.message_history[user_id] = message_text
+            return False
+        except Exception as e:
+            logger.error(f"Error checking rate limit for user {user_id}: {e}")
+            return False
 
-    user = await db.get_user(user_id)
-    payment_details = message.text or "No details provided"
-    context.user_data["withdrawal_details"] = payment_details
+    async def get_setting(self, setting_type, default=None):
+        try:
+            setting = await self.settings.find_one({"type": setting_type})
+            return setting["value"] if setting else default
+        except Exception as e:
+            logger.error(f"Error retrieving setting {setting_type}: {e}")
+            return default
 
-    keyboard = [
-        [
-            InlineKeyboardButton("Approve ✅", callback_data=f"approve_withdrawal_{user_id}_{amount}"),
-            InlineKeyboardButton("Reject ❌", callback_data=f"reject_withdrawal_{user_id}_{amount}")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    async def set_setting(self, setting_type, value):
+        try:
+            await self.settings.update_one({"type": setting_type}, {"$set": {"value": value}}, upsert=True)
+            logger.info(f"Set {setting_type} to {value}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting {setting_type}: {e}")
+            return False
 
-    user_name = user.get("name", update.effective_user.full_name)
-    username = update.effective_user.username or "N/A"
-    log_message = (
-        f"Withdrawal Request:\n"
-        f"ID: {user_id}\n"
-        f"{user_name}\n"
-        f"Username: @{username}\n"
-        f"သည် စုစုပေါင်း {amount} {CURRENCY} ငွေထုတ်ယူခဲ့ပါသည်။\n"
-        f"Payment Method: **{payment_method}**\n"
-        f"Details: {payment_details}\n"
-        f"Status: PENDING ⏳"
-    )
+    async def add_required_channel(self, channel_id):
+        try:
+            current_channels = await self.get_setting("required_channels", [])
+            if channel_id in current_channels:
+                logger.info(f"Channel {channel_id} already in required channels")
+                return "exists"
+            current_channels.append(channel_id)
+            await self.set_setting("required_channels", current_channels)
+            logger.info(f"Added channel {channel_id} to required channels")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding channel {channel_id}: {e}")
+            return False
 
-    try:
-        log_msg = await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=log_message,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        await context.bot.pin_chat_message(chat_id=LOG_CHANNEL_ID, message_id=log_msg.message_id, disable_notification=True)
-    except Exception as e:
-        logger.error(f"Failed to send/pin withdrawal request for {user_id}: {e}")
-        await message.reply_text("Error submitting request. Try again later.")
-        return ConversationHandler.END
+    async def get_required_channels(self):
+        try:
+            channels = await self.get_setting("required_channels", REQUIRED_CHANNELS)
+            logger.info(f"Retrieved required channels: {channels}")
+            return channels if channels else REQUIRED_CHANNELS
+        except Exception as e:
+            logger.error(f"Error retrieving required channels: {e}")
+            return REQUIRED_CHANNELS
 
-    await message.reply_text(f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Await approval.")
-    return ConversationHandler.END
+    async def fix_users(self):
+        try:
+            async with self.lock:
+                users = await self.users.find().to_list(length=None)
+                for user in users:
+                    updates = {}
+                    if isinstance(user.get("invited_users"), list):
+                        updates["invited_users"] = len(user["invited_users"]) if user["invited_users"] else 0
+                    if "group_messages" not in user:
+                        updates["group_messages"] = {"-1002061898677": 0, "-1001756870040": 0}
+                    if "message_timestamps" not in user or isinstance(user["message_timestamps"], dict):
+                        updates["message_timestamps"] = []
+                    if "joined_channels" not in user:
+                        updates["joined_channels"] = False
+                    if updates:
+                        await self.update_user(user["user_id"], updates)
+                        logger.info(f"Fixed user {user['user_id']}: {updates}")
+                logger.info("User migration completed")
+        except Exception as e:
+            logger.error(f"Error in user migration: {e}")
 
-async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-
-    if data.startswith("approve_withdrawal_"):
-        _, _, user_id, amount = data.split("_")
-        user_id = str(user_id)
-        amount = int(amount)
-
-        user = await db.get_user(user_id)
-        balance = user.get("balance", 0)
-        if balance < amount:
-            await query.message.reply_text("Insufficient balance.")
-            return
-
-        last_withdrawal = user.get("last_withdrawal")
-        withdrawn_today = user.get("withdrawn_today", 0)
-        current_time = datetime.now(timezone.utc)
-        if last_withdrawal and last_withdrawal.date() == current_time.date():
-            if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                await query.message.reply_text(f"Daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} exceeded.")
-                return
-        else:
-            withdrawn_today = 0
-
-        new_balance = balance - amount
-        new_withdrawn_today = withdrawn_today + amount
-        await db.update_user(user_id, {
-            "balance": new_balance,
-            "last_withdrawal": current_time,
-            "withdrawn_today": new_withdrawn_today
-        })
-
-        await query.message.reply_text(
-            f"Withdrawal approved for user {user_id}. Amount: {amount} {CURRENCY}. New balance: {new_balance} {CURRENCY}.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Post to Group 📢", callback_data=f"post_approval_{user_id}_{amount}")]])
-        )
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"Your withdrawal of {amount} {CURRENCY} has been approved! New balance: {new_balance} {CURRENCY}.\n"
-                 f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။ လက်ကျန်ငွေ: {new_balance} {CURRENCY}."
-        )
-
-        # Announce to bot users (like /users)
-        users = await db.get_all_users()
-        for u in users:
-            try:
-                await context.bot.send_message(
-                    chat_id=u["user_id"],
-                    text=f"User @{user.get('username', user['name'])} သည် စုစုပေါင်း {amount} {CURRENCY} ငွေထုတ်ယူခဲ့ပါသည်။\n"
-                         f"လက်ရှိလက်ကျန်ငွေ {new_balance} {CURRENCY}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to announce to user {u['user_id']}: {e}")
-
-    elif data.startswith("reject_withdrawal_"):
-        _, _, user_id, amount = data.split("_")
-        user_id = str(user_id)
-        amount = int(amount)
-        await query.message.reply_text(f"Withdrawal rejected for user {user_id}. Amount: {amount} {CURRENCY}.")
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"Your withdrawal request of {amount} {CURRENCY} has been rejected. Contact @actearnbot for issues."
-        )
-
-    elif data.startswith("post_approval_"):
-        _, _, user_id, amount = data.split("_")
-        user_id = str(user_id)
-        amount = int(amount)
-        user = await db.get_user(user_id)
-        mention = f"@{user.get('username', user['name'])}" if user.get("username") else user["name"]
-        await context.bot.send_message(
-            chat_id=GROUP_CHAT_IDS[0],
-            text=f"{mention} သူက ငွေ {amount} ကျပ်ထုတ်ခဲ့သည် ချိုချဉ်ယ်စားပါ"
-        )
-        await query.message.reply_text(f"Posted to group {GROUP_CHAT_IDS[0]}.")
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Withdrawal canceled.")
-    context.user_data.clear()
-    return ConversationHandler.END
-
-def register_handlers(application: Application):
-    logger.info("Registering withdrawal handlers")
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("withdraw", withdraw),
-            CallbackQueryHandler(withdraw, pattern="^withdraw$"),
-        ],
-        states={
-            STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
-            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
-            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    application.add_handler(conv_handler)
-    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve|reject)_withdrawal_|post_approval_"))
+db = Database()
