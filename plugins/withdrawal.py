@@ -167,8 +167,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         elif payment_method == "Wave Pay":
             await message.reply_text(
                 "Please provide your Wave Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n"
-                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။\n"
-                "သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
+                "ကျေးဇူးပြု၍ သင်ၤရဲ့ဖုန်းနံပါတ်ကိုပို့ပေးပါ (ဥပမာ : 09123456789)"
             )
         else:
             await message.reply_text(
