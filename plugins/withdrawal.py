@@ -13,6 +13,7 @@ from database.database import db
 import logging
 from datetime import datetime, timezone
 import asyncio
+import telegram.error
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,28 +31,32 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         try:
             await query.answer()
             logger.info(f"Callback query answered for user {user_id}")
-        except Exception as e:
-            logger.error(f"Error answering callback for user {user_id}: {e}", exc_info=True)
+        except telegram.error.TelegramError as e:
+            logger.error(f"Error answering callback for user {user_id}: {e}")
 
     if update.effective_chat.type != "private":
         logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
         try:
             await message.reply_text("Please use /withdraw in a private chat.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send non-private chat message to {user_id}: {e}")
         return ConversationHandler.END
 
     user = await db.get_user(user_id)
     if not user:
-        for _ in range(2):
+        for attempt in range(3):
             user = await db.create_user(user_id, update.effective_user.full_name or "Unknown")
             if user:
                 break
+            logger.warning(f"Attempt {attempt + 1} failed to create user {user_id}")
+            await asyncio.sleep(0.5)
         if not user:
             logger.error(f"User {user_id} not found and could not be created")
             try:
                 await message.reply_text("Error: User not found. Please start with /start.")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send user not found message to {user_id}: {e}")
             return ConversationHandler.END
 
@@ -59,7 +64,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.info(f"User {user_id} is banned")
         try:
             await message.reply_text("You are banned from using this bot.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send banned message to {user_id}: {e}")
         return ConversationHandler.END
 
@@ -70,7 +76,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             logger.info(f"User {user_id} has insufficient invites: {invited_users}/{invite_requirement}")
             try:
                 await message.reply_text(f"You need to invite at least {invite_requirement} users who have joined the channels to withdraw.")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send insufficient invites message to {user_id}: {e}")
             return ConversationHandler.END
         if not user.get("joined_channels", False):
@@ -82,7 +89,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                     f"Please join all required channels and use /checksubscription:\n{channels_text}\n"
                     "ဤချန်နယ်များအားလုံးသို့ ဝင်ရောက်ပြီး /checksubscription ကို အသုံးပြုပါ။"
                 )
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send join channels message to {user_id}: {e}")
             return ConversationHandler.END
 
@@ -94,11 +102,12 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         await message.reply_text(
             "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။\n"
-            "(Warning ⚠️: အချက်အလက်များကို သေချာစွာရေးပါ၊ မမှန်ကန်ပါက ငွေများပြန်ရမည်မဟုတ်ပါ။)",
+            "(Warning ⚠️: အချက်အလက်များကို သေချာစွာရေးပါ၊ မမှန်ကန်ပါက ငွေများပြန်ရမည်မဟုတ်ပါ�।)",
             reply_markup=reply_markup
         )
         logger.info(f"Sent payment method selection prompt to user {user_id}")
-    except Exception as e:
+        await asyncio.sleep(0.2)
+    except telegram.error.TelegramError as e:
         logger.error(f"Failed to send payment method prompt to {user_id}: {e}", exc_info=True)
         return ConversationHandler.END
     return STEP_PAYMENT_METHOD
@@ -111,14 +120,15 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
 
     try:
         await query.answer()
-    except Exception as e:
+    except telegram.error.TelegramError as e:
         logger.error(f"Error answering payment method callback for {user_id}: {e}")
 
     if not data.startswith("payment_"):
         logger.warning(f"Invalid payment method callback for user {user_id}: {data}")
         try:
             await query.message.reply_text("Invalid payment method. Please start again with /withdraw.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send invalid method message to {user_id}: {e}")
         return ConversationHandler.END
 
@@ -127,7 +137,8 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
         logger.warning(f"Unsupported payment method for user {user_id}: {method}")
         try:
             await query.message.reply_text("Invalid payment method. Please try again.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send invalid method message to {user_id}: {e}")
         return STEP_PAYMENT_METHOD
 
@@ -142,7 +153,8 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
                 "Phone Bill top-up is fixed at 1000 kyat increments (e.g., 1000, 2000, 3000)."
             )
             logger.info(f"Sent phone bill details prompt to user {user_id}")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send phone bill prompt to {user_id}: {e}")
             return ConversationHandler.END
         return STEP_DETAILS
@@ -153,7 +165,8 @@ async def handle_payment_method_selection(update: Update, context: ContextTypes.
             f"ငွေထုတ်ရန် ပမာဏကို ရေးပို့ပါ၊ အနည်းဆုံး {WITHDRAWAL_THRESHOLD} ပြည့်မှ ထုတ်လို့ရမှာပါ။"
         )
         logger.info(f"Sent amount prompt to user {user_id}")
-    except Exception as e:
+        await asyncio.sleep(0.2)
+    except telegram.error.TelegramError as e:
         logger.error(f"Failed to send amount prompt to {user_id}: {e}")
         return ConversationHandler.END
     return STEP_AMOUNT
@@ -168,7 +181,8 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         logger.error(f"Missing payment method for user {user_id}")
         try:
             await message.reply_text("Error: Payment method missing. Start again with /withdraw.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send missing method message to {user_id}: {e}")
         return ConversationHandler.END
 
@@ -178,14 +192,16 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             logger.warning(f"Invalid Phone Bill amount by user {user_id}: {amount}")
             try:
                 await message.reply_text("Phone Bill withdrawals must be in 1000 kyat increments (e.g., 1000, 2000).")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send invalid amount message to {user_id}: {e}")
             return STEP_AMOUNT
         if amount < WITHDRAWAL_THRESHOLD:
             logger.warning(f"Amount below threshold by user {user_id}: {amount}")
             try:
                 await message.reply_text(f"Minimum withdrawal is {WITHDRAWAL_THRESHOLD} {CURRENCY}. Try again.")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send low amount message to {user_id}: {e}")
             return STEP_AMOUNT
 
@@ -194,7 +210,8 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             logger.error(f"Insufficient balance for user {user_id}: {user.get('balance', 0) if user else 'None'} vs {amount}")
             try:
                 await message.reply_text("Insufficient balance. Check with /balance.")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send insufficient balance message to {user_id}: {e}")
             return ConversationHandler.END
 
@@ -206,7 +223,8 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 logger.warning(f"Daily limit exceeded for user {user_id}: {withdrawn_today + amount}")
                 try:
                     await message.reply_text(f"Daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} exceeded.")
-                except Exception as e:
+                    await asyncio.sleep(0.2)
+                except telegram.error.TelegramError as e:
                     logger.error(f"Failed to send daily limit message to {user_id}: {e}")
                 return STEP_AMOUNT
         else:
@@ -227,7 +245,8 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         try:
             await message.reply_text(prompt)
             logger.info(f"Sent details prompt to user {user_id} for {payment_method}")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send details prompt to {user_id}: {e}")
             return ConversationHandler.END
         return STEP_DETAILS
@@ -235,14 +254,16 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         logger.warning(f"Invalid amount input by user {user_id}: {message.text}")
         try:
             await message.reply_text("Please enter a valid number (e.g., 100).")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send invalid number message to {user_id}: {e}")
         return STEP_AMOUNT
     except Exception as e:
         logger.error(f"Error in handle_amount for user {user_id}: {e}", exc_info=True)
         try:
             await message.reply_text("An error occurred. Please try again.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send error message to {user_id}: {e}")
         return STEP_AMOUNT
 
@@ -258,7 +279,8 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Missing data for user {user_id}: amount={amount}, method={payment_method}")
         try:
             await message.reply_text("Error: Missing data. Start again with /withdraw.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send missing data message to {user_id}: {e}")
         return ConversationHandler.END
 
@@ -267,7 +289,8 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"User {user_id} not found in handle_details")
         try:
             await message.reply_text("Error: User not found. Start again with /start.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send user not found message to {user_id}: {e}")
         return ConversationHandler.END
 
@@ -304,21 +327,24 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         await context.bot.pin_chat_message(chat_id=LOG_CHANNEL_ID, message_id=log_msg.message_id, disable_notification=True)
         logger.info(f"Sent and pinned withdrawal request for user {user_id} to log channel")
-    except Exception as e:
+        await asyncio.sleep(0.2)
+    except telegram.error.TelegramError as e:
         logger.error(f"Failed to send/pin withdrawal request for {user_id}: {e}", exc_info=True)
         try:
             await message.reply_text("Error submitting request. Try again later.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send error message to {user_id}: {e}")
         return ConversationHandler.END
 
     try:
         await message.reply_text(
             f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Please await approval.\n"
-            f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို တင်သွင်းပြီးပါပြီ။ အတည်ပြုချက်ကို စောင့်ပါ�।"
+            f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို တင်သွင်းပြီးပါပြီ။ အတည်ပြုချက်ကို စောင့်ပါ။"
         )
         logger.info(f"Sent withdrawal confirmation to user {user_id}")
-    except Exception as e:
+        await asyncio.sleep(0.2)
+    except telegram.error.TelegramError as e:
         logger.error(f"Failed to send withdrawal confirmation to {user_id}: {e}")
     return ConversationHandler.END
 
@@ -332,7 +358,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             await query.answer()
             await query.message.reply_text("Unauthorized.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send unauthorized message to {user_id}: {e}")
         return
 
@@ -348,7 +375,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 logger.error(f"User {target_user_id} not found for approval")
                 try:
                     await query.message.reply_text(f"User {target_user_id} not found.")
-                except Exception as e:
+                    await asyncio.sleep(0.2)
+                except telegram.error.TelegramError as e:
                     logger.error(f"Failed to send user not found message to {user_id}: {e}")
                 return
 
@@ -357,7 +385,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 logger.warning(f"Insufficient balance for user {target_user_id}: {balance} vs {amount}")
                 try:
                     await query.message.reply_text("Insufficient balance.")
-                except Exception as e:
+                    await asyncio.sleep(0.2)
+                except telegram.error.TelegramError as e:
                     logger.error(f"Failed to send insufficient balance message to {user_id}: {e}")
                 return
 
@@ -369,7 +398,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     logger.warning(f"Daily limit exceeded for user {target_user_id}: {withdrawn_today + amount}")
                     try:
                         await query.message.reply_text(f"Daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} exceeded.")
-                    except Exception as e:
+                        await asyncio.sleep(0.2)
+                    except telegram.error.TelegramError as e:
                         logger.error(f"Failed to send daily limit message to {user_id}: {e}")
                     return
             else:
@@ -397,7 +427,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     )
                 )
                 logger.info(f"Approved withdrawal for user {target_user_id}: {amount} {CURRENCY}")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send approval messages for {target_user_id}: {e}")
 
             users = await db.get_all_users()
@@ -416,11 +447,12 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                         )
                     )
                     sent_count += 1
+                    logger.info(f"Sent withdrawal announcement to user {u['user_id']}")
                     if sent_count % 30 == 0:
                         await asyncio.sleep(1)
                     else:
-                        await asyncio.sleep(0.1)
-                except Exception as e:
+                        await asyncio.sleep(0.3)
+                except telegram.error.TelegramError as e:
                     logger.error(f"Failed to announce to user {u['user_id']}: {e}")
                     failed_count += 1
 
@@ -430,7 +462,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Post to Group 📢", callback_data=f"post_approval_{target_user_id}_{amount}")]])
                 )
                 logger.info(f"Sent approval summary to admin {user_id}: {sent_count} successes, {failed_count} failures")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send approval summary to {user_id}: {e}")
 
         elif data.startswith("reject_withdrawal_"):
@@ -450,7 +483,8 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     )
                 )
                 logger.info(f"Rejected withdrawal for user {target_user_id}: {amount} {CURRENCY}")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send rejection messages for {target_user_id}: {e}")
 
         elif data.startswith("post_approval_"):
@@ -466,13 +500,15 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 )
                 await query.message.reply_text(f"Posted to group {GROUP_CHAT_IDS[0]}.")
                 logger.info(f"Posted withdrawal announcement for {target_user_id} to group {GROUP_CHAT_IDS[0]}")
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to post to group for {target_user_id}: {e}")
     except Exception as e:
         logger.error(f"Error in handle_admin_receipt for admin {user_id}: {e}", exc_info=True)
         try:
             await query.message.reply_text("An error occurred during approval/rejection.")
-        except Exception as e:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e:
             logger.error(f"Failed to send error message to {user_id}: {e}")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -480,7 +516,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"Withdrawal canceled by user {user_id}")
     try:
         await update.message.reply_text("Withdrawal canceled.")
-    except Exception as e:
+        await asyncio.sleep(0.2)
+    except telegram.error.TelegramError as e:
         logger.error(f"Failed to send cancel message to {user_id}: {e}")
     context.user_data.clear()
     return ConversationHandler.END
