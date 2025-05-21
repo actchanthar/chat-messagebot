@@ -4,6 +4,8 @@ from database.database import db
 import logging
 from config import COUNT_MESSAGES, GROUP_CHAT_IDS, CURRENCY
 import random
+import telegram.error
+import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,10 +16,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     message_text = update.message.text
     logger.info(f"Message from user {user_id} in chat {chat_id}: {message_text}")
 
-    try:
-        if not COUNT_MESSAGES or chat_id not in GROUP_CHAT_IDS:
-            return
+    if not COUNT_MESSAGES or chat_id not in GROUP_CHAT_IDS:
+        logger.info(f"Ignoring message from {user_id} in chat {chat_id}: COUNT_MESSAGES={COUNT_MESSAGES}, chat_id in GROUP_CHAT_IDS={chat_id in GROUP_CHAT_IDS}")
+        return
 
+    try:
         user = await db.get_user(user_id)
         if not user:
             user = await db.create_user(user_id, update.effective_user.full_name or "Unknown")
@@ -29,9 +32,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await db.update_user(user_id, {"username": update.effective_user.username})
 
         if user.get("banned", False):
+            logger.info(f"Ignoring message from banned user {user_id}")
             return
 
         if await db.check_rate_limit(user_id, message_text):
+            logger.warning(f"Rate limit exceeded for user {user_id}")
             return
 
         group_messages = user.get("group_messages", {})
@@ -43,8 +48,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if total_messages % messages_per_kyat == 0:
             balance += 1
             if balance >= 10 and not user.get("notified_10kyat", False):
-                await update.message.reply_text(f"Congrats! You've earned {balance} {CURRENCY}. Keep chatting to earn more!")
-                await db.update_user(user_id, {"notified_10kyat": True})
+                try:
+                    await update.message.reply_text(f"Congrats! You've earned {balance} {CURRENCY}. Keep chatting to earn more!")
+                    await db.update_user(user_id, {"notified_10kyat": True})
+                    await asyncio.sleep(0.2)
+                except telegram.error.TelegramError as e:
+                    logger.error(f"Failed to send 10 kyat notification to {user_id}: {e}")
 
         updates = {
             "messages": total_messages,
@@ -52,10 +61,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "balance": balance,
             "last_activity": datetime.utcnow()
         }
-        await db.update_user(user_id, updates)
+        if await db.update_user(user_id, updates):
+            logger.info(f"Updated user {user_id}: messages={total_messages}, balance={balance}")
 
         if random.random() < 0.01:
-            await update.message.reply_text(f"You're earning {CURRENCY}! Keep chatting and check your balance with /balance.")
+            try:
+                await update.message.reply_text(f"You're earning {CURRENCY}! Keep chatting and check your balance with /balance.")
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
+                logger.error(f"Failed to send earning message to {user_id}: {e}")
     except Exception as e:
         logger.error(f"Error in handle_message for user {user_id}: {e}", exc_info=True)
 
