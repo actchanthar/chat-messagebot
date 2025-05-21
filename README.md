@@ -14,11 +14,11 @@ A Telegram bot for earning money by sending messages and inviting users. Deploye
 - Earn 1 kyat per 3 messages (configurable with `/setmessage`).
 - Withdraw earnings via KBZ Pay, Wave Pay, or Phone Bill.
 - Referral system: 25 kyats per invited user who joins channels, 50 kyats for joiners.
-- Force subscription to channels for withdrawals (managed via `/addchnl`).
+- Force subscription to channels for bot usage (managed via `/addchnl`).
 - Weekly rewards for top 3 inviters.
 
 ## Commands
-- `/start` - Welcome message, referral link, and channel list.
+- `/start` - Welcome message, referral link, force-sub channel, and buttons.
 - `/withdraw` - Initiate withdrawal (requires 15 invites unless admin).
 - `/balance` - Show current balance.
 - `/top` - Show top 10 users by invites and messages.
@@ -41,3 +41,4 @@ A Telegram bot for earning money by sending messages and inviting users. Deploye
 - Check logs: `heroku logs --tail`
 - Verify bot permissions in groups/channels.
 - Use `/addchnl` to manage required channels dynamically.
+- Run `db.fix_users()` after deployment to migrate user data.
