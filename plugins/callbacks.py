@@ -28,7 +28,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "Use /withdraw to request a withdrawal after joining required channels."
             )
         elif query.data == "withdraw":
-            # Placeholder for withdraw logic (should match withdrawal.py)
             if not user.get("joined_channels", False):
                 required_channels = await db.get_required_channels()
                 channels_text = "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in required_channels])
