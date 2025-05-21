@@ -3,7 +3,7 @@ from config import BOT_TOKEN
 from plugins import (
     start, withdrawal, balance, top, help, message_handler, broadcast, users,
     addgroup, checkgroup, setphonebill, subscription, couple, transfer,
-    setinvite, setmessage, addchnl
+    setinvite, setmessage, addchnl, callbacks
 )
 
 def main():
@@ -25,6 +25,7 @@ def main():
     setinvite.register_handlers(application)
     setmessage.register_handlers(application)
     addchnl.register_handlers(application)
+    callbacks.register_handlers(application)
     try:
         application.run_polling(allowed_updates=["message", "callback_query"])
     except Exception as e:
