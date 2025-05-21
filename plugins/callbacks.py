@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 import logging
 from database.database import db
-from config import CURRENCY, DEFAULT_REQUIRED_INVITES
+from config import CURRENCY, REQUIRED_CHANNELS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,24 +19,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.message.reply_text("Please start with /start first.")
             return
 
+        await db.update_user(user_id, {"username": query.from_user.username})
+
         if query.data == "balance":
             balance = user.get("balance", 0)
             invited_users = user.get("invited_users", 0) if isinstance(user.get("invited_users"), (int, float)) else len(user.get("invited_users", [])) if isinstance(user.get("invited_users"), list) else 0
-            await query.message.reply_text(
+            invite_requirement = await db.get_setting("invite_requirement", 15)
+            channels_joined = user.get("joined_channels", False)
+
+            message = (
                 f"Your balance: {balance} {CURRENCY}\n"
-                f"Invited users: {invited_users}/{DEFAULT_REQUIRED_INVITES}\n"
-                "Use /withdraw to request a withdrawal after joining required channels."
+                f"Invited users: {invited_users}/{invite_requirement}\n"
             )
-        elif query.data == "withdraw":
-            if not user.get("joined_channels", False):
-                required_channels = await db.get_required_channels()
-                channels_text = "\n".join([channel if channel.startswith("https://") else f"https://t.me/{channel.lstrip('@')}" for channel in required_channels])
-                await query.message.reply_text(
+            if not channels_joined:
+                channels_text = "\n".join([f"https://t.me/{channel.lstrip('@')}" for channel in await db.get_required_channels()])
+                message += (
                     f"Please join all required channels to withdraw:\n{channels_text}\n"
-                    "Then use /checksubscription and try again."
+                    "Then use /checksubscription."
                 )
             else:
-                await query.message.reply_text("Please use /withdraw to initiate a withdrawal.")
+                message += "Use /withdraw to request a withdrawal."
+
+            await query.message.reply_text(message)
+        elif query.data == "withdraw":
+            # Trigger the withdraw conversation handler
+            from withdrawal import withdraw
+            await withdraw(update, context)
     except Exception as e:
         logger.error(f"Error in button callback for user {user_id}: {e}", exc_info=True)
         try:
