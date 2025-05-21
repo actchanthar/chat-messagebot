@@ -2,7 +2,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
-from collections import deque
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,15 +32,15 @@ class Database:
                 "name": name,
                 "balance": 0,
                 "messages": 0,
-                "group_messages": {"-1002061898677": 0, "-1001756870040": 0},  # Initialize for all groups
+                "group_messages": {"-1002061898677": 0, "-1001756870040": 0},
                 "withdrawn_today": 0,
                 "last_withdrawal": None,
                 "banned": False,
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
-                "message_timestamps": deque(maxlen=5),
+                "message_timestamps": [],  # Use list instead of deque
                 "inviter": inviter_id if inviter_id and await self.get_user(inviter_id) else None,
-                "invited_users": 0,  # Initialize to prevent sorting errors
+                "invited_users": 0,
                 "joined_channels": False
             }
             result = await self.users.insert_one(user)
@@ -189,10 +188,13 @@ class Database:
                 return False
             current_time = datetime.utcnow()
             if user_id not in self.message_history:
-                self.message_history[user_id] = deque(maxlen=5)
-            timestamps = user.get("message_timestamps", deque(maxlen=5))
+                self.message_history[user_id] = []
+            timestamps = user.get("message_timestamps", [])
             timestamps.append(current_time)
-            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
+            # Enforce maxlen=5
+            if len(timestamps) > 5:
+                timestamps = timestamps[-5:]
+            await self.update_user(user_id, {"message_timestamps": timestamps})
             if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
                 logger.warning(f"Rate limit exceeded for user {user_id}")
                 return True
@@ -241,9 +243,28 @@ class Database:
         try:
             channels = await self.get_setting("required_channels", [])
             logger.info(f"Retrieved required channels: {channels}")
-            return channels if channels else ["@tiktokcelemyanmar"]  # Fallback
+            return channels if channels else ["@tiktokcelemyanmar"]
         except Exception as e:
             logger.error(f"Error retrieving required channels: {e}")
             return ["@tiktokcelemyanmar"]
+
+    async def fix_users(self):
+        """Migration to fix invalid invited_users fields."""
+        try:
+            users = await self.users.find().to_list(length=None)
+            for user in users:
+                updates = {}
+                if isinstance(user.get("invited_users"), list):
+                    updates["invited_users"] = len(user["invited_users"]) if user["invited_users"] else 0
+                if "group_messages" not in user:
+                    updates["group_messages"] = {"-1002061898677": 0, "-1001756870040": 0}
+                if "message_timestamps" not in user or isinstance(user["message_timestamps"], dict):
+                    updates["message_timestamps"] = []
+                if updates:
+                    await self.update_user(user["user_id"], updates)
+                    logger.info(f"Fixed user {user['user_id']}: {updates}")
+            logger.info("User migration completed")
+        except Exception as e:
+            logger.error(f"Error in user migration: {e}")
 
 db = Database()
