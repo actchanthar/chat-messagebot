@@ -4,7 +4,7 @@ A Telegram bot for earning money by sending messages and inviting users. Deploye
 ## Setup
 1. Clone the repository: `git clone https://github.com/actchanthar/chat-messagebot.git`
 2. Install dependencies: `pip install -r requirements.txt`
-3. Set environment variables in Heroku (or locally):
+3. Set environment variables in Heroku:
    - `BOT_TOKEN`: Your Telegram bot token
    - `MONGODB_URL`: MongoDB connection string
    - `MONGODB_NAME`: MongoDB database name
@@ -12,15 +12,15 @@ A Telegram bot for earning money by sending messages and inviting users. Deploye
 
 ## Features
 - Earn 1 kyat per 3 messages (configurable with `/setmessage`).
-- Withdraw earnings via KBZ Pay, Wave Pay, or Phone Bill.
+- Withdraw earnings via KBZ Pay, Wave Pay, or Phone Bill (requires 15 invites and channel subscription).
 - Referral system: 25 kyats per invited user who joins channels, 50 kyats for joiners.
-- Force subscription to channels for bot usage (managed via `/addchnl`).
+- Force subscription to channels (e.g., `@tiktokcelemyanmar`) for bot usage.
 - Weekly rewards for top 3 inviters.
 
 ## Commands
 - `/start` - Welcome message, referral link, force-sub channel, and buttons.
-- `/withdraw` - Initiate withdrawal (requires 15 invites unless admin).
-- `/balance` - Show current balance.
+- `/withdraw` - Initiate withdrawal (private chat only).
+- `/balance` - Show current balance and invite status.
 - `/top` - Show top 10 users by invites and messages.
 - `/help` - List commands.
 - `/rest` - Reset message counts (admin-only).
@@ -40,5 +40,5 @@ A Telegram bot for earning money by sending messages and inviting users. Deploye
 - Ensure MongoDB is accessible.
 - Check logs: `heroku logs --tail`
 - Verify bot permissions in groups/channels.
-- Use `/addchnl` to manage required channels dynamically.
+- Use `/addchnl` to manage required channels.
 - Run `db.fix_users()` after deployment to migrate user data.
