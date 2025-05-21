@@ -12,9 +12,16 @@ from plugins import (
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Debugging: Confirm main.py is loaded
+print("Loading main.py")
+
 async def main():
     try:
+        logger.info("Initializing application...")
         application = Application.builder().token(BOT_TOKEN).build()
+
+        # Register handlers
+        logger.info("Registering handlers...")
         start.register_handlers(application)
         withdrawal.register_handlers(application)
         balance.register_handlers(application)
@@ -37,6 +44,8 @@ async def main():
         transfer.register_handlers(application)
         toggle_counting.register_handlers(application)
         pbroadcast.register_handlers(application)
+
+        # Start polling
         logger.info("Starting bot polling...")
         await application.initialize()
         await application.start()
@@ -47,10 +56,9 @@ async def main():
         logger.info("Bot is running. Press Ctrl+C to stop.")
         while True:
             await asyncio.sleep(3600)
-    except KeyboardInterrupt:
-        logger.info("Received KeyboardInterrupt, shutting down...")
     except Exception as e:
         logger.error(f"Error in main: {e}", exc_info=True)
+        raise
     finally:
         logger.info("Shutting down bot...")
         if 'application' in locals():
