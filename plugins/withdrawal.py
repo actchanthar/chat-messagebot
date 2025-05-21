@@ -10,6 +10,7 @@ from telegram.ext import (
 )
 from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS
 from database.database import db
+from utils.rate_limiter import send_message_rate_limited, send_messages_batch
 import logging
 from datetime import datetime, timezone
 
@@ -163,12 +164,14 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Details: {payment_details}\n"
         f"Status: PENDING ⏳"
     )
-    log_msg = await context.bot.send_message(
+    log_msg = await send_message_rate_limited(
+        context.bot,
         chat_id=LOG_CHANNEL_ID,
         text=log_message,
         reply_markup=reply_markup
     )
-    await context.bot.pin_chat_message(LOG_CHANNEL_ID, log_msg.message_id, disable_notification=True)
+    if log_msg:
+        await context.bot.pin_chat_message(LOG_CHANNEL_ID, log_msg.message_id, disable_notification=True)
 
     await update.message.reply_text(
         f"Your withdrawal request for {amount} kyat has been submitted. Awaiting approval."
@@ -201,7 +204,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             "withdrawn_today": new_withdrawn_today
         })
 
-        # Send announcements
+        # Send group announcement
         announcement = (
             f"ID: {user_id}\n"
             f"First name Last name: {user['name']}\n"
@@ -209,18 +212,30 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             f"သည် စုစုပေါင်း {amount} ငွေထုတ်ယူခဲ့ပါသည်။\n"
             f"လက်ရှိလက်ကျန်ငွေ {new_balance} kyat"
         )
-        await context.bot.send_message(GROUP_CHAT_IDS[0], announcement)
-        for bot_user in await db.get_all_users():
-            try:
-                await context.bot.send_message(bot_user["user_id"], announcement)
-            except Exception:
-                continue
+        await send_message_rate_limited(context.bot, GROUP_CHAT_IDS[0], announcement)
+
+        # Batch send announcements to users
+        users = await db.get_all_users()
+        messages = [
+            (bot_user["user_id"], announcement, {})
+            for bot_user in users
+            if bot_user["user_id"] != user_id  # Exclude the withdrawing user
+        ]
+        await send_messages_batch(context.bot, messages, batch_size=30, delay=1)
 
         await query.message.reply_text(f"Approved withdrawal of {amount} kyat for user {user_id}.")
-        await context.bot.send_message(user_id, f"Your withdrawal of {amount} kyat has been approved!")
+        await send_message_rate_limited(
+            context.bot,
+            user_id,
+            f"Your withdrawal of {amount} kyat has been approved!"
+        )
     elif action == "reject":
         await query.message.reply_text(f"Rejected withdrawal of {amount} kyat for user {user_id}.")
-        await context.bot.send_message(user_id, f"Your withdrawal request of {amount} kyat was rejected.")
+        await send_message_rate_limited(
+            context.bot,
+            user_id,
+            f"Your withdrawal request of {amount} kyat was rejected."
+        )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Withdrawal canceled.")
