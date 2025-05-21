@@ -35,12 +35,13 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     parse_mode="HTML"
                 )
                 sent_count += 1
-                await asyncio.sleep(0.1)  # Increased delay to avoid rate limits
+                if sent_count % 30 == 0:
+                    await asyncio.sleep(1)
+                else:
+                    await asyncio.sleep(0.1)
             except Exception as e:
                 logger.error(f"Failed to send broadcast to {user['user_id']}: {e}")
                 failed_count += 1
-            if sent_count % 30 == 0:  # Pause every 30 messages
-                await asyncio.sleep(1)
 
         await update.message.reply_text(
             f"Broadcast complete: Sent to {sent_count} users, failed for {failed_count} users."
