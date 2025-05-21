@@ -4,6 +4,7 @@ import logging
 from database.database import db
 from config import CURRENCY, REQUIRED_CHANNELS
 import asyncio
+import telegram.error
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,7 +29,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 logger.error(f"Failed to create user {user_id} after 3 attempts")
                 try:
                     await query.message.reply_text("Please start with /start first.")
-                except Exception as e:
+                    await asyncio.sleep(0.2)
+                except telegram.error.TelegramError as e:
                     logger.error(f"Failed to send user not found message to {user_id}: {e}")
                 return
 
@@ -56,8 +58,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             try:
                 await query.message.reply_text(message)
                 logger.info(f"Sent balance to user {user_id}: {balance} {CURRENCY}, {invited_users}/{invite_requirement} invites")
-                await asyncio.sleep(0.1)
-            except Exception as e:
+                await asyncio.sleep(0.2)
+            except telegram.error.TelegramError as e:
                 logger.error(f"Failed to send balance message to {user_id}: {e}")
         elif data == "withdraw":
             from withdrawal import withdraw
@@ -66,7 +68,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.error(f"Error in button callback for user {user_id}: {e}", exc_info=True)
         try:
             await query.message.reply_text("An error occurred. Please try again or contact @actearnbot.")
-        except Exception as e2:
+            await asyncio.sleep(0.2)
+        except telegram.error.TelegramError as e2:
             logger.error(f"Failed to send error message to {user_id}: {e2}")
 
 def register_handlers(application: Application):
