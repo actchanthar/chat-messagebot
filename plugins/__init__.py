@@ -1,3 +1,4 @@
+print("Loading plugins/__init__.py")
 from .start import start
 from .withdrawal import withdrawal
 from .balance import balance
