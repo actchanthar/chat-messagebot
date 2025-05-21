@@ -16,11 +16,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         user = await db.get_user(user_id)
         if not user:
-            user = await db.create_user(user_id, update.effective_user.full_name, inviter_id)
-            logger.info(f"Created new user {user_id} with inviter {inviter_id}")
+            for _ in range(2):  # Retry once
+                user = await db.create_user(user_id, update.effective_user.full_name, inviter_id)
+                if user:
+                    break
             if not user:
-                await update.message.reply_text("Error creating user. Try again.")
+                await update.message.reply_text("Error creating user. Please try again or contact @actearnbot.")
                 return
+            logger.info(f"Created new user {user_id} with inviter {inviter_id}")
 
         referral_link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
         welcome_message = (
