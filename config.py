@@ -1,19 +1,29 @@
-import os
-import sys
+# config.py
+# Bot token
+BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
+BOT_USERNAME = "@actearnbot"  # Replace with your bot’s username, e.g., "@MyBot"
+# MongoDB settings
+MONGODB_NAME = "actchat1"
+MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/actchat1?retryWrites=true&w=majority&appName=Cluster0"
 
-def validate_env_vars():
-    required_vars = ["TELEGRAM_TOKEN", "MONGODB_URI"]
-    missing = [var for var in required_vars if not os.environ.get(var)]
-    if missing:
-        print(f"Error: Missing environment variables: {', '.join(missing)}")
-        sys.exit(1)
-
-validate_env_vars()
-
-BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-MONGODB_URI = os.environ.get("MONGODB_URI")
-ADMIN_IDS = os.environ.get("ADMIN_IDS", "").split(",")
-SPAM_THRESHOLD = 5
-TIME_WINDOW = 60 * 30
-REWARD_PER_MESSAGE = 1
+# Withdrawal settings
+WITHDRAWAL_THRESHOLD = 100
+DAILY_WITHDRAWAL_LIMIT = 5000
 CURRENCY = "kyat"
+
+# Message counting and group settings
+COUNT_MESSAGES = True
+GROUP_CHAT_IDS = ["-1002061898677", "-1001756870040"]
+
+# Log channel ID for admin notifications
+LOG_CHANNEL_ID = "-1002555129360"
+
+# Payment methods
+PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
+
+# Admin and referral settings
+ADMIN_IDS = ["5062124930"]  # List of admin user IDs
+DEFAULT_REQUIRED_INVITES = 15
+
+# Force-subscription settings
+REQUIRED_CHANNELS = ["-1002097823468", "-1002171798406"]  # Replace with actual channel IDs
