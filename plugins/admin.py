@@ -1,63 +1,78 @@
 from telegram import Update
-from telegram.ext import CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler, ContextTypes
+from config import ADMIN_IDS, LOG_CHANNEL_ID
 import logging
-import config
-from database import db
 
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def is_admin(user_id):
-    """Check if user is an admin"""
-    return str(user_id) in config.ADMIN_IDS
+from database.database import db
 
-async def reset_command(update: Update, context: CallbackContext) -> None:
-    """Reset all statistics (admin only)."""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text("You don't have permission to use this command.")
+async def dfusers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    if user_id not in ADMIN_IDS:
+        logger.info(f"Non-admin {user_id} attempted /dfusers")
+        await update.message.reply_text("You are not authorized to use this command.")
         return
-    
-    # Reset all stats
-    await db.reset_all_stats()
-    await update.message.reply_text("All statistics have been reset.")
-    logger.info(f"Admin {user_id} reset all statistics")
 
-async def pay_command(update: Update, context: CallbackContext) -> None:
-    """Mark a user as paid (admin only)."""
-    user_id = update.effective_user.id
-    
-    if not is_admin(user_id):
-        await update.message.reply_text("You don't have permission to use this command.")
-        return
-    
-    # Check if a user ID was provided
-    if not context.args or len(context.args) < 1:
-        await update.message.reply_text("Usage: /pay [user_id]")
-        return
-    
-    target_user_id = context.args[0]
-    
-    # Get user data
-    user = await db.get_user(target_user_id)
-    
-    if not user:
-        await update.message.reply_text(f"User {target_user_id} not found.")
-        return
-    
-    # Reset user's balance to 0 (mark as paid)
-    username = user['name']
-    amount = user['balance']
-    
-    # Update user in database
-    await db.reset_user_balance(target_user_id)
-    
-    await update.message.reply_text(
-        f"Payment of {amount} {config.CURRENCY} to {username} (ID: {target_user_id}) has been processed."
-    )
-    logger.info(f"Admin {user_id} processed payment of {amount} for user {target_user_id}")
+    try:
+        deleted_count = await db.delete_failed_broadcast_users()
+        logger.info(f"Admin {user_id} deleted {deleted_count} users with failed broadcasts")
+        await update.message.reply_text(f"Successfully deleted {deleted_count} users with failed broadcasts.")
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Admin {user_id} deleted {deleted_count} users with failed broadcasts."
+        )
+    except Exception as e:
+        logger.error(f"Error deleting failed broadcast users by {user_id}: {e}")
+        await update.message.reply_text("Error deleting users. Please try again later.")
 
-def register_handlers(application):
-    """Register handlers for this plugin"""
-    application.add_handler(CommandHandler("reset", reset_command))
-    application.add_handler(CommandHandler("pay", pay_command))
+async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        top_users = await db.get_top_users_by_invites(limit=10)
+        if not top_users:
+            await update.message.reply_text("No users found.")
+            return
+
+        reward_text = await db.get_phone_bill_reward_text()
+        message = f"🏆 Top Users by Invites ({reward_text}):\n\n"
+        for i, user in enumerate(top_users, 1):
+            username = user.get("username", user.get("name", "Unknown"))
+            invites = user.get("invited_users", 0)
+            message += f"{i}. @{username} - {invites} invites\n"
+
+        await update.message.reply_text(message)
+        logger.info(f"Top users displayed for user {update.effective_user.id}")
+    except Exception as e:
+        logger.error(f"Error processing /top for user {update.effective_user.id}: {e}")
+        await update.message.reply_text("Error retrieving top users. Please try again later.")
+
+async def set_phone_bill(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    if user_id not in ADMIN_IDS:
+        logger.info(f"Non-admin {user_id} attempted /SetPhoneBill")
+        await update.message.reply_text("You are not authorized to use this command.")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Please provide a reward text. Usage: /SetPhoneBill <text>")
+        return
+
+    reward_text = " ".join(context.args)
+    try:
+        await db.set_phone_bill_reward_text(reward_text)
+        logger.info(f"Admin {user_id} set Phone Bill reward text to: {reward_text}")
+        await update.message.reply_text(f"Phone Bill reward text set to: {reward_text}")
+        await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=f"Admin {user_id} set Phone Bill reward text to: {reward_text}"
+        )
+    except Exception as e:
+        logger.error(f"Error setting Phone Bill reward text by {user_id}: {e}")
+        await update.message.reply_text("Error setting reward text. Please try again later.")
+
+def register_handlers(application: Application):
+    logger.info("Registering admin handlers")
+    application.add_handler(CommandHandler("dfusers", dfusers))
+    application.add_handler(CommandHandler("top", top))
+    application.add_handler(CommandHandler("SetPhoneBill", set_phone_bill))

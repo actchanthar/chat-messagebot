@@ -1,31 +1,42 @@
 from telegram import Update
-from telegram.ext import CommandHandler, CallbackContext
-import config
-from database import db
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes  # Add CommandHandler
+from database.database import db
+import logging
 
-async def balance_command(update: Update, context: CallbackContext) -> None:
-    """Show user balance."""
-    user_id = str(update.effective_user.id)
-    user_name = update.effective_user.first_name
-    
-    # Get user data from database
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Handle both callback query (button) and command
+    query = update.callback_query
+    if query:
+        await query.answer()
+        user_id = str(query.from_user.id)
+        logger.info(f"Balance check initiated by user {user_id} via button")
+        message = query.message
+    else:
+        user_id = str(update.effective_user.id)
+        logger.info(f"Balance check initiated by user {user_id} via /balance command")
+        message = update.message
+
     user = await db.get_user(user_id)
-    
     if not user:
-        # Create new user if not exists
-        user = await db.create_or_update_user(user_id, {
-            "user_id": user_id,
-            "name": user_name,
-            "messages": 0,
-            "balance": 0
-        })
-    
-    await update.message.reply_text(
-        f"Hi {user['name']}!\n"
-        f"Your current balance: {user['balance']} {config.CURRENCY}\n"
-        f"Total messages: {user['messages']}"
-    )
+        await message.reply_text("User not found. Please start with /start.")
+        logger.error(f"User {user_id} not found in database")
+        return
 
-def register_handlers(application):
-    """Register handlers for this plugin"""
-    application.add_handler(CommandHandler("balance", balance_command))
+    balance = user.get("balance", 0)
+    reply_text = (
+        f"Your current balance is {balance} kyat.\n"
+        f"သင့်လက်ကျန်ငွေသည် {balance} ကျပ်ဖြစ်ပါသည်။"
+    )
+    if query:
+        await message.reply_text(reply_text, reply_markup=query.message.reply_markup)
+    else:
+        await message.reply_text(reply_text)
+    logger.info(f"Sent balance {balance} to user {user_id}")
+
+def register_handlers(application: Application):
+    logger.info("Registering balance handlers")
+    application.add_handler(CallbackQueryHandler(check_balance, pattern="^balance$"))
+    application.add_handler(CommandHandler("balance", check_balance))  # Add CommandHandler for /balance
