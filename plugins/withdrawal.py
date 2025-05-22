@@ -14,7 +14,7 @@ SELECT_METHOD, ENTER_AMOUNT = range(2)
 async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id}")
+    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with command {update.message.text}")
 
     user = await db.get_user(user_id)
     if not user:
@@ -258,7 +258,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
 
 def register_handlers(application: Application):
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("withdrawal", withdrawal_start)],
+        entry_points=[CommandHandler(["withdrawal", "Withdrawal"], withdrawal_start)],  # Support both cases
         states={
             SELECT_METHOD: [CallbackQueryHandler(select_method, pattern="^method_")],
             ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
