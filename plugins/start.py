@@ -61,7 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [
                 InlineKeyboardButton("Check Balance", callback_data="balance"),
-                InlineKeyboardButton("Withdrawal", callback_data="withdraw")
+                InlineKeyboardButton("Withdrawal", callback_data="Withdrawal")  # Changed from "withdraw" to "Withdrawal"
             ],
             [
                 InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
@@ -73,7 +73,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = (
             f"Welcome, {name}! 😊\n"
             "မင်္ဂလာပါ! ကျွန်ုပ်တို့၏အုပ်စုတွင် ပါဝင်ပြီး စာပို့ခြင်းဖြင့် ငွေရှာနိုင်ပါသည်။\n"
-            "1 message = 1 kyat\n"  # Updated from 3 messages = 1 kyat
+            "1 message = 1 kyat\n"
             "Invite friends to earn more! Referrer gets 25 kyat, invitee gets 50 kyat.\n"
             f"Your referral link: {referral_link}"
         )
