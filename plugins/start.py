@@ -14,38 +14,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     name = update.effective_user.full_name or "Unknown"
     username = update.effective_user.username
-    logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
 
-    # Check force subscription
     if not await checksubscription(update, context):
         return
 
-    # Handle referral
     referrer_id = None
     if context.args:
         match = re.match(r"referrer_(\d+)", context.args[0])
         if match:
             referrer_id = match.group(1)
-            logger.info(f"Referrer ID {referrer_id} provided by user {user_id}")
 
     try:
         user = await db.get_user(user_id)
         if not user:
             max_retries = 3
             for attempt in range(max_retries):
-                try:
-                    user = await db.create_user(user_id, name, username)
-                    if user:
-                        break
-                    logger.warning(f"Attempt {attempt + 1} failed to create user {user_id}")
-                    await asyncio.sleep(1)
-                except Exception as e:
-                    logger.error(f"Attempt {attempt + 1} error creating user {user_id}: {e}")
-                    if attempt == max_retries - 1:
-                        await update.message.reply_text("Failed to create user. Please try again later.")
-                        return
-            if not user:
-                return
+                user = await db.create_user(user_id, name, username)
+                if user:
+                    break
+                await asyncio.sleep(1)
+                if attempt == max_retries - 1:
+                    await update.message.reply_text("Failed to create user.")
+                    return
 
             if referrer_id and referrer_id != user_id:
                 referrer = await db.get_user(referrer_id)
@@ -57,11 +47,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(referrer_id, "You earned 25 kyat for referring a new user!")
                         await context.bot.send_message(user_id, "You earned 50 kyat for joining via referral!")
                     except Exception as e:
-                        logger.error(f"Error notifying referrer {referrer_id} or user {user_id}: {e}")
-                else:
-                    logger.warning(f"Referrer {referrer_id} not found for user {user_id}")
+                        logger.error(f"Error notifying referrer {referrer_id}: {e}")
 
-        # Update user name and username
         updates = {}
         if user["name"] != name:
             updates["name"] = name
@@ -88,9 +75,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Your referral link: {referral_link}"
         )
         await update.message.reply_text(message, reply_markup=reply_markup)
-        logger.info(f"Sent welcome message to user {user_id}")
     except Exception as e:
-        await update.message.reply_text("An error occurred. Please try again later.")
+        await update.message.reply_text("An error occurred.")
         logger.error(f"Error in start for user {user_id}: {e}")
 
 def register_handlers(application: Application):
