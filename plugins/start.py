@@ -31,7 +31,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = await db.get_user(user_id)
         if not user:
-            # Retry user creation up to 3 times
             max_retries = 3
             for attempt in range(max_retries):
                 try:
@@ -49,9 +48,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
             if referrer_id and referrer_id != user_id:
-                await db.add_invite(referrer_id, user_id)
                 referrer = await db.get_user(referrer_id)
                 if referrer:
+                    await db.add_invite(referrer_id, user_id)
                     await db.update_user(referrer_id, {"balance": referrer.get("balance", 0) + 25})
                     await db.update_user(user_id, {"balance": user.get("balance", 0) + 50, "referrer": referrer_id})
                     try:
@@ -59,8 +58,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(user_id, "You earned 50 kyat for joining via referral!")
                     except Exception as e:
                         logger.error(f"Error notifying referrer {referrer_id} or user {user_id}: {e}")
+                else:
+                    logger.warning(f"Referrer {referrer_id} not found for user {user_id}")
 
-        # Update user name and username in case they changed
+        # Update user name and username
         updates = {}
         if user["name"] != name:
             updates["name"] = name
