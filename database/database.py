@@ -9,18 +9,32 @@ logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        self.client = AsyncIOMotorClient(MONGODB_URL)
+        self.client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=30000)  # Increased timeout
         self.db = self.client[MONGODB_NAME]
         self.users = self.db.users
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
         self.message_history = {}  # In-memory cache for duplicate checking
+        self._ensure_indexes()
+
+    def _ensure_indexes(self):
+        """Create indexes for faster queries."""
+        try:
+            self.users.create_index([("user_id", 1)], unique=True)
+            self.users.create_index([("invite_count", -1)])
+            self.users.create_index([("messages", -1)])
+            self.groups.create_index([("group_id", 1)], unique=True)
+            self.settings.create_index([("type", 1)], unique=True)
+            logger.info("Database indexes ensured")
+        except Exception as e:
+            logger.error(f"Failed to create indexes: {e}")
 
     async def get_user(self, user_id):
         try:
-            user = await self.users.find_one({"user_id": user_id})
-            logger.info(f"Retrieved user {user_id}: {user}")
+            user = await self.users.find_one({"user_id": str(user_id)})
+            if user:
+                logger.info(f"Retrieved user {user_id}")
             return user
         except Exception as e:
             logger.error(f"Error retrieving user {user_id}: {e}")
@@ -29,7 +43,7 @@ class Database:
     async def create_user(self, user_id, name):
         try:
             user = {
-                "user_id": user_id,
+                "user_id": str(user_id),
                 "name": name,
                 "balance": 0.0,
                 "messages": 0,
@@ -53,7 +67,7 @@ class Database:
 
     async def update_user(self, user_id, updates):
         try:
-            result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
+            result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
             if result.modified_count > 0:
                 updates_log = {k: v if k != "message_timestamps" else f"[{len(updates['message_timestamps'])} timestamps]" for k, v in updates.items()}
                 logger.info(f"Updated user {user_id}: {updates_log}")
@@ -66,7 +80,7 @@ class Database:
 
     async def get_all_users(self):
         try:
-            users = await self.users.find().to_list(length=None)
+            users = await self.users.find({}, {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1}).to_list(length=None)
             logger.info(f"Retrieved {len(users)} users")
             return users
         except Exception as e:
@@ -75,15 +89,12 @@ class Database:
 
     async def get_top_users(self, by="messages", limit=10):
         try:
-            if by == "invites":
-                sort_field = "invite_count"
-            else:
-                sort_field = "messages"
+            sort_field = "invite_count" if by == "invites" else "messages"
             top_users = await self.users.find(
                 {"banned": False},
                 {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1, "_id": 0}
             ).sort(sort_field, -1).limit(limit).to_list(length=limit)
-            logger.info(f"Retrieved top {limit} users by {by}: {top_users}")
+            logger.info(f"Retrieved top {limit} users by {by}")
             return top_users
         except Exception as e:
             logger.error(f"Error retrieving top users by {by}: {e}")
@@ -91,10 +102,10 @@ class Database:
 
     async def add_group(self, group_id):
         try:
-            if await self.groups.find_one({"group_id": group_id}):
+            if await self.groups.find_one({"group_id": str(group_id)}):
                 logger.info(f"Group {group_id} already exists")
                 return "exists"
-            await self.groups.insert_one({"group_id": group_id})
+            await self.groups.insert_one({"group_id": str(group_id)})
             logger.info(f"Added group {group_id}")
             return True
         except Exception as e:
@@ -209,14 +220,21 @@ class Database:
 
     async def add_force_sub_channel(self, channel_id):
         try:
-            await self.settings.update_one({"type": "force_sub_channels"}, {"$addToSet": {"channels": channel_id}}, upsert=True)
+            await self.settings.update_one(
+                {"type": "force_sub_channels"},
+                {"$addToSet": {"channels": str(channel_id)}},
+                upsert=True
+            )
             logger.info(f"Added force sub channel {channel_id}")
         except Exception as e:
             logger.error(f"Error adding force sub channel {channel_id}: {e}")
 
     async def remove_force_sub_channel(self, channel_id):
         try:
-            await self.settings.update_one({"type": "force_sub_channels"}, {"$pull": {"channels": channel_id}})
+            await self.settings.update_one(
+                {"type": "force_sub_channels"},
+                {"$pull": {"channels": str(channel_id)}}
+            )
             logger.info(f"Removed force sub channel {channel_id}")
         except Exception as e:
             logger.error(f"Error removing force sub channel {channel_id}: {e}")
@@ -231,14 +249,21 @@ class Database:
 
     async def set_invite_requirement(self, value):
         try:
-            await self.settings.update_one({"type": "invite_requirement"}, {"$set": {"value": value}}, upsert=True)
+            await self.settings.update_one(
+                {"type": "invite_requirement"},
+                {"$set": {"value": value}},
+                upsert=True
+            )
             logger.info(f"Set invite requirement to {value}")
         except Exception as e:
             logger.error(f"Error setting invite requirement: {e}")
 
     async def add_invite(self, referrer_id, invitee_id):
         try:
-            await self.users.update_one({"user_id": referrer_id}, {"$addToSet": {"invites": invitee_id}, "$inc": {"invite_count": 1}})
+            await self.users.update_one(
+                {"user_id": str(referrer_id)},
+                {"$addToSet": {"invites": str(invitee_id)}, "$inc": {"invite_count": 1}}
+            )
             logger.info(f"Added invite {invitee_id} to referrer {referrer_id}")
         except Exception as e:
             logger.error(f"Error adding invite for referrer {referrer_id}: {e}")
@@ -253,7 +278,11 @@ class Database:
 
     async def set_message_rate(self, value):
         try:
-            await self.settings.update_one({"type": "message_rate"}, {"$set": {"value": value}}, upsert=True)
+            await self.settings.update_one(
+                {"type": "message_rate"},
+                {"$set": {"value": value}},
+                upsert=True
+            )
             logger.info(f"Set message rate to {value}")
         except Exception as e:
             logger.error(f"Error setting message rate: {e}")
@@ -268,14 +297,18 @@ class Database:
 
     async def set_last_couple_time(self, time):
         try:
-            await self.settings.update_one({"type": "last_couple_time"}, {"$set": {"value": time}}, upsert=True)
+            await self.settings.update_one(
+                {"type": "last_couple_time"},
+                {"$set": {"value": time}},
+                upsert=True
+            )
             logger.info(f"Set last couple time to {time}")
         except Exception as e:
             logger.error(f"Error setting last couple time: {e}")
 
     async def get_random_users(self, count=2):
         try:
-            pipeline = [{"$sample": {"size": count}}]
+            pipeline = [{"$match": {"banned": False}}, {"$sample": {"size": count}}]
             users = await self.users.aggregate(pipeline).to_list(length=count)
             return users
         except Exception as e:
@@ -292,7 +325,11 @@ class Database:
 
     async def set_count_messages(self, value):
         try:
-            await self.settings.update_one({"type": "count_messages"}, {"$set": {"value": value}}, upsert=True)
+            await self.settings.update_one(
+                {"type": "count_messages"},
+                {"$set": {"value": value}},
+                upsert=True
+            )
             logger.info(f"Set count_messages to {value}")
         except Exception as e:
             logger.error(f"Error setting count_messages: {e}")
