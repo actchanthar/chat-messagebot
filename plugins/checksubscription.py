@@ -3,7 +3,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -12,17 +12,21 @@ async def checksubscription(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         channels = await db.get_force_sub_channels()
         if not channels:
             logger.info(f"No force-sub channels for user {user_id}")
-            return True  # No channels to check, allow access
+            return True
 
         keyboard = []
         subscribed = True
         for channel_id in channels:
             try:
+                chat = await context.bot.get_chat(channel_id)
+                channel_name = chat.title or chat.username or channel_id
+                if chat.username:
+                    channel_name = f"@{chat.username}"
                 member = await context.bot.get_chat_member(channel_id, user_id)
                 if member.status not in ["member", "administrator", "creator"]:
                     subscribed = False
-                    channel_link = f"https://t.me/{(await context.bot.get_chat(channel_id)).username or channel_id}"
-                    keyboard.append([InlineKeyboardButton(f"Join {channel_id}", url=channel_link)])
+                    channel_link = f"https://t.me/{chat.username or channel_id.lstrip('-')}"
+                    keyboard.append([InlineKeyboardButton(f"Join {channel_name}", url=channel_link)])
             except Exception as e:
                 logger.error(f"Error checking membership for user {user_id} in channel {channel_id}: {e}")
                 continue
