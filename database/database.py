@@ -84,8 +84,12 @@ class Database:
                     updates["balance"] = max(0, updates["balance"])
                 if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
                     updates["message_timestamps"] = list(updates["message_timestamps"])
+                logger.info(f"Updating user {user_id} with: {updates}")
                 result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
-                logger.debug(f"Updated user {user_id}: {updates}")
+                if result.modified_count > 0:
+                    logger.info(f"Updated user {user_id} successfully")
+                else:
+                    logger.warning(f"No changes made for user {user_id}")
                 return result.modified_count > 0
             except Exception as e:
                 if attempt < max_retries - 1:
