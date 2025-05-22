@@ -41,10 +41,11 @@ def main():
 
     application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
 
-    start_handlers(application)
-    withdrawal_handlers(application)
-    balance_handlers(application)
-    top_handlers(application)
+    # Register handlers that handle callbacks first
+    withdrawal_handlers(application)  # Moved up to handle "Withdrawal" callback
+    balance_handlers(application)     # Moved up to handle "balance" callback
+    top_handlers(application)         # Moved up to handle "top" callback (from start.py)
+    start_handlers(application)       # Moved after callback handlers
     help_handlers(application)
     message_handlers(application)
     broadcast_handlers(application)
