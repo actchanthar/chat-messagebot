@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
 
@@ -8,20 +8,30 @@ logger = logging.getLogger(__name__)
 
 async def referral_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    user = await db.get_user(user_id)
-    if not user:
-        await update.message.reply_text("User not found. Start with /start.")
-        return
+    try:
+        user = await db.get_user(user_id)
+        if not user:
+            await update.message.reply_text("User not found. Please start with /start.")
+            return
 
-    invite_count = user.get("invite_count", 0)
-    reward = invite_count * 25
-    message = (
-        f"Your Referral Stats:\n"
-        f"Invites: {invite_count}\n"
-        f"Reward Earned: {reward} kyats\n"
-        f"Use /start to get your referral link!"
-    )
-    await update.message.reply_text(message)
+        invites = user.get("invites", [])
+        invite_count = user.get("invite_count", 0)
+        message = f"Your Invites: {invite_count}\n"
+        if invites:
+            message += "Invited Users:\n"
+            for i, invitee_id in enumerate(invites, 1):
+                invitee = await db.get_user(invitee_id)
+                if invitee:
+                    message += f"{i}. {invitee['name']} (@{invitee.get('username', 'N/A')})\n"
+                else:
+                    message += f"{i}. User ID {invitee_id} (Not found)\n"
+        else:
+            message += "No users invited yet."
+        await update.message.reply_text(message)
+        logger.info(f"User {user_id} checked referral users: {invite_count} invites")
+    except Exception as e:
+        await update.message.reply_text("Failed to fetch referral users.")
+        logger.error(f"Error in referral_users for user {user_id}: {e}")
 
-def register_handlers(application):
+def register_handlers(application: Application):
     application.add_handler(CommandHandler("referral_users", referral_users))
