@@ -28,14 +28,18 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         if top_invites:
             for i, user in enumerate(top_invites, 1):
-                message += f"{i}. {user['name']} (@{user.get('username', 'N/A')}) - {user.get('invite_count', 0)} invites, {user.get('balance', 0):.2f} kyat\n"
+                username = user.get("username")
+                username_display = f"@{username}" if username else "N/A"
+                message += f"{i}. {user['name']} ({username_display}) - {user.get('invite_count', 0)} invites, {user.get('balance', 0):.2f} kyat\n"
         else:
             message += "No users with invites yet.\n"
 
         message += "\nTop Users by Messages:\n\n"
         if top_messages:
             for i, user in enumerate(top_messages, 1):
-                message += f"{i}. {user['name']} (@{user.get('username', 'N/A')}) - {user.get('messages', 0)} msg, {user.get('balance', 0):.2f} kyat\n"
+                username = user.get("username")
+                username_display = f"@{username}" if username else "N/A"
+                message += f"{i}. {user['name']} ({username_display}) - {user.get('messages', 0)} msg, {user.get('balance', 0):.2f} kyat\n"
         else:
             message += "No users with messages yet.\n"
 
