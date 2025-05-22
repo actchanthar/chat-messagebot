@@ -22,7 +22,8 @@ from plugins.debug_count import register_handlers as debug_count_handlers
 from plugins.test_count import register_handlers as test_count_handlers
 from plugins.rmamount import register_handlers as rmamount_handlers
 from plugins.check import register_handlers as check_handlers
-from plugins.add_bonus import register_handlers as add_bonus_handlers  # Add this
+from plugins.add_bonus import register_handlers as add_bonus_handlers
+from plugins.grok import register_handlers as grok_handlers  # Add this
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -61,7 +62,8 @@ def main():
     test_count_handlers(application)
     rmamount_handlers(application)
     check_handlers(application)
-    add_bonus_handlers(application)  # Add this
+    add_bonus_handlers(application)
+    grok_handlers(application)  # Add this
 
     try:
         application.run_polling(
