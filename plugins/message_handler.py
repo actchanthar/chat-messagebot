@@ -44,7 +44,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group_messages = user.get("group_messages", {})
         group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
         total_messages = user.get("messages", 0) + 1
-        message_rate = await db.get_message_rate()  # e.g., 3 messages = 1 kyat
+        message_rate = await db.get_message_rate()
         new_balance = total_messages / message_rate
 
         updates = {
@@ -63,7 +63,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if new_balance >= 10 and not user.get("notified_10kyat", False):
             await update.message.reply_text("Congratulations! You've earned 10 kyat. Check with /balance.")
             await db.update_user(user_id, {"notified_10kyat": True})
-            logger.info(f"Notified user {user_id} for 10 kyat milestone")
 
     except Exception as e:
         logger.error(f"Error processing message from user {user_id} in chat {chat_id}: {e}")
