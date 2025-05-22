@@ -16,6 +16,7 @@ class Database:
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
+        self.withdrawals = self.db.withdrawals  # Add this collection
         self.message_history = {}
         self._ensure_indexes()
 
@@ -26,6 +27,7 @@ class Database:
             self.users.create_index([("messages", -1)])
             self.groups.create_index([("group_id", 1)], unique=True)
             self.settings.create_index([("type", 1)], unique=True)
+            self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)  # Add index for withdrawals
             logger.info("Database indexes ensured")
         except Exception as e:
             logger.error(f"Failed to create indexes: {e}")
@@ -146,10 +148,10 @@ class Database:
     async def get_message_rate(self):
         try:
             settings = await self.settings.find_one({"type": "message_rate"})
-            return settings.get("value", 3) if settings else 3
+            return settings.get("value", 1) if settings else 1  # Changed default to 1
         except Exception as e:
             logger.error(f"Error retrieving message rate: {e}")
-            return 3
+            return 1
 
     async def set_message_rate(self, value):
         try:
