@@ -14,7 +14,7 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id}")
 
     try:
-        # Verify bot permissions in LOG_CHANNEL_ID
+        # Check bot permissions in LOG_CHANNEL_ID
         chat_member = await context.bot.get_chat_member(LOG_CHANNEL_ID, context.bot.id)
         if not chat_member.can_send_messages:
             logger.error(f"Bot lacks permission to send messages in {LOG_CHANNEL_ID}")
@@ -49,7 +49,7 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"Amount: {balance:.2f} kyat\n"
             f"Time: {datetime.utcnow()}"
         )
-        logger.info(f"Sending withdrawal request to {LOG_CHANNEL_ID} for user {user_id}")
+        logger.info(f"Attempting to send withdrawal request to {LOG_CHANNEL_ID} for user {user_id}")
         request_sent = await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=request_message,
@@ -73,7 +73,7 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         logger.info(f"User {user_id} submitted withdrawal request for {balance:.2f} kyat")
 
     except Exception as e:
-        await update.message.reply_text("Error submitting withdrawal. Try again or contact support.")
+        await update.message.reply_text(f"Error submitting withdrawal: {str(e)}. Contact support.")
         logger.error(f"Error in withdrawal for user {user_id}: {e}")
 
 async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -169,7 +169,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer("Action completed.")
 
     except Exception as e:
-        await query.answer("Error processing request. Check logs.")
+        await query.answer(f"Error: {str(e)}")
         logger.error(f"Error in withdrawal callback {data} for user {user_id}: {e}")
 
 def register_handlers(application: Application):
