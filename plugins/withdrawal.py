@@ -16,8 +16,8 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     try:
         user = await db.get_user(user_id)
         if not user:
-            await update.message.reply_text("User not found.")
-            logger.info(f"User {user_id} not found for withdrawal")
+            await update.message.reply_text("User not found. Please contact support.")
+            logger.error(f"User {user_id} not found for withdrawal")
             return
 
         balance = user.get("balance", 0)
@@ -47,7 +47,7 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             text=request_message,
             reply_markup=reply_markup
         )
-        logger.info(f"Withdrawal request sent for user {user_id}: {withdrawal_id}")
+        logger.info(f"Withdrawal request sent for user {user_id}: {withdrawal_id}, message_id={request_sent.message_id}")
 
         await db.withdrawals.insert_one({
             "withdrawal_id": withdrawal_id,
@@ -62,9 +62,10 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(
             f"Withdrawal request for {balance:.2f} kyat submitted. Awaiting admin approval."
         )
+        logger.info(f"User {user_id} submitted withdrawal request for {balance:.2f} kyat")
 
     except Exception as e:
-        await update.message.reply_text("Error processing withdrawal. Try again later.")
+        await update.message.reply_text("Error submitting withdrawal. Try again or contact support.")
         logger.error(f"Error in withdrawal for user {user_id}: {e}")
 
 async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -93,7 +94,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
         if action == "approve":
             user = await db.get_user(target_user_id)
             if not user or user.get("balance", 0) < amount:
-                await query.answer("Insufficient balance or user not found.")
+                await query.answer("Insufficient balance or user not found.", show_alert=True)
                 logger.error(f"Cannot approve withdrawal {withdrawal_id}: user {target_user_id}")
                 return
 
@@ -115,7 +116,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 chat_id=chat_id,
                 message_id=message_id,
                 text=updated_message,
-                reply_markup=None  # Explicitly remove buttons
+                reply_markup=None
             )
 
             await context.bot.send_message(
@@ -143,7 +144,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 chat_id=chat_id,
                 message_id=message_id,
                 text=updated_message,
-                reply_markup=None  # Explicitly remove buttons
+                reply_markup=None
             )
 
             await context.bot.send_message(
