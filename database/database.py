@@ -209,22 +209,24 @@ class Database:
     async def get_count_messages(self):
         try:
             settings = await self.settings.find_one({"type": "count_messages"})
-            return settings.get("value", True) if settings else True
+            value = settings.get("value", True) if settings else True
+            logger.info(f"Retrieved count_messages: {value}")
+            return value
         except Exception as e:
             logger.error(f"Error retrieving count_messages: {e}")
             return True
 
     async def set_count_messages(self, value):
         try:
-            await self.settings.update_one(
+            result = await self.settings.update_one(
                 {"type": "count_messages"},
                 {"$set": {"value": value}},
                 upsert=True
             )
             logger.info(f"Set count_messages to {value}")
-            return True
+            return result.matched_count > 0 or result.upserted_id is not None
         except Exception as e:
-            logger.error(f"Error setting count_messages: {e}")
+            logger.error(f"Error setting count_messages to {value}: {e}")
             return False
 
     async def get_last_reward_time(self):
