@@ -14,14 +14,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username
     name = update.effective_user.full_name or "Unknown"
 
-    logger.debug(f"Received message from user {user_id} in chat {chat_id}")
+    logger.info(f"Processing message from user {user_id} in chat {chat_id}: {message_text[:20]}...")
 
     if chat_id not in GROUP_CHAT_IDS:
-        logger.debug(f"Ignoring message in non-approved chat {chat_id}")
+        logger.info(f"Ignoring message in non-approved chat {chat_id}")
         return
 
-    if not await db.get_count_messages():
-        logger.debug(f"Message counting disabled for user {user_id}")
+    count_messages = await db.get_count_messages()
+    if not count_messages:
+        logger.info(f"Message counting disabled for user {user_id}")
         return
 
     try:
@@ -38,7 +39,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if await db.check_rate_limit(user_id, message_text):
-            logger.warning(f"Rate limit hit for user {user_id}")
+            logger.info(f"Rate limit hit for user {user_id}")
             return
 
         group_messages = user.get("group_messages", {})
@@ -55,14 +56,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "username": username,
             "name": name
         }
-        if await db.update_user(user_id, updates):
+        success = await db.update_user(user_id, updates)
+        if success:
             logger.info(f"Updated user {user_id}: messages={total_messages}, balance={new_balance:.2f}, username={username}")
         else:
-            logger.error(f"Failed to update user {user_id}")
+            logger.error(f"Failed to update user {user_id}: {updates}")
 
         if new_balance >= 10 and not user.get("notified_10kyat", False):
             await update.message.reply_text("Congratulations! You've earned 10 kyat. Check with /balance.")
             await db.update_user(user_id, {"notified_10kyat": True})
+            logger.info(f"Notified user {user_id} for 10 kyat")
 
     except Exception as e:
         logger.error(f"Error processing message from user {user_id} in chat {chat_id}: {e}")
