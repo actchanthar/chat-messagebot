@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from database.database import db
-from config import ADMIN_IDS, LOG_CHANNEL_ID, GROUP_CHAT_IDS
+from config import ADMIN_IDS, LOG_CHANNEL_ID
 import logging
 from datetime import datetime
 
@@ -36,7 +36,7 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        # Send request to admin (LOG_CHANNEL_ID)
+        # Send request to LOG_CHANNEL_ID
         request_message = (
             f"Withdrawal Request\n"
             f"User ID: {user_id}\n"
@@ -65,7 +65,6 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text(
             f"Withdrawal request for {balance:.2f} kyat submitted. Awaiting admin approval."
         )
-        logger.info(f"User {user_id} submitted withdrawal request for {balance:.2f} kyat")
 
     except Exception as e:
         await update.message.reply_text("Error processing withdrawal. Try again later.")
@@ -77,16 +76,16 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
     data = query.data
 
     if user_id not in ADMIN_IDS:
-        await query.answer("You are not authorized to perform this action.", show_alert=True)
-        logger.warning(f"Unauthorized withdrawal callback attempt by user {user_id}")
+        await query.answer("You are not authorized.", show_alert=True)
+        logger.warning(f"Unauthorized withdrawal callback by user {user_id}")
         return
 
     try:
         action, withdrawal_id = data.split("_", 1)
         withdrawal = await db.withdrawals.find_one({"withdrawal_id": withdrawal_id, "status": "pending"})
         if not withdrawal:
-            await query.answer("Withdrawal request not found or already processed.")
-            logger.info(f"Withdrawal {withdrawal_id} not found or already processed")
+            await query.answer("Request not found or already processed.")
+            logger.info(f"Withdrawal {withdrawal_id} not found or processed")
             return
 
         target_user_id = withdrawal["user_id"]
@@ -95,23 +94,20 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
         chat_id = withdrawal["chat_id"]
 
         if action == "approve":
-            # Update user balance
             user = await db.get_user(target_user_id)
             if not user or user.get("balance", 0) < amount:
-                await query.answer("User balance insufficient or user not found.")
-                logger.error(f"Cannot approve withdrawal {withdrawal_id}: insufficient balance or user {target_user_id} not found")
+                await query.answer("Insufficient balance or user not found.")
+                logger.error(f"Cannot approve withdrawal {withdrawal_id}: user {target_user_id}")
                 return
 
             new_balance = user.get("balance", 0) - amount
             await db.update_user(target_user_id, {"balance": new_balance})
 
-            # Update withdrawal status
             await db.withdrawals.update_one(
                 {"withdrawal_id": withdrawal_id},
                 {"$set": {"status": "approved", "processed_at": datetime.utcnow()}}
             )
 
-            # Update message
             updated_message = (
                 f"Withdrawal Approved\n"
                 f"User ID: {target_user_id}\n"
@@ -124,25 +120,21 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 text=updated_message
             )
 
-            # Notify user
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=f"Your withdrawal request for {amount:.2f} kyat has been approved."
+                text=f"Your withdrawal of {amount:.2f} kyat was approved."
             )
 
-            # Log to LOG_CHANNEL_ID
             log_message = f"Admin {user_id} approved withdrawal {withdrawal_id} for user {target_user_id}: {amount:.2f} kyat"
             await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=log_message)
             logger.info(log_message)
 
         elif action == "reject":
-            # Update withdrawal status
             await db.withdrawals.update_one(
                 {"withdrawal_id": withdrawal_id},
                 {"$set": {"status": "rejected", "processed_at": datetime.utcnow()}}
             )
 
-            # Update message
             updated_message = (
                 f"Withdrawal Rejected\n"
                 f"User ID: {target_user_id}\n"
@@ -155,23 +147,19 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 text=updated_message
             )
 
-            # Notify user
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=f"Your withdrawal request for {amount:.2f} kyat has been rejected."
+                text=f"Your withdrawal of {amount:.2f} kyat was rejected."
             )
 
-            # Log to LOG_CHANNEL_ID
             log_message = f"Admin {user_id} rejected withdrawal {withdrawal_id} for user {target_user_id}: {amount:.2f} kyat"
             await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=log_message)
             logger.info(log_message)
 
-        # Acknowledge callback
         await query.answer()
-        logger.info(f"Withdrawal callback {data} processed by user {user_id}")
 
     except Exception as e:
-        await query.answer("Error processing request. Check logs.")
+        await query.answer("Error processing request.")
         logger.error(f"Error in withdrawal callback {data} for user {user_id}: {e}")
 
 def register_handlers(application: Application):
