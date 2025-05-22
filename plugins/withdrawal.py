@@ -55,15 +55,21 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await update.message.reply_text(f"Failed to send withdrawal request: {str(e)}. Contact support.")
             return
 
-        await db.withdrawals.insert_one({
-            "withdrawal_id": withdrawal_id,
-            "user_id": user_id,
-            "amount": balance,
-            "status": "pending",
-            "message_id": str(request_sent.message_id),
-            "chat_id": str(LOG_CHANNEL_ID),
-            "created_at": datetime.utcnow()
-        })
+        try:
+            await db.withdrawals.insert_one({
+                "withdrawal_id": withdrawal_id,
+                "user_id": user_id,
+                "amount": balance,
+                "status": "pending",
+                "message_id": str(request_sent.message_id),
+                "chat_id": str(LOG_CHANNEL_ID),
+                "created_at": datetime.utcnow()
+            })
+            logger.info(f"Withdrawal record inserted for user {user_id}: {withdrawal_id}")
+        except Exception as e:
+            logger.error(f"Failed to insert withdrawal record for user {user_id}: {e}")
+            await update.message.reply_text(f"Failed to save withdrawal request: {str(e)}. Contact support.")
+            return
 
         await update.message.reply_text(
             f"Withdrawal request for {balance:.2f} kyat submitted. Awaiting admin approval."
