@@ -16,26 +16,24 @@ from plugins.checksubscription import register_handlers as checksubscription_han
 from plugins.couple import register_handlers as couple_handlers
 from plugins.referral_users import register_handlers as referral_users_handlers
 from plugins.admin import register_handlers as admin_handlers
+from plugins.reset import register_handlers as reset_handlers  # Add this line
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def main():
-    # Configure HTTPXRequest with increased timeouts and retries
     request = HTTPXRequest(
         connection_pool_size=20,
-        read_timeout=30.0,  # Increased from default 5.0
+        read_timeout=30.0,
         write_timeout=30.0,
         connect_timeout=30.0,
         pool_timeout=30.0,
         http_version="1.1",
     )
 
-    # Build application with custom request and retry settings
     application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
 
-    # Register handlers from plugins
     start_handlers(application)
     withdrawal_handlers(application)
     balance_handlers(application)
@@ -51,12 +49,12 @@ def main():
     couple_handlers(application)
     referral_users_handlers(application)
     admin_handlers(application)
+    reset_handlers(application)  # Add this line
 
-    # Start the bot with error handling
     try:
         application.run_polling(
-            drop_pending_updates=True,  # Ignore old updates to prevent backlog
-            timeout=30,  # Polling timeout
+            drop_pending_updates=True,
+            timeout=30,
             read_timeout=30.0,
             write_timeout=30.0,
             connect_timeout=30.0,
