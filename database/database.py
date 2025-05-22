@@ -9,17 +9,16 @@ logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        self.client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=30000)  # Increased timeout
+        self.client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=30000)
         self.db = self.client[MONGODB_NAME]
         self.users = self.db.users
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
-        self.message_history = {}  # In-memory cache for duplicate checking
+        self.message_history = {}
         self._ensure_indexes()
 
     def _ensure_indexes(self):
-        """Create indexes for faster queries."""
         try:
             self.users.create_index([("user_id", 1)], unique=True)
             self.users.create_index([("invite_count", -1)])
@@ -40,11 +39,12 @@ class Database:
             logger.error(f"Error retrieving user {user_id}: {e}")
             return None
 
-    async def create_user(self, user_id, name):
+    async def create_user(self, user_id, name, username=None):
         try:
             user = {
                 "user_id": str(user_id),
                 "name": name,
+                "username": username,
                 "balance": 0.0,
                 "messages": 0,
                 "group_messages": {"-1002061898677": 0},
@@ -59,7 +59,7 @@ class Database:
                 "invite_count": 0
             }
             await self.users.insert_one(user)
-            logger.info(f"Created user {user_id} with name {name}")
+            logger.info(f"Created user {user_id} with name {name}, username {username}")
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
@@ -80,7 +80,10 @@ class Database:
 
     async def get_all_users(self):
         try:
-            users = await self.users.find({}, {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1}).to_list(length=None)
+            users = await self.users.find(
+                {},
+                {"user_id": 1, "name": 1, "username": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1}
+            ).to_list(length=None)
             logger.info(f"Retrieved {len(users)} users")
             return users
         except Exception as e:
@@ -91,10 +94,10 @@ class Database:
         try:
             sort_field = "invite_count" if by == "invites" else "messages"
             top_users = await self.users.find(
-                {"banned": False},
-                {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1, "_id": 0}
+                {"banned": False, sort_field: {"$gt": 0}},  # Only include users with non-zero invites/messages
+                {"user_id": 1, "name": 1, "username": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1, "_id": 0}
             ).sort(sort_field, -1).limit(limit).to_list(length=limit)
-            logger.info(f"Retrieved top {limit} users by {by}")
+            logger.info(f"Retrieved top {limit} users by {by}: {[u['user_id'] for u in top_users]}")
             return top_users
         except Exception as e:
             logger.error(f"Error retrieving top users by {by}: {e}")
@@ -156,7 +159,7 @@ class Database:
             if datetime.utcnow() < last_reward + timedelta(days=7):
                 return False
             top_users = await self.get_top_users(by="invites", limit=3)
-            reward_amount = 10000  # Phone bill reward
+            reward_amount = 10000
             for user in top_users:
                 user_id = user["user_id"]
                 current_balance = user.get("balance", 0)
@@ -213,7 +216,9 @@ class Database:
     async def get_force_sub_channels(self):
         try:
             settings = await self.settings.find_one({"type": "force_sub_channels"})
-            return settings.get("channels", []) if settings else []
+            channels = settings.get("channels", []) if settings else []
+            logger.info(f"Retrieved force sub channels: {channels}")
+            return channels
         except Exception as e:
             logger.error(f"Error retrieving force sub channels: {e}")
             return []
@@ -260,6 +265,10 @@ class Database:
 
     async def add_invite(self, referrer_id, invitee_id):
         try:
+            referrer = await self.get_user(referrer_id)
+            if not referrer:
+                logger.warning(f"Referrer {referrer_id} not found for invite {invitee_id}")
+                return
             await self.users.update_one(
                 {"user_id": str(referrer_id)},
                 {"$addToSet": {"invites": str(invitee_id)}, "$inc": {"invite_count": 1}}
@@ -271,7 +280,7 @@ class Database:
     async def get_message_rate(self):
         try:
             settings = await self.settings.find_one({"type": "message_rate"})
-            return settings.get("value", 3) if settings else 3  # Default: 3 messages = 1 kyat
+            return settings.get("value", 3) if settings else 3
         except Exception as e:
             logger.error(f"Error retrieving message rate: {e}")
             return 3
