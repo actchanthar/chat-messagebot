@@ -23,7 +23,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         users = await db.get_all_users()
         total_users = len(users) if users else 0
 
-        # Get top users
+        # Get top users by invites and messages
         top_invites = await db.get_top_users(by="invites", limit=10)
         top_messages = await db.get_top_users(by="messages", limit=10)
 
@@ -36,7 +36,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for i, user in enumerate(top_invites, 1):
                 invites = user.get("invite_count", 0)
                 balance = user.get("balance", 0)
-                message += f"{i}. {user['name']} - {invites} invites, {balance:.2f} kyat\n"
+                message += f"{i}. {user['name']} (@{user.get('username', 'N/A')}) - {invites} invites, {balance:.2f} kyat\n"
         else:
             message += "No users with invites yet.\n"
 
@@ -45,7 +45,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for i, user in enumerate(top_messages, 1):
                 messages = user.get("messages", 0)
                 balance = user.get("balance", 0)
-                message += f"{i}. {user['name']} - {messages} msg, {balance:.2f} kyat\n"
+                message += f"{i}. {user['name']} (@{user.get('username', 'N/A')}) - {messages} msg, {balance:.2f} kyat\n"
         else:
             message += "No users with messages yet.\n"
 
