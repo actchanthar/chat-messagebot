@@ -16,7 +16,8 @@ from plugins.checksubscription import register_handlers as checksubscription_han
 from plugins.couple import register_handlers as couple_handlers
 from plugins.referral_users import register_handlers as referral_users_handlers
 from plugins.admin import register_handlers as admin_handlers
-from plugins.reset import register_handlers as reset_handlers  # Add this line
+from plugins.reset import register_handlers as reset_handlers
+from plugins.on_off import register_handlers as on_off_handlers  # Add this line
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -49,7 +50,8 @@ def main():
     couple_handlers(application)
     referral_users_handlers(application)
     admin_handlers(application)
-    reset_handlers(application)  # Add this line
+    reset_handlers(application)
+    on_off_handlers(application)  # Add this line
 
     try:
         application.run_polling(
