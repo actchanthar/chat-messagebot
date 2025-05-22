@@ -1,4 +1,5 @@
 from telegram.ext import Application
+from telegram.request import HTTPXRequest
 from config import BOT_TOKEN
 from plugins.start import register_handlers as start_handlers
 from plugins.withdrawal import register_handlers as withdrawal_handlers
@@ -15,9 +16,24 @@ from plugins.checksubscription import register_handlers as checksubscription_han
 from plugins.couple import register_handlers as couple_handlers
 from plugins.referral_users import register_handlers as referral_users_handlers
 from plugins.admin import register_handlers as admin_handlers
+import logging
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Configure HTTPXRequest with increased timeouts and retries
+    request = HTTPXRequest(
+        connection_pool_size=20,
+        read_timeout=30.0,  # Increased from default 5.0
+        write_timeout=30.0,
+        connect_timeout=30.0,
+        pool_timeout=30.0,
+        http_version="1.1",
+    )
+
+    # Build application with custom request and retry settings
+    application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
 
     # Register handlers from plugins
     start_handlers(application)
@@ -36,8 +52,19 @@ def main():
     referral_users_handlers(application)
     admin_handlers(application)
 
-    # Start the bot
-    application.run_polling()
+    # Start the bot with error handling
+    try:
+        application.run_polling(
+            drop_pending_updates=True,  # Ignore old updates to prevent backlog
+            timeout=30,  # Polling timeout
+            read_timeout=30.0,
+            write_timeout=30.0,
+            connect_timeout=30.0,
+            pool_timeout=30.0,
+        )
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
