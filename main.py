@@ -18,7 +18,10 @@ from plugins.referral_users import register_handlers as referral_users_handlers
 from plugins.admin import register_handlers as admin_handlers
 from plugins.reset import register_handlers as reset_handlers
 from plugins.on_off import register_handlers as on_off_handlers
-from plugins.debug_count import register_handlers as debug_count_handlers  # Add this line
+from plugins.debug_count import register_handlers as debug_count_handlers
+from plugins.test_count import register_handlers as test_count_handlers
+from plugins.rmamount import register_handlers as rmamount_handlers  # Add this
+from plugins.check import register_handlers as check_handlers  # Add this
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -53,7 +56,10 @@ def main():
     admin_handlers(application)
     reset_handlers(application)
     on_off_handlers(application)
-    debug_count_handlers(application)  # Add this line
+    debug_count_handlers(application)
+    test_count_handlers(application)
+    rmamount_handlers(application)  # Add this
+    check_handlers(application)  # Add this
 
     try:
         application.run_polling(
