@@ -3,11 +3,12 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 from config import ADMIN_IDS
 import logging
+from datetime import datetime  # Add this import
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def debug_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def debug_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     if user_id not in ADMIN_IDS:
         await update.message.reply_text("You are not authorized to use this command.")
