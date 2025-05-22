@@ -14,11 +14,12 @@ SELECT_METHOD, ENTER_AMOUNT = range(2)
 async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with command {update.message.text if update.message else 'button'}")
+    trigger = "button" if update.callback_query else "command"
+    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with {trigger} {update.message.text if update.message else update.callback_query.data}")
 
     user = await db.get_user(user_id)
     if not user:
-        await update.message.reply_text("User not found. Please contact support.")
+        await update.message.reply_text("User not found. Please contact support.") if update.message else await update.callback_query.message.reply_text("User not found. Please contact support.")
         logger.error(f"User {user_id} not found for withdrawal")
         return ConversationHandler.END
 
@@ -27,7 +28,7 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     context.user_data["user_id"] = user_id
 
     if balance < 100:  # Minimum for KBZ Pay/Wave Pay
-        await update.message.reply_text(f"Your balance is {balance:.2f} kyat. Minimum withdrawal is 100 kyat.")
+        await update.message.reply_text(f"Your balance is {balance:.2f} kyat. Minimum withdrawal is 100 kyat.") if update.message else await update.callback_query.message.reply_text(f"Your balance is {balance:.2f} kyat. Minimum withdrawal is 100 kyat.")
         logger.info(f"User {user_id} has insufficient balance: {balance}")
         return ConversationHandler.END
 
