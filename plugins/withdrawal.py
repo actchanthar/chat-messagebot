@@ -14,13 +14,6 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id}")
 
     try:
-        # Check bot permissions in LOG_CHANNEL_ID
-        chat_member = await context.bot.get_chat_member(LOG_CHANNEL_ID, context.bot.id)
-        if not chat_member.can_send_messages:
-            logger.error(f"Bot lacks permission to send messages in {LOG_CHANNEL_ID}")
-            await update.message.reply_text("Bot lacks permission to process withdrawals. Contact admin.")
-            return
-
         user = await db.get_user(user_id)
         if not user:
             await update.message.reply_text("User not found. Please contact support.")
@@ -50,12 +43,17 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"Time: {datetime.utcnow()}"
         )
         logger.info(f"Attempting to send withdrawal request to {LOG_CHANNEL_ID} for user {user_id}")
-        request_sent = await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=request_message,
-            reply_markup=reply_markup
-        )
-        logger.info(f"Withdrawal request sent for user {user_id}: {withdrawal_id}, message_id={request_sent.message_id}")
+        try:
+            request_sent = await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=request_message,
+                reply_markup=reply_markup
+            )
+            logger.info(f"Withdrawal request sent for user {user_id}: {withdrawal_id}, message_id={request_sent.message_id}")
+        except Exception as e:
+            logger.error(f"Failed to send message to {LOG_CHANNEL_ID}: {e}")
+            await update.message.reply_text(f"Failed to send withdrawal request: {str(e)}. Contact support.")
+            return
 
         await db.withdrawals.insert_one({
             "withdrawal_id": withdrawal_id,
