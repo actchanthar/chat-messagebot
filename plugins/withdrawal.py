@@ -190,6 +190,14 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.message.reply_text("User not found.")
         return
 
+    # Fetch the withdrawing user's username
+    try:
+        withdrawing_user = await context.bot.get_chat(user_id)
+        withdrawing_username = withdrawing_user.username or "N/A"
+    except Exception as e:
+        logger.error(f"Error fetching username for user {user_id}: {e}")
+        withdrawing_username = "N/A"
+
     if action == "approve":
         balance = user.get("balance", 0)
         if balance < amount:
@@ -208,7 +216,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
         announcement = (
             f"ID: {user_id}\n"
             f"First name Last name: {user['name']}\n"
-            f"Username: @{query.from_user.username or 'N/A'}\n"
+            f"Username: @{withdrawing_username}\n"
             f"သည် စုစုပေါင်း {amount} ငွေထုတ်ယူခဲ့ပါသည်။\n"
             f"လက်ရှိလက်ကျန်ငွေ {new_balance} kyat"
         )
