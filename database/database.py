@@ -3,6 +3,7 @@ from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
 from collections import deque
+import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,50 +34,66 @@ class Database:
         try:
             user = await self.users.find_one({"user_id": str(user_id)})
             if user:
-                logger.info(f"Retrieved user {user_id}")
+                logger.debug(f"Retrieved user {user_id}")
             return user
         except Exception as e:
             logger.error(f"Error retrieving user {user_id}: {e}")
             return None
 
     async def create_user(self, user_id, name, username=None):
-        try:
-            user = {
-                "user_id": str(user_id),
-                "name": name,
-                "username": username,
-                "balance": 0.0,
-                "messages": 0,
-                "group_messages": {"-1002061898677": 0},
-                "withdrawn_today": 0,
-                "last_withdrawal": None,
-                "banned": False,
-                "notified_10kyat": False,
-                "last_activity": datetime.utcnow(),
-                "message_timestamps": deque(maxlen=5),
-                "referrer": None,
-                "invites": [],
-                "invite_count": 0
-            }
-            await self.users.insert_one(user)
-            logger.info(f"Created user {user_id} with name {name}, username {username}")
-            return user
-        except Exception as e:
-            logger.error(f"Error creating user {user_id}: {e}")
-            return None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                user = {
+                    "user_id": str(user_id),
+                    "name": name,
+                    "username": username,
+                    "balance": 0.0,
+                    "messages": 0,
+                    "group_messages": {"-1002061898677": 0},
+                    "withdrawn_today": 0,
+                    "last_withdrawal": None,
+                    "banned": False,
+                    "notified_10kyat": False,
+                    "last_activity": datetime.utcnow(),
+                    "message_timestamps": deque(maxlen=5),
+                    "referrer": None,
+                    "invites": [],
+                    "invite_count": 0
+                }
+                await self.users.insert_one(user)
+                logger.info(f"Created user {user_id} with name {name}, username {username}")
+                await self._increment_total_users()
+                return user
+            except Exception as e:
+                logger.error(f"Attempt {attempt + 1} error creating user {user_id}: {e}")
+                if "duplicate key" in str(e).lower():
+                    logger.warning(f"User {user_id} already exists")
+                    return await self.get_user(user_id)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                else:
+                    return None
+        return None
 
     async def update_user(self, user_id, updates):
-        try:
-            result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
-            if result.modified_count > 0:
-                updates_log = {k: v if k != "message_timestamps" else f"[{len(updates['message_timestamps'])} timestamps]" for k, v in updates.items()}
-                logger.info(f"Updated user {user_id}: {updates_log}")
-                return True
-            logger.info(f"No changes made to user {user_id}")
-            return False
-        except Exception as e:
-            logger.error(f"Error updating user {user_id}: {e}")
-            return False
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
+                if result.modified_count > 0:
+                    updates_log = {k: v if k != "message_timestamps" else f"[{len(updates['message_timestamps'])} timestamps]" for k, v in updates.items()}
+                    logger.debug(f"Updated user {user_id}: {updates_log}")
+                    return True
+                logger.debug(f"No changes made to user {user_id}")
+                return False
+            except Exception as e:
+                logger.error(f"Attempt {attempt + 1} error updating user {user_id}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                else:
+                    return False
+        return False
 
     async def get_all_users(self):
         try:
@@ -84,7 +101,7 @@ class Database:
                 {},
                 {"user_id": 1, "name": 1, "username": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1}
             ).to_list(length=None)
-            logger.info(f"Retrieved {len(users)} users")
+            logger.debug(f"Retrieved {len(users)} users")
             return users
         except Exception as e:
             logger.error(f"Error retrieving all users: {e}")
@@ -94,7 +111,7 @@ class Database:
         try:
             sort_field = "invite_count" if by == "invites" else "messages"
             top_users = await self.users.find(
-                {"banned": False, sort_field: {"$gt": 0}},  # Only include users with non-zero invites/messages
+                {"banned": False, sort_field: {"$gt": 0}},
                 {"user_id": 1, "name": 1, "username": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1, "_id": 0}
             ).sort(sort_field, -1).limit(limit).to_list(length=limit)
             logger.info(f"Retrieved top {limit} users by {by}: {[u['user_id'] for u in top_users]}")
@@ -102,6 +119,34 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving top users by {by}: {e}")
             return []
+
+    async def get_total_users(self):
+        try:
+            stats = await self.settings.find_one({"type": "total_users"})
+            count = stats.get("count", 0) if stats else 0
+            if count == 0:
+                count = await self.users.count_documents({})
+                await self.settings.update_one(
+                    {"type": "total_users"},
+                    {"$set": {"count": count}},
+                    upsert=True
+                )
+            logger.debug(f"Retrieved total users: {count}")
+            return count
+        except Exception as e:
+            logger.error(f"Error retrieving total users: {e}")
+            return 0
+
+    async def _increment_total_users(self):
+        try:
+            await self.settings.update_one(
+                {"type": "total_users"},
+                {"$inc": {"count": 1}},
+                upsert=True
+            )
+            logger.debug("Incremented total users")
+        except Exception as e:
+            logger.error(f"Error incrementing total users: {e}")
 
     async def add_group(self, group_id):
         try:
