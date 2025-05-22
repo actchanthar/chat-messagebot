@@ -54,7 +54,7 @@ class Database:
                     "banned": False,
                     "notified_10kyat": False,
                     "last_activity": datetime.utcnow(),
-                    "message_timestamps": [],  # Store as list instead of deque
+                    "message_timestamps": [],
                     "referrer": None,
                     "invites": [],
                     "invite_count": 0
@@ -147,6 +147,19 @@ class Database:
             logger.error(f"Error retrieving message rate: {e}")
             return 3
 
+    async def set_message_rate(self, value):
+        try:
+            await self.settings.update_one(
+                {"type": "message_rate"},
+                {"$set": {"value": value}},
+                upsert=True
+            )
+            logger.info(f"Set message rate to {value}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting message rate: {e}")
+            return False
+
     async def check_rate_limit(self, user_id, message_text=None):
         try:
             user = await self.get_user(user_id)
@@ -200,6 +213,19 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving count_messages: {e}")
             return True
+
+    async def set_count_messages(self, value):
+        try:
+            await self.settings.update_one(
+                {"type": "count_messages"},
+                {"$set": {"value": value}},
+                upsert=True
+            )
+            logger.info(f"Set count_messages to {value}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting count_messages: {e}")
+            return False
 
     async def get_last_reward_time(self):
         try:
