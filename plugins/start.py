@@ -60,9 +60,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         referral_link = f"https://t.me/{(await context.bot.get_me()).username}?start=referrer_{user_id}"
         keyboard = [
             [
-                InlineKeyboardButton("Withdraw", callback_data="withdraw"),
-                InlineKeyboardButton("Balance", callback_data="balance"),
-                InlineKeyboardButton("Top", callback_data="top")
+                InlineKeyboardButton("Check Balance", callback_data="balance"),
+                InlineKeyboardButton("Withdrawal", callback_data="withdraw")
+            ],
+            [
+                InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
+                InlineKeyboardButton("Support Channel", url="https://t.me/+BvF9fop9xFAxNjRl")
             ],
             [InlineKeyboardButton("Invite Link", url=referral_link)]
         ]
@@ -70,7 +73,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = (
             f"Welcome, {name}! 😊\n"
             "မင်္ဂလာပါ! ကျွန်ုပ်တို့၏အုပ်စုတွင် ပါဝင်ပြီး စာပို့ခြင်းဖြင့် ငွေရှာနိုင်ပါသည်။\n"
-            "3 messages = 1 kyat\n"
+            "1 message = 1 kyat\n"  # Updated from 3 messages = 1 kyat
             "Invite friends to earn more! Referrer gets 25 kyat, invitee gets 50 kyat.\n"
             f"Your referral link: {referral_link}"
         )
