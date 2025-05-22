@@ -47,8 +47,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group_messages = user.get("group_messages", {})
         group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
         total_messages = user.get("messages", 0) + 1
-        message_rate = await db.get_message_rate()  # Should be 1 (1 msg = 1 kyat)
-        new_balance = total_messages / message_rate  # Ensure correct division
+        message_rate = await db.get_message_rate()  # Should be 1
+        new_balance = total_messages / message_rate  # 1 msg = 1 kyat
 
         updates = {
             "group_messages": group_messages,
