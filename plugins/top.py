@@ -1,6 +1,5 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
-from config import ADMIN_IDS, LOG_CHANNEL_ID
 from database.database import db
 import logging
 
@@ -9,42 +8,52 @@ logger = logging.getLogger(__name__)
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    logger.info(f"/top command initiated by user {user_id} in chat {chat_id}")
-
-    top_users = db.get_top_users_by_invites()
-    phone_bill_reward = db.get_phone_bill_reward_text()
-    total_users = db.get_total_users()
-
-    message = (
-        f"🏆 Top Users by Invites (Phone Bill Reward: {phone_bill_reward}):\n\n"
-        f"Total Users: {total_users}\n\n"
-    )
-    for i, user in enumerate(top_users, 1):
-        message += (
-            f"{i}. <b>{user['name']}</b> - {user.get('invited_users', 0)} invites, "
-            f"{user.get('balance', 0)} kyat\n"
-        )
+    if await db.check_rate_limit(user_id):
+        await update.message.reply_text("Please wait before using this command again.")
+        logger.warning(f"Rate limit hit for /top by user {user_id}")
+        return
 
     try:
-        await update.message.reply_text(message, parse_mode="HTML")
-        logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
+        # Award weekly rewards if due
+        if await db.award_weekly_rewards():
+            await update.message.reply_text("Weekly rewards of 10000 kyat awarded to top 3 inviters!")
+            logger.info(f"Weekly rewards awarded by user {user_id}")
+
+        # Get total users
+        users = await db.get_all_users()
+        total_users = len(users) if users else 0
+
+        # Get top users
+        top_invites = await db.get_top_users(by="invites", limit=10)
+        top_messages = await db.get_top_users(by="messages", limit=10)
+
+        # Format message
+        message = (
+            "Top Users by Invites (၇ ရက်တစ်ခါ Top 1-3 ကို ဖုန်းဘေ လက်ဆောင် ပေးပါတယ် 🎁: 10000):\n\n"
+            f"Total Users: {total_users}\n\n"
+        )
+        if top_invites:
+            for i, user in enumerate(top_invites, 1):
+                invites = user.get("invite_count", 0)
+                balance = user.get("balance", 0)
+                message += f"{i}. {user['name']} - {invites} invites, {balance:.2f} kyat\n"
+        else:
+            message += "No users with invites yet.\n"
+
+        message += "\nTop Users by Messages:\n\n"
+        if top_messages:
+            for i, user in enumerate(top_messages, 1):
+                messages = user.get("messages", 0)
+                balance = user.get("balance", 0)
+                message += f"{i}. {user['name']} - {messages} msg, {balance:.2f} kyat\n"
+        else:
+            message += "No users with messages yet.\n"
+
+        await update.message.reply_text(message)
+        logger.info(f"User {user_id} executed /top successfully")
     except Exception as e:
-        logger.error(f"Failed to send /top reply to user {user_id}: {e}")
-        try:
-            # Fallback: Send as new message
-            await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="HTML")
-            logger.info(f"Sent top users list as new message to user {user_id} in chat {chat_id}")
-        except Exception as send_error:
-            logger.error(f"Failed to send /top as new message to user {user_id}: {send_error}")
-        try:
-            await context.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=f"Failed to send /top response to {user_id}: {e}"
-            )
-        except Exception as log_error:
-            logger.error(f"Failed to log /top error to {LOG_CHANNEL_ID}: {log_error}")
+        await update.message.reply_text("Failed to fetch top users. Please try again later.")
+        logger.error(f"Error in /top for user {user_id}: {e}")
 
 def register_handlers(application: Application):
-    logger.info("Registering top handlers")
     application.add_handler(CommandHandler("top", top))
