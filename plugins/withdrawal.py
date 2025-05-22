@@ -14,7 +14,7 @@ SELECT_METHOD, ENTER_AMOUNT = range(2)
 async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with command {update.message.text}")
+    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with command {update.message.text if update.message else 'button'}")
 
     user = await db.get_user(user_id)
     if not user:
@@ -37,7 +37,10 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         [InlineKeyboardButton("Phone Bill", callback_data="method_phonebill")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Please select your payment method:", reply_markup=reply_markup)
+    if update.callback_query:
+        await update.callback_query.message.reply_text("Please select your payment method:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("Please select your payment method:", reply_markup=reply_markup)
     return SELECT_METHOD
 
 async def select_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -258,7 +261,10 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
 
 def register_handlers(application: Application):
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler(["withdrawal", "Withdrawal"], withdrawal_start)],  # Support both cases
+        entry_points=[
+            CommandHandler(["withdrawal", "Withdrawal"], withdrawal_start),
+            CallbackQueryHandler(withdrawal_start, pattern="^Withdrawal$")  # Handle the button click
+        ],
         states={
             SELECT_METHOD: [CallbackQueryHandler(select_method, pattern="^method_")],
             ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
