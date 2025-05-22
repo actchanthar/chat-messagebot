@@ -36,7 +36,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
         total_messages = user.get("messages", 0) + 1
         message_rate = await db.get_message_rate()
-        new_balance = user.get("balance", 0) + (1 / message_rate)
+        new_balance = (total_messages / message_rate)  # Recalculate balance based on messages
 
         updates = {
             "group_messages": group_messages,
