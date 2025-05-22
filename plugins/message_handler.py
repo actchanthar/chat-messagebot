@@ -3,7 +3,7 @@ from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from database.database import db
 from config import GROUP_CHAT_IDS
 import logging
-from datetime import datetime  # Add this import
+from datetime import datetime
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,8 +47,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group_messages = user.get("group_messages", {})
         group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
         total_messages = user.get("messages", 0) + 1
-        message_rate = await db.get_message_rate()
-        new_balance = total_messages / message_rate
+        message_rate = await db.get_message_rate()  # Should be 1 (1 msg = 1 kyat)
+        new_balance = total_messages / message_rate  # Ensure correct division
 
         updates = {
             "group_messages": group_messages,
