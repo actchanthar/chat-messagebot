@@ -11,6 +11,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
     message_text = update.message.text
+    username = update.effective_user.username
 
     if chat_id not in GROUP_CHAT_IDS:
         logger.debug(f"Ignoring message from user {user_id} in non-approved chat {chat_id}")
@@ -23,7 +24,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user = await db.get_user(user_id)
         if not user:
-            user = await db.create_user(user_id, update.effective_user.full_name, update.effective_user.username)
+            user = await db.create_user(user_id, update.effective_user.full_name, username)
             if not user:
                 logger.error(f"Failed to create user {user_id}")
                 return
@@ -41,14 +42,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_messages = user.get("messages", 0) + 1
 
         message_rate = await db.get_message_rate()  # e.g., 3 messages = 1 kyat
-        new_balance = user.get("balance", 0) + (1 / message_rate)
+        balance_increment = 1 / message_rate
+        new_balance = user.get("balance", 0) + balance_increment
 
         updates = {
             "group_messages": group_messages,
             "messages": total_messages,
             "balance": new_balance,
             "last_activity": datetime.utcnow(),
-            "username": update.effective_user.username or user.get("username", None)
+            "username": username
         }
         await db.update_user(user_id, updates)
 
@@ -56,7 +58,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Congratulations! You've earned 10 kyat. Check with /balance.")
             await db.update_user(user_id, {"notified_10kyat": True})
 
-        logger.info(f"Processed message from user {user_id} in chat {chat_id}: total_messages={total_messages}, balance={new_balance:.2f}")
+        logger.info(f"Processed message from user {user_id} in chat {chat_id}: total_messages={total_messages}, balance={new_balance:.2f}, username={username}")
     except Exception as e:
         logger.error(f"Error processing message from user {user_id} in chat {chat_id}: {e}")
 
