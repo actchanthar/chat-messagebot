@@ -54,7 +54,7 @@ class Database:
                     "banned": False,
                     "notified_10kyat": False,
                     "last_activity": datetime.utcnow(),
-                    "message_timestamps": deque(maxlen=5),
+                    "message_timestamps": [],  # Store as list instead of deque
                     "referrer": None,
                     "invites": [],
                     "invite_count": 0
@@ -82,6 +82,8 @@ class Database:
                     updates["invite_count"] = max(0, updates["invite_count"])
                 if "balance" in updates:
                     updates["balance"] = max(0, updates["balance"])
+                if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
+                    updates["message_timestamps"] = list(updates["message_timestamps"])
                 result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
                 logger.debug(f"Updated user {user_id}: {updates}")
                 return result.modified_count > 0
@@ -151,7 +153,7 @@ class Database:
             if not user:
                 return False
             current_time = datetime.utcnow()
-            timestamps = user.get("message_timestamps", deque(maxlen=5))
+            timestamps = deque(user.get("message_timestamps", []), maxlen=5)
             timestamps.append(current_time)
             await self.update_user(user_id, {"message_timestamps": list(timestamps)})
             if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
@@ -191,7 +193,6 @@ class Database:
             logger.error(f"Error retrieving invite requirement: {e}")
             return 0
 
-    # Other methods unchanged for brevity
     async def get_count_messages(self):
         try:
             settings = await self.settings.find_one({"type": "count_messages"})
@@ -199,5 +200,41 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving count_messages: {e}")
             return True
+
+    async def get_last_reward_time(self):
+        try:
+            reward = await self.rewards.find_one({"type": "weekly_invites"})
+            if not reward:
+                await self.rewards.insert_one({"type": "weekly_invites", "last_reward": datetime.utcnow()})
+                return datetime.utcnow()
+            return reward["last_reward"]
+        except Exception as e:
+            logger.error(f"Error retrieving last reward time: {e}")
+            return datetime.utcnow()
+
+    async def update_reward_time(self):
+        try:
+            await self.rewards.update_one({"type": "weekly_invites"}, {"$set": {"last_reward": datetime.utcnow()}})
+            logger.info("Updated weekly reward time")
+        except Exception as e:
+            logger.error(f"Error updating reward time: {e}")
+
+    async def award_weekly_rewards(self):
+        try:
+            last_reward = await self.get_last_reward_time()
+            if datetime.utcnow() < last_reward + timedelta(days=7):
+                return False
+            top_users = await self.get_top_users(by="invites", limit=3)
+            reward_amount = 10000
+            for user in top_users:
+                user_id = user["user_id"]
+                current_balance = user.get("balance", 0)
+                await self.update_user(user_id, {"balance": current_balance + reward_amount})
+                logger.info(f"Awarded {reward_amount} kyat to user {user_id}")
+            await self.update_reward_time()
+            return True
+        except Exception as e:
+            logger.error(f"Error awarding weekly rewards: {e}")
+            return False
 
 db = Database()
