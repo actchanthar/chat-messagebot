@@ -46,7 +46,7 @@ class Database:
             try:
                 user = {
                     "user_id": str(user_id),
-                    "name": name,
+                    "name": name or "Unknown",
                     "username": username,
                     "balance": 0.0,
                     "messages": 0,
@@ -80,6 +80,14 @@ class Database:
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                # Validate updates
+                if "messages" in updates and updates["messages"] < 0:
+                    updates["messages"] = 0
+                if "invite_count" in updates and updates["invite_count"] < 0:
+                    updates["invite_count"] = 0
+                if "balance" in updates and updates["balance"] < 0:
+                    updates["balance"] = 0
+
                 result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
                 if result.modified_count > 0:
                     updates_log = {k: v if k != "message_timestamps" else f"[{len(updates['message_timestamps'])} timestamps]" for k, v in updates.items()}
@@ -113,7 +121,7 @@ class Database:
             top_users = await self.users.find(
                 {"banned": False, sort_field: {"$gt": 0}},
                 {"user_id": 1, "name": 1, "username": 1, "messages": 1, "balance": 1, "group_messages": 1, "invite_count": 1, "_id": 0}
-            ).sort(sort_field, -1).limit(limit).to_list(length=limit)
+            ).sort([(sort_field, -1), ("balance", -1)]).limit(limit).to_list(length=limit)
             logger.info(f"Retrieved top {limit} users by {by}: {[u['user_id'] for u in top_users]}")
             return top_users
         except Exception as e:
@@ -314,11 +322,14 @@ class Database:
             if not referrer:
                 logger.warning(f"Referrer {referrer_id} not found for invite {invitee_id}")
                 return
+            if str(invitee_id) in referrer.get("invites", []):
+                logger.warning(f"Invitee {invitee_id} already invited by referrer {referrer_id}")
+                return
             await self.users.update_one(
                 {"user_id": str(referrer_id)},
                 {"$addToSet": {"invites": str(invitee_id)}, "$inc": {"invite_count": 1}}
             )
-            logger.info(f"Added invite {invitee_id} to referrer {referrer_id}")
+            logger.info(f"Added invite {invitee_id} to referrer {referrer_id}, new invite_count: {referrer.get('invite_count', 0) + 1}")
         except Exception as e:
             logger.error(f"Error adding invite for referrer {referrer_id}: {e}")
 
