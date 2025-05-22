@@ -11,9 +11,16 @@ logger = logging.getLogger(__name__)
 async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Withdraw initiated by user {user_id} in chat {chat_id}")
+    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id}")
 
     try:
+        # Verify bot permissions in LOG_CHANNEL_ID
+        chat_member = await context.bot.get_chat_member(LOG_CHANNEL_ID, context.bot.id)
+        if not chat_member.can_send_messages:
+            logger.error(f"Bot lacks permission to send messages in {LOG_CHANNEL_ID}")
+            await update.message.reply_text("Bot lacks permission to process withdrawals. Contact admin.")
+            return
+
         user = await db.get_user(user_id)
         if not user:
             await update.message.reply_text("User not found. Please contact support.")
@@ -42,6 +49,7 @@ async def withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             f"Amount: {balance:.2f} kyat\n"
             f"Time: {datetime.utcnow()}"
         )
+        logger.info(f"Sending withdrawal request to {LOG_CHANNEL_ID} for user {user_id}")
         request_sent = await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=request_message,
@@ -72,6 +80,8 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
+
+    logger.info(f"Callback received: {data} by user {user_id}")
 
     if user_id not in ADMIN_IDS:
         await query.answer("You are not authorized.", show_alert=True)
@@ -165,3 +175,4 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
 def register_handlers(application: Application):
     application.add_handler(CommandHandler("withdrawal", withdrawal))
     application.add_handler(CallbackQueryHandler(handle_withdrawal_callback, pattern="^(approve|reject)_"))
+    logger.info("Withdrawal handlers registered successfully")
