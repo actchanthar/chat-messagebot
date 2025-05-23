@@ -42,12 +42,9 @@ def main():
 
     application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
 
-    # Clear all conversation states on startup
-    application.persistence = None  # Ensure no persistence to clear lingering states
-    application.bot_data.clear()
-    application.user_data.clear()
-    application.chat_data.clear()
-    logger.info("Cleared all conversation states on startup")
+    # Removed problematic clearing of user_data, bot_data, chat_data
+    # drop_pending_updates=True will help prevent lingering updates
+    logger.info("Starting bot with drop_pending_updates=True to prevent lingering updates")
 
     withdrawal_handlers(application)
     balance_handlers(application)
