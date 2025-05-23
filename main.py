@@ -23,7 +23,8 @@ from plugins.test_count import register_handlers as test_count_handlers
 from plugins.rmamount import register_handlers as rmamount_handlers
 from plugins.check import register_handlers as check_handlers
 from plugins.add_bonus import register_handlers as add_bonus_handlers
-from plugins.grok import register_handlers as grok_handlers  # If added earlier
+from plugins.grok import register_handlers as grok_handlers
+from plugins.transfer import register_handlers as transfer_handlers  # Add this line
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -42,10 +43,10 @@ def main():
     application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
 
     # Register handlers that handle callbacks first
-    withdrawal_handlers(application)  # Moved up to handle "Withdrawal" callback
-    balance_handlers(application)     # Moved up to handle "balance" callback
-    top_handlers(application)         # Moved up to handle "top" callback (from start.py)
-    start_handlers(application)       # Moved after callback handlers
+    withdrawal_handlers(application)
+    balance_handlers(application)
+    top_handlers(application)
+    start_handlers(application)
     help_handlers(application)
     message_handlers(application)
     broadcast_handlers(application)
@@ -64,7 +65,8 @@ def main():
     rmamount_handlers(application)
     check_handlers(application)
     add_bonus_handlers(application)
-    # grok_handlers(application)  # Uncomment if you want /grok
+    grok_handlers(application)
+    transfer_handlers(application)  # Add this line
 
     try:
         application.run_polling(
