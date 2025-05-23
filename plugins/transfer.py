@@ -85,30 +85,32 @@ async def confirm_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     target_user_id = context.user_data["target_user_id"]
     amount = context.user_data["amount"]
 
-    if query.data == "confirm_yes":
-        try:
-            success = await db.transfer_balance(user_id, target_user_id, amount)
-            if success:
-                await query.message.reply_text(f"Transferred {amount:.2f} {CURRENCY} to user {target_user_id}.")
-                try:
-                    target_user = await db.get_user(target_user_id)
-                    await context.bot.send_message(
-                        chat_id=target_user_id,
-                        text=f"You received {amount:.2f} {CURRENCY} from {update.effective_user.full_name} (@{update.effective_user.username or 'N/A'})!"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to notify user {target_user_id} of transfer: {e}")
-                logger.info(f"User {user_id} successfully transferred {amount:.2f} {CURRENCY} to {target_user_id}")
-            else:
-                await query.message.reply_text("Transfer failed. Check balance or contact support.")
-                logger.warning(f"Transfer failed for user {user_id} to {target_user_id}: {amount}")
-        except Exception as e:
-            await query.message.reply_text("An error occurred during the transfer. Contact support.")
-            logger.error(f"Error during transfer from {user_id} to {target_user_id}: {e}")
-    else:  # confirm_no
+    if query.data == "confirm_no":
         await query.message.reply_text("Transfer cancelled.")
         logger.info(f"User {user_id} cancelled transfer to {target_user_id}")
+        return ConversationHandler.END
 
+    # Handle Yes case
+    try:
+        success = await db.transfer_balance(user_id, target_user_id, amount)
+        if success:
+            await query.message.reply_text(f"Transferred {amount:.2f} {CURRENCY} to user {target_user_id}.")
+            try:
+                target_user = await db.get_user(target_user_id)
+                await context.bot.send_message(
+                    chat_id=target_user_id,
+                    text=f"You received {amount:.2f} {CURRENCY} from {update.effective_user.full_name} (@{update.effective_user.username or 'N/A'})!"
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify user {target_user_id} of transfer: {e}")
+            logger.info(f"User {user_id} successfully transferred {amount:.2f} {CURRENCY} to {target_user_id}")
+        else:
+            await query.message.reply_text("Transfer failed. Check balance or contact support.")
+            logger.warning(f"Transfer failed for user {user_id} to {target_user_id}: {amount}")
+    except Exception as e:
+        await query.message.reply_text(f"Transfer failed due to an error: {str(e)}. Contact support.")
+        logger.error(f"Error during transfer from {user_id} to {target_user_id}: {e}")
+    
     return ConversationHandler.END
 
 def register_handlers(application: Application):
