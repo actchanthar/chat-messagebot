@@ -80,7 +80,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         context.user_data["amount"] = amount
         if method in ["kbzpay", "wavepay"]:
-            await update.message.reply_text("Please send your KBZ Pay or Wave Pay account (e.g., phone number or account ID):")
+            await update.message.reply_text("Please send your KBZ Pay or Wave Pay account (e.g., phone number or account ID): Or Image QR")
             return ENTER_KPAY
         else:
             return await submit_withdrawal(update, context)
@@ -96,8 +96,21 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def enter_kpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = context.user_data["user_id"]
     method = context.user_data["method"]
-    kpay_account = update.message.text.strip()
-    context.user_data["kpay_account"] = kpay_account
+
+    if update.message.photo:
+        # Handle image QR code
+        photo = update.message.photo[-1]  # Get the highest resolution photo
+        file_id = photo.file_id
+        context.user_data["kpay_account"] = f"QR_IMAGE:{file_id}"
+        logger.info(f"User {user_id} uploaded QR image with file_id {file_id}")
+    elif update.message.text:
+        # Handle text input (phone number or account ID)
+        kpay_account = update.message.text.strip()
+        context.user_data["kpay_account"] = kpay_account
+        logger.info(f"User {user_id} provided kpay account: {kpay_account}")
+    else:
+        await update.message.reply_text("Please send a phone number/account ID or an image QR.")
+        return ENTER_KPAY
 
     return await submit_withdrawal(update, context)
 
@@ -237,10 +250,18 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
             )
             logger.info(f"Edited withdrawal message for {withdrawal_id} in chat {chat_id}")
 
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"Your withdrawal of {amount:.2f} kyat via {method_display} to {account} was approved."
-            )
+            if account.startswith("QR_IMAGE:"):
+                file_id = account.split(":")[1]
+                await context.bot.send_photo(
+                    chat_id=target_user_id,
+                    photo=file_id,
+                    caption=f"Your withdrawal of {amount:.2f} kyat via {method_display} to the provided QR was approved."
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=target_user_id,
+                    text=f"Your withdrawal of {amount:.2f} kyat via {method_display} to {account} was approved."
+                )
             logger.info(f"Notified user {target_user_id} of approved withdrawal")
 
             log_message = f"Admin {user_id} approved withdrawal {withdrawal_id} for user {target_user_id}: {amount:.2f} kyat via {method_display} to {account}"
@@ -270,10 +291,18 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
             )
             logger.info(f"Edited withdrawal message for {withdrawal_id} in chat {chat_id}")
 
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"Your withdrawal of {amount:.2f} kyat via {method_display} to {account} was rejected."
-            )
+            if account.startswith("QR_IMAGE:"):
+                file_id = account.split(":")[1]
+                await context.bot.send_photo(
+                    chat_id=target_user_id,
+                    photo=file_id,
+                    caption=f"Your withdrawal of {amount:.2f} kyat via {method_display} to the provided QR was rejected."
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=target_user_id,
+                    text=f"Your withdrawal of {amount:.2f} kyat via {method_display} to {account} was rejected."
+                )
             logger.info(f"Notified user {target_user_id} of rejected withdrawal")
 
             log_message = f"Admin {user_id} rejected withdrawal {withdrawal_id} for user {target_user_id}: {amount:.2f} kyat via {method_display} to {account}"
@@ -301,7 +330,10 @@ def register_handlers(application: Application):
         states={
             SELECT_METHOD: [CallbackQueryHandler(select_method, pattern="^method_")],
             ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, enter_amount)],
-            ENTER_KPAY: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, enter_kpay)],
+            ENTER_KPAY: [
+                MessageHandler(filters.PHOTO & filters.ChatType.PRIVATE, enter_kpay),
+                MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, enter_kpay)
+            ],
         },
         fallbacks=[
             CommandHandler("cancel", cancel_withdrawal)
