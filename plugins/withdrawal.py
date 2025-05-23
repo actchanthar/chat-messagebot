@@ -17,6 +17,11 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     trigger = "button" if update.callback_query else "command"
     logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with {trigger} {update.message.text if update.message else update.callback_query.data}")
 
+    # Restrict to private chats
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("Please use /withdrawal in a private chat.")
+        return ConversationHandler.END
+
     user = await db.get_user(user_id)
     if not user:
         await update.message.reply_text("User not found. Please contact support.") if update.message else await update.callback_query.message.reply_text("User not found. Please contact support.")
@@ -27,7 +32,7 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     context.user_data["balance"] = balance
     context.user_data["user_id"] = user_id
 
-    if balance < 100:  # Minimum for all methods
+    if balance < 100:
         await update.message.reply_text(f"Your balance is {balance:.2f} kyat. Minimum withdrawal is 100 kyat.") if update.message else await update.callback_query.message.reply_text(f"Your balance is {balance:.2f} kyat. Minimum withdrawal is 100 kyat.")
         logger.info(f"User {user_id} has insufficient balance: {balance}")
         return ConversationHandler.END
@@ -47,7 +52,7 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def select_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    method = query.data.split("_")[1]  # e.g., "method_kbzpay" -> "kbzpay"
+    method = query.data.split("_")[1]
     context.user_data["method"] = method
 
     await query.message.reply_text(
@@ -71,7 +76,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             await update.message.reply_text(f"Insufficient balance. Your balance is {balance:.2f} kyat.")
             return ENTER_AMOUNT
 
-        if amount < 100:  # Minimum 100 kyat for all methods
+        if amount < 100:
             await update.message.reply_text("Minimum withdrawal is 100 kyat.")
             return ENTER_AMOUNT
 
@@ -79,7 +84,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         if method in ["kbzpay", "wavepay"]:
             await update.message.reply_text("Please send your KBZ Pay or Wave Pay account (e.g., phone number or account ID):")
             return ENTER_KPAY
-        else:  # Phone Bill (no account needed yet)
+        else:
             return await submit_withdrawal(update, context)
 
     except ValueError:
@@ -120,7 +125,7 @@ async def submit_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"Username: {(await db.get_user(user_id)).get('username', 'None')}\n"
         f"Amount: {amount:.2f} kyat\n"
         f"Payment Method: {method_display}\n"
-        f"Account: {kpay_account}\n"  # Added KPay account
+        f"Account: {kpay_account}\n"
         f"Time: {datetime.utcnow()}"
     )
     logger.info(f"Attempting to send withdrawal request to {LOG_CHANNEL_ID} for user {user_id}")
@@ -142,7 +147,7 @@ async def submit_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "user_id": user_id,
             "amount": amount,
             "method": method,
-            "account": kpay_account,  # Store KPay account
+            "account": kpay_account,
             "status": "pending",
             "message_id": str(request_sent.message_id),
             "chat_id": str(LOG_CHANNEL_ID),
@@ -154,7 +159,6 @@ async def submit_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(f"Failed to save withdrawal request: {str(e)}. Contact support.")
         return ConversationHandler.END
 
-    # Update user's withdrawal tracking
     user = await db.get_user(user_id)
     withdrawn_today = user.get("withdrawn_today", 0) + amount
     await db.update_user(user_id, {
@@ -216,7 +220,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 f"User ID: {target_user_id}\n"
                 f"Amount: {amount:.2f} kyat\n"
                 f"Payment Method: {method_display}\n"
-                f"Account: {account}\n"  # Added KPay account
+                f"Account: {account}\n"
                 f"Time: {datetime.utcnow()}"
             )
             await context.bot.edit_message_text(
@@ -246,7 +250,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 f"User ID: {target_user_id}\n"
                 f"Amount: {amount:.2f} kyat\n"
                 f"Payment Method: {method_display}\n"
-                f"Account: {account}\n"  # Added KPay account
+                f"Account: {account}\n"
                 f"Time: {datetime.utcnow()}"
             )
             await context.bot.edit_message_text(
@@ -275,12 +279,12 @@ def register_handlers(application: Application):
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler(["withdrawal", "Withdrawal"], withdrawal_start),
-            CallbackQueryHandler(withdrawal_start, pattern="^Withdrawal$")  # Handle the button click
+            CallbackQueryHandler(withdrawal_start, pattern="^Withdrawal$")
         ],
         states={
             SELECT_METHOD: [CallbackQueryHandler(select_method, pattern="^method_")],
-            ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
-            ENTER_KPAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_kpay)],
+            ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, enter_amount)],
+            ENTER_KPAY: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, enter_kpay)],
         },
         fallbacks=[],
     )
