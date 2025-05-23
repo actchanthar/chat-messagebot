@@ -209,7 +209,7 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
         logger.info(f"Processing {action} for withdrawal_id {withdrawal_id}")
         withdrawal = await db.withdrawals.find_one({"withdrawal_id": withdrawal_id, "status": "pending"})
         if not withdrawal:
-            await query.answer("Request not found or already processed.")
+            await query.answer("Request not found or already processed.", show_alert=True)
             logger.info(f"Withdrawal {withdrawal_id} not found or already processed")
             return
 
@@ -251,12 +251,20 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 f"Account: {account}\n"
                 f"Time: {datetime.utcnow()}"
             )
-            await context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=updated_message,
-                reply_markup=None
-            )
+            if account.startswith("QR_IMAGE:"):
+                await context.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=updated_message,
+                    reply_markup=None
+                )
+            else:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=updated_message,
+                    reply_markup=None
+                )
             logger.info(f"Edited withdrawal message for {withdrawal_id} in chat {chat_id}")
 
             if account.startswith("QR_IMAGE:"):
@@ -292,12 +300,20 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 f"Account: {account}\n"
                 f"Time: {datetime.utcnow()}"
             )
-            await context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=updated_message,
-                reply_markup=None
-            )
+            if account.startswith("QR_IMAGE:"):
+                await context.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=updated_message,
+                    reply_markup=None
+                )
+            else:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=updated_message,
+                    reply_markup=None
+                )
             logger.info(f"Edited withdrawal message for {withdrawal_id} in chat {chat_id}")
 
             if account.startswith("QR_IMAGE:"):
