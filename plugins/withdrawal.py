@@ -1,127 +1,312 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, ContextTypes, filters
 from database.database import db
+from config import ADMIN_IDS, LOG_CHANNEL_ID
 import logging
-from config import CURRENCY
+from datetime import datetime
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Conversation states
-ENTER_DETAILS, CONFIRM_TRANSFER = range(2)
+SELECT_METHOD, ENTER_AMOUNT, ENTER_KPAY = range(3)
 
-async def transfer_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
-    logger.info(f"Transfer command received by user {user_id} in chat {update.effective_chat.id}")
+    chat_id = str(update.effective_chat.id)
+    trigger = "button" if update.callback_query else "command"
+    logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with {trigger} {update.message.text if update.message else update.callback_query.data}")
+
     if update.effective_chat.type != "private":
-        await update.message.reply_text("Please use /transfer in a private chat.")
+        await update.message.reply_text("Please use /withdrawal in a private chat.")
         return ConversationHandler.END
 
-    if len(context.args) != 2:
-        await update.message.reply_text("Usage: /transfer <user_id> <amount>")
-        logger.info(f"Invalid transfer syntax by user {user_id}")
+    user = await db.get_user(user_id)
+    if not user:
+        await update.message.reply_text("User not found. Please contact support.") if update.message else await update.callback_query.message.reply_text("User not found. Please contact support.")
+        logger.error(f"User {user_id} not found for withdrawal")
         return ConversationHandler.END
 
-    target_user_id, amount = context.args
-    context.user_data["target_user_id"] = target_user_id
-    context.user_data["sender_id"] = user_id
+    balance = user.get("balance", 0)
+    context.user_data["balance"] = balance
+    context.user_data["user_id"] = user_id
 
-    if user_id == target_user_id:
-        await update.message.reply_text("You cannot transfer to yourself.")
-        logger.info(f"User {user_id} attempted to transfer to themselves")
-        return ConversationHandler.END
-
-    target_user = await db.get_user(target_user_id)
-    if not target_user:
-        await update.message.reply_text(f"User {target_user_id} not found.")
-        logger.info(f"User {user_id} attempted to transfer to non-existent user {target_user_id}")
-        return ConversationHandler.END
-
-    try:
-        amount = float(amount)
-        if amount <= 0:
-            await update.message.reply_text("Amount must be positive.")
-            return ConversationHandler.END
-        context.user_data["amount"] = amount
-    except ValueError:
-        await update.message.reply_text("Please provide a valid amount.")
-        return ConversationHandler.END
-
-    sender = await db.get_user(user_id)
-    if not sender:
-        await update.message.reply_text("Your account was not found. Contact support.")
-        logger.error(f"User {user_id} not found for transfer")
-        return ConversationHandler.END
-
-    balance = sender.get("balance", 0)
-    if balance < amount:
-        await update.message.reply_text(f"Insufficient balance. Your balance is {balance:.2f} {CURRENCY}.")
-        logger.info(f"User {user_id} has insufficient balance ({balance}) for transfer of {amount}")
+    if balance < 100:
+        await update.message.reply_text(f"Your balance is {balance:.2f} kyat. Minimum withdrawal is 100 kyat.") if update.message else await update.callback_query.message.reply_text(f"Your balance is {balance:.2f} kyat. Minimum withdrawal is 100 kyat.")
+        logger.info(f"User {user_id} has insufficient balance: {balance}")
         return ConversationHandler.END
 
     keyboard = [
+        [InlineKeyboardButton("KBZ Pay", callback_data="method_kbzpay")],
+        [InlineKeyboardButton("Wave Pay", callback_data="method_wavepay")],
+        [InlineKeyboardButton("Phone Bill", callback_data="method_phonebill")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    if update.callback_query:
+        await update.callback_query.message.reply_text("Please select your payment method:", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text("Please select your payment method:", reply_markup=reply_markup)
+    return SELECT_METHOD
+
+async def select_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    method = query.data.split("_")[1]
+    context.user_data["method"] = method
+
+    await query.message.reply_text(
+        f"Please enter the amount to withdraw (minimum: 100 kyat, your balance: {context.user_data['balance']:.2f} kyat):"
+    )
+    return ENTER_AMOUNT
+
+async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = context.user_data["user_id"]
+    method = context.user_data["method"]
+    balance = context.user_data["balance"]
+    text = update.message.text
+
+    try:
+        amount = float(text)
+        if amount <= 0:
+            await update.message.reply_text("Amount must be greater than 0.")
+            return ENTER_AMOUNT
+
+        if amount > balance:
+            await update.message.reply_text(f"Insufficient balance. Your balance is {balance:.2f} kyat.")
+            return ENTER_AMOUNT
+
+        if amount < 100:
+            await update.message.reply_text("Minimum withdrawal is 100 kyat.")
+            return ENTER_AMOUNT
+
+        context.user_data["amount"] = amount
+        if method in ["kbzpay", "wavepay"]:
+            await update.message.reply_text("Please send your KBZ Pay or Wave Pay account (e.g., phone number or account ID):")
+            return ENTER_KPAY
+        else:
+            return await submit_withdrawal(update, context)
+
+    except ValueError:
+        await update.message.reply_text("Please enter a valid number.")
+        return ENTER_AMOUNT
+    except Exception as e:
+        await update.message.reply_text(f"Error processing amount: {str(e)}. Contact support.")
+        logger.error(f"Error in enter_amount for user {user_id}: {e}")
+        return ENTER_AMOUNT
+
+async def enter_kpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = context.user_data["user_id"]
+    method = context.user_data["method"]
+    kpay_account = update.message.text.strip()
+    context.user_data["kpay_account"] = kpay_account
+
+    return await submit_withdrawal(update, context)
+
+async def submit_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_id = context.user_data["user_id"]
+    method = context.user_data["method"]
+    amount = context.user_data.get("amount")
+    kpay_account = context.user_data.get("kpay_account", "Not provided")
+
+    withdrawal_id = f"{user_id}_{int(datetime.utcnow().timestamp())}"
+    keyboard = [
         [
-            InlineKeyboardButton("Yes", callback_data="confirm_yes"),
-            InlineKeyboardButton("No", callback_data="confirm_no")
+            InlineKeyboardButton("Approve", callback_data=f"approve_{withdrawal_id}"),
+            InlineKeyboardButton("Reject", callback_data=f"reject_{withdrawal_id}")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        f"Are you sure you want to transfer {amount:.2f} {CURRENCY} to user {target_user_id} (@{target_user.get('username', 'N/A')})?",
-        reply_markup=reply_markup
+
+    method_display = {"kbzpay": "KBZ Pay", "wavepay": "Wave Pay", "phonebill": "Phone Bill"}[method]
+    request_message = (
+        f"Withdrawal Request\n"
+        f"User ID: {user_id}\n"
+        f"Username: {(await db.get_user(user_id)).get('username', 'None')}\n"
+        f"Amount: {amount:.2f} kyat\n"
+        f"Payment Method: {method_display}\n"
+        f"Account: {kpay_account}\n"
+        f"Time: {datetime.utcnow()}"
     )
-    logger.info(f"Transfer confirmation shown to user {user_id} for {amount:.2f} {CURRENCY} to {target_user_id}")
-    return CONFIRM_TRANSFER
-
-async def confirm_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    user_id = context.user_data["sender_id"]
-    target_user_id = context.user_data["target_user_id"]
-    amount = context.user_data["amount"]
-
-    if query.data == "confirm_no":
-        await query.message.reply_text("Transfer cancelled.")
-        logger.info(f"User {user_id} cancelled transfer to {target_user_id}")
+    logger.info(f"Attempting to send withdrawal request to {LOG_CHANNEL_ID} for user {user_id}")
+    try:
+        request_sent = await context.bot.send_message(
+            chat_id=LOG_CHANNEL_ID,
+            text=request_message,
+            reply_markup=reply_markup
+        )
+        logger.info(f"Withdrawal request sent for user {user_id}: {withdrawal_id}, message_id={request_sent.message_id}")
+    except Exception as e:
+        logger.error(f"Failed to send message to {LOG_CHANNEL_ID}: {e}")
+        await update.message.reply_text(f"Failed to send withdrawal request: {str(e)}. Contact support.")
         return ConversationHandler.END
 
     try:
-        success = await db.transfer_balance(user_id, target_user_id, amount)
-        if success:
-            await query.message.reply_text(f"Transferred {amount:.2f} {CURRENCY} to user {target_user_id}.")
-            try:
-                target_user = await db.get_user(target_user_id)
-                await context.bot.send_message(
-                    chat_id=target_user_id,
-                    text=f"You received {amount:.2f} {CURRENCY} from {update.effective_user.full_name} (@{update.effective_user.username or 'N/A'})!"
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify user {target_user_id} of transfer: {e}")
-            logger.info(f"User {user_id} successfully transferred {amount:.2f} {CURRENCY} to {target_user_id}")
-        else:
-            await query.message.reply_text("Transfer failed. Check balance or contact support.")
-            logger.warning(f"Transfer failed for user {user_id} to {target_user_id}: {amount}")
+        await db.withdrawals.insert_one({
+            "withdrawal_id": withdrawal_id,
+            "user_id": user_id,
+            "amount": amount,
+            "method": method,
+            "account": kpay_account,
+            "status": "pending",
+            "message_id": str(request_sent.message_id),
+            "chat_id": str(LOG_CHANNEL_ID),
+            "created_at": datetime.utcnow()
+        })
+        logger.info(f"Withdrawal record inserted for user {user_id}: {withdrawal_id}")
     except Exception as e:
-        await query.message.reply_text(f"Transfer failed due to an error: {str(e)}. Contact support.")
-        logger.error(f"Error during transfer from {user_id} to {target_user_id}: {e}")
-    
+        logger.error(f"Failed to insert withdrawal record for user {user_id}: {e}")
+        await update.message.reply_text(f"Failed to save withdrawal request: {str(e)}. Contact support.")
+        return ConversationHandler.END
+
+    user = await db.get_user(user_id)
+    withdrawn_today = user.get("withdrawn_today", 0) + amount
+    await db.update_user(user_id, {
+        "withdrawn_today": withdrawn_today,
+        "last_withdrawal": datetime.utcnow()
+    })
+
+    await update.message.reply_text(
+        f"Withdrawal request for {amount:.2f} kyat via {method_display} submitted. Awaiting admin approval."
+    )
+    logger.info(f"User {user_id} submitted withdrawal request for {amount:.2f} kyat via {method_display}")
     return ConversationHandler.END
 
-async def cancel_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = str(query.from_user.id)
+    data = query.data
+
+    logger.info(f"Callback received: {data} by user {user_id} in chat {query.message.chat_id}")
+
+    if user_id not in ADMIN_IDS:
+        await query.answer("You are not authorized.", show_alert=True)
+        logger.warning(f"Unauthorized withdrawal callback by user {user_id}")
+        return
+
+    try:
+        action, withdrawal_id = data.split("_", 1)
+        logger.info(f"Processing {action} for withdrawal_id {withdrawal_id}")
+        withdrawal = await db.withdrawals.find_one({"withdrawal_id": withdrawal_id, "status": "pending"})
+        if not withdrawal:
+            await query.answer("Request not found or already processed.")
+            logger.info(f"Withdrawal {withdrawal_id} not found or already processed")
+            return
+
+        target_user_id = withdrawal["user_id"]
+        amount = withdrawal["amount"]
+        method = withdrawal["method"]
+        account = withdrawal.get("account", "Not provided")
+        message_id = withdrawal["message_id"]
+        chat_id = withdrawal["chat_id"]
+        method_display = {"kbzpay": "KBZ Pay", "wavepay": "Wave Pay", "phonebill": "Phone Bill"}[method]
+
+        if action == "approve":
+            user = await db.get_user(target_user_id)
+            if not user:
+                await query.answer("User not found.", show_alert=True)
+                logger.error(f"Cannot approve withdrawal {withdrawal_id}: user {target_user_id} not found")
+                return
+            balance = user.get("balance", 0)
+            if balance < amount:
+                await query.answer("Insufficient balance.", show_alert=True)
+                logger.error(f"Cannot approve withdrawal {withdrawal_id}: insufficient balance for user {target_user_id}, balance={balance}, amount={amount}")
+                return
+
+            new_balance = balance - amount
+            await db.update_user(target_user_id, {"balance": new_balance})
+            logger.info(f"Deducted {amount} kyat from user {target_user_id}, new balance: {new_balance}")
+
+            await db.withdrawals.update_one(
+                {"withdrawal_id": withdrawal_id},
+                {"$set": {"status": "approved", "processed_at": datetime.utcnow()}}
+            )
+            logger.info(f"Updated withdrawal {withdrawal_id} status to approved")
+
+            updated_message = (
+                f"Withdrawal Approved\n"
+                f"User ID: {target_user_id}\n"
+                f"Amount: {amount:.2f} kyat\n"
+                f"Payment Method: {method_display}\n"
+                f"Account: {account}\n"
+                f"Time: {datetime.utcnow()}"
+            )
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=updated_message,
+                reply_markup=None
+            )
+            logger.info(f"Edited withdrawal message for {withdrawal_id} in chat {chat_id}")
+
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"Your withdrawal of {amount:.2f} kyat via {method_display} to {account} was approved."
+            )
+            logger.info(f"Notified user {target_user_id} of approved withdrawal")
+
+            log_message = f"Admin {user_id} approved withdrawal {withdrawal_id} for user {target_user_id}: {amount:.2f} kyat via {method_display} to {account}"
+            await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=log_message)
+            logger.info(log_message)
+
+        elif action == "reject":
+            await db.withdrawals.update_one(
+                {"withdrawal_id": withdrawal_id},
+                {"$set": {"status": "rejected", "processed_at": datetime.utcnow()}}
+            )
+            logger.info(f"Updated withdrawal {withdrawal_id} status to rejected")
+
+            updated_message = (
+                f"Withdrawal Rejected\n"
+                f"User ID: {target_user_id}\n"
+                f"Amount: {amount:.2f} kyat\n"
+                f"Payment Method: {method_display}\n"
+                f"Account: {account}\n"
+                f"Time: {datetime.utcnow()}"
+            )
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=updated_message,
+                reply_markup=None
+            )
+            logger.info(f"Edited withdrawal message for {withdrawal_id} in chat {chat_id}")
+
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"Your withdrawal of {amount:.2f} kyat via {method_display} to {account} was rejected."
+            )
+            logger.info(f"Notified user {target_user_id} of rejected withdrawal")
+
+            log_message = f"Admin {user_id} rejected withdrawal {withdrawal_id} for user {target_user_id}: {amount:.2f} kyat via {method_display} to {account}"
+            await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=log_message)
+            logger.info(log_message)
+
+        await query.answer("Action completed.")
+
+    except Exception as e:
+        await query.answer(f"Error: {str(e)}", show_alert=True)
+        logger.error(f"Error in withdrawal callback {data} for user {user_id}: {e}")
+
+async def cancel_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
-    logger.info(f"User {user_id} cancelled transfer conversation")
-    await update.message.reply_text("Transfer process cancelled.")
+    logger.info(f"User {user_id} cancelled withdrawal conversation")
+    await update.message.reply_text("Withdrawal process cancelled.")
     return ConversationHandler.END
 
 def register_handlers(application: Application):
-    logger.info("Registering transfer handlers")
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("transfer", transfer_start)],
+        entry_points=[
+            CommandHandler(["withdrawal", "Withdrawal"], withdrawal_start),
+            CallbackQueryHandler(withdrawal_start, pattern="^Withdrawal$")
+        ],
         states={
-            CONFIRM_TRANSFER: [CallbackQueryHandler(confirm_transfer, pattern="^confirm_")],
+            SELECT_METHOD: [CallbackQueryHandler(select_method, pattern="^method_")],
+            ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, enter_amount)],
+            ENTER_KPAY: [MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, enter_kpay)],
         },
         fallbacks=[
-            CommandHandler("cancel", cancel_transfer)  # Add cancel command
+            CommandHandler("cancel", cancel_withdrawal)
         ],
     )
     application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_withdrawal_callback, pattern="^(approve|reject)_"))
+    logger.info("Withdrawal handlers registered successfully")
