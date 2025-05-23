@@ -12,12 +12,14 @@ ENTER_DETAILS, CONFIRM_TRANSFER = range(2)
 
 async def transfer_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
+    logger.info(f"Transfer command received by user {user_id} in chat {update.effective_chat.id}")
     if update.effective_chat.type != "private":
         await update.message.reply_text("Please use /transfer in a private chat.")
         return ConversationHandler.END
 
     if len(context.args) != 2:
         await update.message.reply_text("Usage: /transfer <user_id> <amount>")
+        logger.info(f"Invalid transfer syntax by user {user_id}")
         return ConversationHandler.END
 
     target_user_id, amount = context.args
@@ -73,6 +75,7 @@ async def transfer_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Are you sure you want to transfer {amount:.2f} {CURRENCY} to user {target_user_id} (@{target_user.get('username', 'N/A')})?",
         reply_markup=reply_markup
     )
+    logger.info(f"Transfer confirmation shown to user {user_id} for {amount:.2f} {CURRENCY} to {target_user_id}")
     return CONFIRM_TRANSFER
 
 async def confirm_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
