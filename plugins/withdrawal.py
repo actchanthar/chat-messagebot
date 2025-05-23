@@ -141,11 +141,20 @@ async def submit_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
     logger.info(f"Attempting to send withdrawal request to {LOG_CHANNEL_ID} for user {user_id}")
     try:
-        request_sent = await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=request_message,
-            reply_markup=reply_markup
-        )
+        if kpay_account.startswith("QR_IMAGE:"):
+            file_id = kpay_account.split(":")[1]
+            request_sent = await context.bot.send_photo(
+                chat_id=LOG_CHANNEL_ID,
+                photo=file_id,
+                caption=request_message,
+                reply_markup=reply_markup
+            )
+        else:
+            request_sent = await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=request_message,
+                reply_markup=reply_markup
+            )
         logger.info(f"Withdrawal request sent for user {user_id}: {withdrawal_id}, message_id={request_sent.message_id}")
     except Exception as e:
         logger.error(f"Failed to send message to {LOG_CHANNEL_ID}: {e}")
