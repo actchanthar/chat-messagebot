@@ -24,7 +24,7 @@ from plugins.rmamount import register_handlers as rmamount_handlers
 from plugins.check import register_handlers as check_handlers
 from plugins.add_bonus import register_handlers as add_bonus_handlers
 from plugins.grok import register_handlers as grok_handlers
-from plugins.transfer import register_handlers as transfer_handlers  # Add this line
+from plugins.transfer import register_handlers as transfer_handlers
 import logging
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -42,7 +42,13 @@ def main():
 
     application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
 
-    # Register handlers that handle callbacks first
+    # Clear all conversation states on startup
+    application.persistence = None  # Ensure no persistence to clear lingering states
+    application.bot_data.clear()
+    application.user_data.clear()
+    application.chat_data.clear()
+    logger.info("Cleared all conversation states on startup")
+
     withdrawal_handlers(application)
     balance_handlers(application)
     top_handlers(application)
@@ -66,7 +72,7 @@ def main():
     check_handlers(application)
     add_bonus_handlers(application)
     grok_handlers(application)
-    transfer_handlers(application)  # Add this line
+    transfer_handlers(application)
 
     try:
         application.run_polling(
