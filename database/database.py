@@ -16,7 +16,7 @@ class Database:
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
-        self.withdrawals = self.db.withdrawals  # Add this collection
+        self.withdrawals = self.db.withdrawals
         self.message_history = {}
         self._ensure_indexes()
 
@@ -27,7 +27,7 @@ class Database:
             self.users.create_index([("messages", -1)])
             self.groups.create_index([("group_id", 1)], unique=True)
             self.settings.create_index([("type", 1)], unique=True)
-            self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)  # Add index for withdrawals
+            self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)
             logger.info("Database indexes ensured")
         except Exception as e:
             logger.error(f"Failed to create indexes: {e}")
@@ -100,6 +100,27 @@ class Database:
                     logger.error(f"Error updating user {user_id}: {e}")
                     return False
 
+    async def transfer_balance(self, sender_id, target_id, amount):
+        try:
+            sender = await self.get_user(sender_id)
+            target = await self.get_user(target_id)
+            if not sender or not target:
+                logger.error(f"User not found: sender={sender_id}, target={target_id}")
+                return False
+            sender_balance = sender.get("balance", 0)
+            if sender_balance < amount:
+                logger.info(f"Insufficient balance for user {sender_id}: {sender_balance} < {amount}")
+                return False
+            new_sender_balance = sender_balance - amount
+            new_target_balance = target.get("balance", 0) + amount
+            await self.update_user(sender_id, {"balance": new_sender_balance})
+            await self.update_user(target_id, {"balance": new_target_balance})
+            logger.info(f"Transferred {amount} from {sender_id} to {target_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error in transfer_balance: {e}")
+            return False
+
     async def get_top_users(self, by="messages", limit=10):
         try:
             sort_field = "invite_count" if by == "invites" else "messages"
@@ -148,7 +169,7 @@ class Database:
     async def get_message_rate(self):
         try:
             settings = await self.settings.find_one({"type": "message_rate"})
-            return settings.get("value", 1) if settings else 1  # Changed default to 1
+            return settings.get("value", 1) if settings else 1
         except Exception as e:
             logger.error(f"Error retrieving message rate: {e}")
             return 1
