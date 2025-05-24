@@ -32,15 +32,6 @@ import asyncio
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def stop_previous_sessions(application):
-    """Stop any previous polling sessions to avoid conflicts."""
-    try:
-        await application.updater.stop()
-        logger.info("Stopped any previous polling sessions")
-        await asyncio.sleep(5)  # Wait to ensure the session is fully stopped
-    except Exception as e:
-        logger.warning(f"Error stopping previous sessions: {e}")
-
 def main():
     # Configure HTTPXRequest with timeouts and connection pool
     request = HTTPXRequest(
@@ -60,12 +51,12 @@ def main():
         logger.error(f"Update {update} caused error {context.error}")
         if isinstance(context.error, Conflict):
             logger.warning("Detected getUpdates conflict. Attempting to recover...")
-            max_retries = 5  # Increased retries
+            max_retries = 5
             for attempt in range(max_retries):
                 try:
                     await context.application.updater.stop()
                     logger.info("Updater stopped due to conflict")
-                    await asyncio.sleep(40)  # Further increased delay
+                    await asyncio.sleep(40)
                     await context.application.updater.start_polling(drop_pending_updates=True)
                     logger.info("Polling restarted successfully after conflict")
                     return
@@ -105,14 +96,19 @@ def main():
     grok_handlers(application)
     transfer_handlers(application)
 
-    # Start the bot with polling
-    logger.info("Starting bot with polling...")
-    try:
-        # Stop any previous sessions before starting polling
-        asyncio.run(stop_previous_sessions(application))
-        # Add a delay to ensure no race conditions
-        asyncio.run(asyncio.sleep(15))  # Increased delay
-        application.run_polling(
+    # Define async startup function
+    async def startup():
+        # Stop any previous polling sessions to avoid conflicts
+        try:
+            await application.updater.stop()
+            logger.info("Stopped any previous polling sessions")
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.warning(f"Error stopping previous sessions: {e}")
+
+        # Start polling
+        logger.info("Starting bot with polling...")
+        await application.run_polling(
             drop_pending_updates=True,
             timeout=30,
             read_timeout=30.0,
@@ -120,6 +116,14 @@ def main():
             connect_timeout=30.0,
             pool_timeout=30.0,
         )
+
+    # Run the startup coroutine in the main event loop
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        loop.run_until_complete(startup())
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
         raise
