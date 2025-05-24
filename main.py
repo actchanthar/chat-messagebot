@@ -26,7 +26,7 @@ from plugins.add_bonus import register_handlers as add_bonus_handlers
 from plugins.grok import register_handlers as grok_handlers
 from plugins.transfer import register_handlers as transfer_handlers
 import logging
-import asyncio
+import os
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,9 +41,9 @@ def main():
         http_version="1.1",
     )
 
-    application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
+    application = Application.builder().token(BOT_TOKEN).request(request).build()
 
-    logger.info("Starting bot with drop_pending_updates=True to prevent lingering updates")
+    logger.info("Starting bot with webhook setup")
     start_handlers(application)
     withdrawal_handlers(application)
     balance_handlers(application)
@@ -71,35 +71,22 @@ def main():
 
     async def error_handler(update, context):
         logger.error(f"Update {update} caused error {context.error}")
-        if "Conflict: terminated by other getUpdates request" in str(context.error):
-            logger.warning("Detected getUpdates conflict. Attempting to recover...")
-            await asyncio.sleep(10)  # Wait for other instance to stop
-            # Only stop updater, not the entire application
-            await application.updater.stop()
-            await asyncio.sleep(5)  # Additional delay for cleanup
-            await application.updater.start_polling(
-                drop_pending_updates=True,
-                timeout=30,
-                read_timeout=30.0,
-                write_timeout=30.0,
-                connect_timeout=30.0,
-                pool_timeout=30.0,
-            )
-            logger.info("Polling restarted after conflict recovery")
 
     application.add_error_handler(error_handler)
 
+    # Webhook setup
+    port = int(os.environ.get("PORT", 8443))
+    webhook_url = f"https://{os.environ.get('HEROKU_APP_NAME')}.herokuapp.com/{BOT_TOKEN}"
     try:
-        application.run_polling(
-            drop_pending_updates=True,
-            timeout=30,
-            read_timeout=30.0,
-            write_timeout=30.0,
-            connect_timeout=30.0,
-            pool_timeout=30.0,
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path=BOT_TOKEN,
+            webhook_url=webhook_url,
         )
+        logger.info(f"Webhook set to {webhook_url}")
     except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
+        logger.error(f"Failed to start bot with webhook: {e}")
         raise
 
 if __name__ == "__main__":
