@@ -73,9 +73,18 @@ def main():
         logger.error(f"Update {update} caused error {context.error}")
         if "Conflict: terminated by other getUpdates request" in str(context.error):
             logger.warning("Detected getUpdates conflict. Retrying polling...")
-            await application.updater.stop()
-            await asyncio.sleep(10)
-            await application.updater.start_polling(drop_pending_updates=True)
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await application.updater.stop()
+                    await asyncio.sleep(15)  # Increased delay
+                    await application.updater.start_polling(drop_pending_updates=True)
+                    logger.info("Polling restarted successfully")
+                    return
+                except Exception as e:
+                    logger.error(f"Retry {attempt + 1}/{max_retries} failed: {e}")
+                    await asyncio.sleep(5)
+            logger.error("Failed to recover from conflict after retries. Please check for duplicate bot instances.")
 
     application.add_error_handler(error_handler)
 
