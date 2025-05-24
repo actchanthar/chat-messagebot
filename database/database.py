@@ -1,49 +1,51 @@
+from motor.motor_asyncio import AsyncIOMotorClient
+from config import MONGODB_URL, MONGODB_NAME
 import logging
-from telegram.ext import Application, CommandHandler
-from config import BOT_TOKEN
-from plugins import start, withdrawal, balance, top, addgroup, checkgroup, setphonebill, broadcast
+from datetime import datetime, timedelta
+import asyncio
 
-# Set up logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize the application
-application = Application.builder().token(BOT_TOKEN).build()
+class Database:
+    def __init__(self):
+        self.client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=30000)
+        self.db = self.client[MONGODB_NAME]
+        self.users = self.db.users
+        self.groups = self.db.groups
+        self.rewards = self.db.rewards
+        self.settings = self.db.settings
+        self.withdrawals = self.db.withdrawals
 
-# Register handlers from plugins
-start.register_handlers(application)
-withdrawal.register_handlers(application)
-balance.register_handlers(application)
-top.register_handlers(application)
-addgroup.register_handlers(application)
-checkgroup.register_handlers(application)
-setphonebill.register_handlers(application)
-broadcast.register_handlers(application)
+    async def test_connection(self):
+        """Test the MongoDB connection by listing collections."""
+        try:
+            await self.db.list_collection_names()
+            logger.info("MongoDB connection test successful")
+        except Exception as e:
+            logger.error(f"Connection test failed: {e}")
+            raise
 
-async def pre_start_cleanup():
-    """Perform cleanup tasks before starting the bot."""
-    logger.info("Performing pre-start cleanup...")
-    try:
-        # Delete any existing webhook to ensure polling mode
-        await application.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Deleted any existing webhook to ensure polling mode")
-    except Exception as e:
-        logger.warning(f"Failed to delete webhook: {e}")
+    async def _ensure_indexes(self):
+        try:
+            await self.users.create_index([("user_id", 1)], unique=True)
+            await self.users.create_index([("invite_count", -1)])
+            await self.users.create_index([("messages", -1)])
+            await self.groups.create_index([("group_id", 1)], unique=True)
+            await self.settings.create_index([("type", 1)], unique=True)
+            await self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)
+            logger.info("Database indexes ensured")
+        except Exception as e:
+            logger.error(f"Failed to create indexes: {e}")
 
-async def main():
-    """Main function to run the bot."""
-    # Run cleanup in a temporary event loop
-    loop = asyncio.get_event_loop()
-    await pre_start_cleanup()
+    # ... (keep all other methods as they are) ...
 
-    # Start the bot with polling
-    logger.info("Starting bot with polling...")
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+# Defer database initialization
+db = None
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.error(f"Bot failed to start: {e}")
+async def initialize_database():
+    global db
+    db = Database()
+    await db.test_connection()
+    await db._ensure_indexes()
+    logger.info("Database initialized successfully")
