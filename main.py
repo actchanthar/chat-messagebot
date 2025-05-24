@@ -43,7 +43,7 @@ def main():
 
     application = Application.builder().token(BOT_TOKEN).request(request).build()
 
-    logger.info("Starting bot with webhook setup")
+    logger.info("Starting bot with polling as fallback")
     start_handlers(application)
     withdrawal_handlers(application)
     balance_handlers(application)
@@ -71,22 +71,26 @@ def main():
 
     async def error_handler(update, context):
         logger.error(f"Update {update} caused error {context.error}")
+        if "Conflict: terminated by other getUpdates request" in str(context.error):
+            logger.warning("Detected getUpdates conflict. Retrying polling...")
+            await application.updater.stop()
+            await asyncio.sleep(10)
+            await application.updater.start_polling(drop_pending_updates=True)
 
     application.add_error_handler(error_handler)
 
-    # Webhook setup
-    port = int(os.environ.get("PORT", 8443))
-    webhook_url = f"https://{os.environ.get('HEROKU_APP_NAME')}.herokuapp.com/{BOT_TOKEN}"
     try:
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path=BOT_TOKEN,
-            webhook_url=webhook_url,
+        # Fallback to polling since webhook setup failed
+        application.run_polling(
+            drop_pending_updates=True,
+            timeout=30,
+            read_timeout=30.0,
+            write_timeout=30.0,
+            connect_timeout=30.0,
+            pool_timeout=30.0,
         )
-        logger.info(f"Webhook set to {webhook_url}")
     except Exception as e:
-        logger.error(f"Failed to start bot with webhook: {e}")
+        logger.error(f"Failed to start bot: {e}")
         raise
 
 if __name__ == "__main__":
