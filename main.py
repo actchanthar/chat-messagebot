@@ -80,11 +80,12 @@ async def pre_start_cleanup():
 
 # Main function to run the bot
 def main():
+    # Run pre-start cleanup
+    loop = application.bot.loop
+    loop.run_until_complete(pre_start_cleanup())
+    
     logger.info("Starting bot with polling...")
-    application.run_polling(
-        on_shutdown=lambda: logger.info("Bot shutting down..."),
-        allowed_updates=Update.ALL_TYPES
-    )
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
