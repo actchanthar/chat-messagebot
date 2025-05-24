@@ -3,7 +3,7 @@ import asyncio
 from telegram.ext import Application
 from telegram import Update
 from config import BOT_TOKEN
-from database import db
+from database import Database
 from plugins import start, withdrawal, balance, top, addgroup, checkgroup, setphonebill, broadcast
 
 # Set up logging
@@ -11,6 +11,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Initialize the database
+db = Database()
 
 # Initialize the application
 application = Application.builder().token(BOT_TOKEN).build()
