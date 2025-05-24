@@ -33,6 +33,7 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     balance = user.get("balance", 0)
     context.user_data["balance"] = balance
     context.user_data["user_id"] = user_id
+    context.user_data["last_message"] = None  # Track last sent message
 
     if balance < 100:
         await update.message.reply_text(f"Your balance is {balance:.2f} {CURRENCY}. Minimum withdrawal is 100 {CURRENCY}.") if update.message else await update.callback_query.message.reply_text(f"Your balance is {balance:.2f} {CURRENCY}. Minimum withdrawal is 100 {CURRENCY}.")
@@ -54,23 +55,35 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 async def select_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+    if not context.user_data.get("user_id"):
+        await query.message.reply_text("Session expired. Please start again with /withdrawal.")
+        logger.warning(f"Session expired for user {query.from_user.id} in select_method")
+        return ConversationHandler.END
+
     method = query.data.split("_")[1]  # Extract method (kbzpay, wavepay, phonebill)
     context.user_data["method"] = method
     logger.info(f"User {query.from_user.id} selected payment method: {method}")
 
-    # Ensure the message is edited only once to avoid duplicates
+    # Prevent duplicate prompts
+    prompt = f"Please enter the amount to withdraw (minimum: 100 {CURRENCY}, your balance: {context.user_data['balance']:.2f} {CURRENCY}):"
+    if context.user_data.get("last_message") == prompt:
+        logger.info(f"Duplicate prompt prevented for user {query.from_user.id}")
+        return ENTER_AMOUNT
+
+    context.user_data["last_message"] = prompt
     try:
-        await query.message.edit_text(
-            f"Please enter the amount to withdraw (minimum: 100 {CURRENCY}, your balance: {context.user_data['balance']:.2f} {CURRENCY}):"
-        )
+        await query.message.edit_text(prompt)
     except Exception as e:
         logger.error(f"Error editing message for user {query.from_user.id}: {e}")
-        await query.message.reply_text(
-            f"Please enter the amount to withdraw (minimum: 100 {CURRENCY}, your balance: {context.user_data['balance']:.2f} {CURRENCY}):"
-        )
+        await query.message.reply_text(prompt)
     return ENTER_AMOUNT
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not context.user_data.get("user_id"):
+        await update.message.reply_text("Session expired. Please start again with /withdrawal.")
+        logger.warning(f"Session expired for user {update.effective_user.id} in enter_amount")
+        return ConversationHandler.END
+
     user_id = context.user_data["user_id"]
     method = context.user_data["method"]
     balance = context.user_data["balance"]
@@ -92,7 +105,9 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
         context.user_data["amount"] = amount
         if method in ["kbzpay", "wavepay"]:
-            await update.message.reply_text("Please send your KBZ Pay or Wave Pay account (e.g., phone number or account ID) or an image QR:")
+            prompt = "Please send your KBZ Pay or Wave Pay account (e.g., phone number or account ID) or an image QR:"
+            context.user_data["last_message"] = prompt
+            await update.message.reply_text(prompt)
             return ENTER_KPAY
         else:
             return await submit_withdrawal(update, context)
@@ -106,6 +121,11 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return ENTER_AMOUNT
 
 async def enter_kpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not context.user_data.get("user_id"):
+        await update.message.reply_text("Session expired. Please start again with /withdrawal.")
+        logger.warning(f"Session expired for user {update.effective_user.id} in enter_kpay")
+        return ConversationHandler.END
+
     user_id = context.user_data["user_id"]
     method = context.user_data["method"]
 
@@ -119,7 +139,10 @@ async def enter_kpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         context.user_data["kpay_account"] = kpay_account
         logger.info(f"User {user_id} provided kpay account: {kpay_account}")
     else:
-        await update.message.reply_text("Please send a phone number/account ID or an image QR.")
+        prompt = "Please send a phone number/account ID or an image QR."
+        if context.user_data.get("last_message") != prompt:
+            context.user_data["last_message"] = prompt
+            await update.message.reply_text(prompt)
         return ENTER_KPAY
 
     return await submit_withdrawal(update, context)
