@@ -1,5 +1,4 @@
 import logging
-import asyncio
 import os
 from telegram.ext import Application, CommandHandler
 from telegram import Update
@@ -70,6 +69,7 @@ application = Application.builder().token(BOT_TOKEN).build()
 # Register handlers
 application.add_handler(CommandHandler("start", start))
 
+# Pre-start cleanup
 async def pre_start_cleanup():
     logger.info("Performing pre-start cleanup...")
     try:
@@ -78,11 +78,13 @@ async def pre_start_cleanup():
     except Exception as e:
         logger.warning(f"Failed to delete webhook: {e}")
 
-async def main():
-    await pre_start_cleanup()
+# Main function to run the bot
+def main():
     logger.info("Starting bot with polling...")
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(
+        on_shutdown=lambda: logger.info("Bot shutting down..."),
+        allowed_updates=Update.ALL_TYPES
+    )
 
 if __name__ == "__main__":
-    # Use asyncio.run without try-except to let PTB handle errors
-    asyncio.run(main())
+    main()
