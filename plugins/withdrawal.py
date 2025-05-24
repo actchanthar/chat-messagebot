@@ -17,6 +17,9 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     trigger = "button" if update.callback_query else "command"
     logger.info(f"Withdraw command initiated by user {user_id} in chat {chat_id} with {trigger} {update.message.text if update.message else update.callback_query.data}")
 
+    # Clear previous user_data to avoid stale state
+    context.user_data.clear()
+
     if update.effective_chat.type != "private":
         await update.message.reply_text("Please use /withdrawal in a private chat.")
         return ConversationHandler.END
@@ -55,9 +58,16 @@ async def select_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     context.user_data["method"] = method
     logger.info(f"User {query.from_user.id} selected payment method: {method}")
 
-    await query.message.edit_text(
-        f"Please enter the amount to withdraw (minimum: 100 {CURRENCY}, your balance: {context.user_data['balance']:.2f} {CURRENCY}):"
-    )
+    # Ensure the message is edited only once to avoid duplicates
+    try:
+        await query.message.edit_text(
+            f"Please enter the amount to withdraw (minimum: 100 {CURRENCY}, your balance: {context.user_data['balance']:.2f} {CURRENCY}):"
+        )
+    except Exception as e:
+        logger.error(f"Error editing message for user {query.from_user.id}: {e}")
+        await query.message.reply_text(
+            f"Please enter the amount to withdraw (minimum: 100 {CURRENCY}, your balance: {context.user_data['balance']:.2f} {CURRENCY}):"
+        )
     return ENTER_AMOUNT
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -350,7 +360,7 @@ def register_handlers(application: Application):
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler(["withdrawal", "Withdrawal"], withdrawal_start),
-            CallbackQueryHandler(withdrawal_start, pattern="^Withdrawal$")  # For potential button triggers
+            CallbackQueryHandler(withdrawal_start, pattern="^Withdrawal$")
         ],
         states={
             SELECT_METHOD: [CallbackQueryHandler(select_method, pattern="^method_(kbzpay|wavepay|phonebill)$")],
