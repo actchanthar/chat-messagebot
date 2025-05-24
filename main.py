@@ -1,8 +1,10 @@
 import logging
-from telegram.ext import Application, CommandHandler
+import asyncio
+from telegram.ext import Application
+from telegram import Update
 from config import BOT_TOKEN
+from database import db
 from plugins import start, withdrawal, balance, top, addgroup, checkgroup, setphonebill, broadcast
-from database import initialize_database
 
 # Set up logging
 logging.basicConfig(
@@ -35,8 +37,13 @@ async def pre_start_cleanup():
 
 async def main():
     """Main function to run the bot."""
-    # Initialize the database
-    await initialize_database()
+    # Test database connection and ensure indexes
+    try:
+        await db.test_connection()
+        await db.ensure_indexes()
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
 
     # Run cleanup in the application’s event loop
     await pre_start_cleanup()
