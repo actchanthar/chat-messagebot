@@ -26,7 +26,8 @@ class Database:
             logger.error(f"Connection test failed: {e}")
             raise
 
-    async def _ensure_indexes(self):
+    async def ensure_indexes(self):
+        """Ensure database indexes asynchronously."""
         try:
             await self.users.create_index([("user_id", 1)], unique=True)
             await self.users.create_index([("invite_count", -1)])
@@ -37,6 +38,7 @@ class Database:
             logger.info("Database indexes ensured")
         except Exception as e:
             logger.error(f"Failed to create indexes: {e}")
+            raise
 
     async def get_user(self, user_id):
         try:
@@ -279,12 +281,5 @@ class Database:
             logger.error(f"Error awarding weekly rewards: {e}")
             return False
 
-# Defer database initialization
-db = None
-
-async def initialize_database():
-    global db
-    db = Database()
-    await db.test_connection()
-    await db._ensure_indexes()
-    logger.info("Database initialized successfully")
+# Instantiate the database object
+db = Database()
