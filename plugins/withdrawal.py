@@ -4,6 +4,7 @@ from database.database import db
 from config import ADMIN_IDS, LOG_CHANNEL_ID, CURRENCY
 import logging
 from datetime import datetime
+import random  # Add for unique withdrawal_id
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,6 +43,15 @@ async def withdrawal_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if balance < 100:
         await update.message.reply_text(f"Your balance is {balance:.2f} {CURRENCY}. Minimum withdrawal is 100 {CURRENCY}.") if update.message else await update.callback_query.message.reply_text(f"Your balance is {balance:.2f} {CURRENCY}. Minimum withdrawal is 100 {CURRENCY}.")
         logger.info(f"START: User {user_id} has insufficient balance: {balance}")
+        return ConversationHandler.END
+
+    # Verify bot permissions in LOG_CHANNEL_ID
+    try:
+        await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text="Permission test")
+        logger.info(f"START: Verified bot has permission to send messages to {LOG_CHANNEL_ID}")
+    except Exception as e:
+        logger.error(f"START: Bot lacks permission to send messages to {LOG_CHANNEL_ID}: {e}")
+        await update.message.reply_text("Bot lacks permission to process withdrawals. Contact support.")
         return ConversationHandler.END
 
     keyboard = [
@@ -189,7 +199,9 @@ async def submit_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     kpay_account = context.user_data.get("kpay_account", "Not provided")
     logger.info(f"SUBMIT_WITHDRAWAL: Submitting withdrawal for user {user_id}, method: {method}, amount: {amount}, account: {kpay_account}")
 
-    withdrawal_id = f"{user_id}_{int(datetime.utcnow().timestamp())}"
+    # Generate a unique withdrawal_id with a random suffix
+    random_suffix = random.randint(1000, 9999)
+    withdrawal_id = f"{user_id}_{int(datetime.utcnow().timestamp())}_{random_suffix}"
     keyboard = [
         [
             InlineKeyboardButton("Approve", callback_data=f"approve_{withdrawal_id}"),
@@ -302,14 +314,19 @@ async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAU
                 await query.answer("User not found.", show_alert=True)
                 logger.error(f"HANDLE_CALLBACK: Cannot approve withdrawal {withdrawal_id}: user {target_user_id} not found")
                 return
-            balance = user.get("balance", 0)
-            if balance < amount:
-                await query.answer("Insufficient balance.", show_alert=True)
-                logger.error(f"HANDLE_CALLBACK: Cannot approve withdrawal {withdrawal_id}: insufficient balance for user {target_user_id}, balance={balance}, amount={amount}")
+
+            # Atomically deduct balance
+            result = await db.users.update_one(
+                {"user_id": target_user_id, "balance": {"$gte": amount}},
+                {"$inc": {"balance": -amount}}
+            )
+            if result.modified_count == 0:
+                await query.answer("Insufficient balance or user not found.", show_alert=True)
+                logger.error(f"HANDLE_CALLBACK: Cannot approve withdrawal {withdrawal_id}: insufficient balance for user {target_user_id}")
                 return
 
-            new_balance = balance - amount
-            await db.update_user(target_user_id, {"balance": new_balance})
+            user = await db.get_user(target_user_id)  # Refresh user data
+            new_balance = user.get("balance", 0)
             logger.info(f"HANDLE_CALLBACK: Deducted {amount} {CURRENCY} from user {target_user_id}, new balance: {new_balance}")
 
             await db.withdrawals.update_one(
