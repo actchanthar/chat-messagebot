@@ -84,7 +84,5 @@ async def main():
     await application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.error(f"Bot failed to start: {e}")
+    # Use asyncio.run without try-except to let PTB handle errors
+    asyncio.run(main())
