@@ -56,13 +56,13 @@ def main():
                 try:
                     await context.application.updater.stop()
                     logger.info("Updater stopped due to conflict")
-                    await asyncio.sleep(40)
+                    await asyncio.sleep(20)
                     await context.application.updater.start_polling(drop_pending_updates=True)
                     logger.info("Polling restarted successfully after conflict")
                     return
                 except Exception as e:
                     logger.error(f"Retry {attempt + 1}/{max_retries} failed: {e}")
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(5)
             logger.error("Failed to recover from conflict after retries. Please check for duplicate bot instances.")
         else:
             logger.error(f"Unhandled error: {context.error}")
@@ -96,19 +96,31 @@ def main():
     grok_handlers(application)
     transfer_handlers(application)
 
-    # Define async startup function
-    async def startup():
-        # Stop any previous polling sessions to avoid conflicts
+    # Pre-start cleanup to avoid conflicts
+    logger.info("Performing pre-start cleanup...")
+    try:
+        # Run cleanup in a temporary event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            await application.updater.stop()
-            logger.info("Stopped any previous polling sessions")
-            await asyncio.sleep(5)
-        except Exception as e:
-            logger.warning(f"Error stopping previous sessions: {e}")
+            # Delete any existing webhook to ensure polling mode
+            loop.run_until_complete(application.bot.delete_webhook(drop_pending_updates=True))
+            logger.info("Deleted any existing webhook to ensure polling mode")
+            loop.run_until_complete(asyncio.sleep(2))
 
-        # Start polling
-        logger.info("Starting bot with polling...")
-        await application.run_polling(
+            # Stop any previous polling sessions
+            loop.run_until_complete(application.updater.stop())
+            logger.info("Stopped any previous polling sessions")
+            loop.run_until_complete(asyncio.sleep(5))
+        finally:
+            loop.close()
+    except Exception as e:
+        logger.warning(f"Error during pre-start cleanup: {e}")
+
+    # Start the bot with polling
+    logger.info("Starting bot with polling...")
+    try:
+        application.run_polling(
             drop_pending_updates=True,
             timeout=30,
             read_timeout=30.0,
@@ -116,14 +128,6 @@ def main():
             connect_timeout=30.0,
             pool_timeout=30.0,
         )
-
-    # Run the startup coroutine in the main event loop
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        loop.run_until_complete(startup())
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
         raise
