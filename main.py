@@ -26,11 +26,13 @@ from plugins.add_bonus import register_handlers as add_bonus_handlers
 from plugins.grok import register_handlers as grok_handlers
 from plugins.transfer import register_handlers as transfer_handlers
 import logging
+import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def main():
+    # Configure HTTPXRequest with custom timeouts
     request = HTTPXRequest(
         connection_pool_size=20,
         read_timeout=30.0,
@@ -40,16 +42,15 @@ def main():
         http_version="1.1",
     )
 
+    # Initialize application with custom request and token
     application = Application.builder().token(BOT_TOKEN).request(request).get_updates_request(request).build()
 
-    # Removed problematic clearing of user_data, bot_data, chat_data
-    # drop_pending_updates=True will help prevent lingering updates
+    # Register all handlers
     logger.info("Starting bot with drop_pending_updates=True to prevent lingering updates")
-
+    start_handlers(application)
     withdrawal_handlers(application)
     balance_handlers(application)
     top_handlers(application)
-    start_handlers(application)
     help_handlers(application)
     message_handlers(application)
     broadcast_handlers(application)
@@ -71,6 +72,25 @@ def main():
     grok_handlers(application)
     transfer_handlers(application)
 
+    # Add error handler to recover from conflicts
+    async def error_handler(update, context):
+        logger.error(f"Update {update} caused error {context.error}")
+        if "Conflict: terminated by other getUpdates request" in str(context.error):
+            logger.warning("Detected getUpdates conflict. Attempting to restart polling...")
+            await asyncio.sleep(5)  # Wait to avoid immediate conflict
+            await application.updater.stop()
+            await application.updater.start_polling(
+                drop_pending_updates=True,
+                timeout=30,
+                read_timeout=30.0,
+                write_timeout=30.0,
+                connect_timeout=30.0,
+                pool_timeout=30.0,
+            )
+
+    application.add_error_handler(error_handler)
+
+    # Run the bot with polling
     try:
         application.run_polling(
             drop_pending_updates=True,
