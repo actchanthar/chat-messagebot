@@ -73,11 +73,10 @@ def main():
         logger.error(f"Update {update} caused error {context.error}")
         if "Conflict: terminated by other getUpdates request" in str(context.error):
             logger.warning("Detected getUpdates conflict. Attempting to recover...")
-            await asyncio.sleep(10)  # Longer delay to ensure other instance stops
-            await application.stop()  # Fully stop the application
+            await asyncio.sleep(10)  # Wait for other instance to stop
+            # Only stop updater, not the entire application
+            await application.updater.stop()
             await asyncio.sleep(5)  # Additional delay for cleanup
-            await application.initialize()  # Reinitialize
-            await application.start()
             await application.updater.start_polling(
                 drop_pending_updates=True,
                 timeout=30,
