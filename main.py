@@ -1,5 +1,6 @@
 from telegram.ext import Application
 from telegram.request import HTTPXRequest
+from telegram.error import Conflict
 from config import BOT_TOKEN
 from plugins.start import register_handlers as start_handlers
 from plugins.withdrawal import register_handlers as withdrawal_handlers
@@ -32,6 +33,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 def main():
+    # Configure HTTPXRequest with timeouts and connection pool
     request = HTTPXRequest(
         connection_pool_size=20,
         read_timeout=30.0,
@@ -41,9 +43,34 @@ def main():
         http_version="1.1",
     )
 
+    # Build the application
     application = Application.builder().token(BOT_TOKEN).request(request).build()
 
-    logger.info("Starting bot with polling as fallback")
+    # Error handler for conflicts
+    async def error_handler(update, context):
+        logger.error(f"Update {update} caused error {context.error}")
+        if isinstance(context.error, Conflict):
+            logger.warning("Detected getUpdates conflict. Attempting to recover...")
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await context.application.updater.stop()
+                    logger.info("Updater stopped due to conflict")
+                    await asyncio.sleep(20)  # Increased delay to ensure other instance releases
+                    await context.application.updater.start_polling(drop_pending_updates=True)
+                    logger.info("Polling restarted successfully after conflict")
+                    return
+                except Exception as e:
+                    logger.error(f"Retry {attempt + 1}/{max_retries} failed: {e}")
+                    await asyncio.sleep(5)
+            logger.error("Failed to recover from conflict after retries. Please check for duplicate bot instances.")
+        else:
+            logger.error(f"Unhandled error: {context.error}")
+
+    application.add_error_handler(error_handler)
+
+    # Register all handlers
+    logger.info("Registering handlers...")
     start_handlers(application)
     withdrawal_handlers(application)
     balance_handlers(application)
@@ -69,25 +96,7 @@ def main():
     grok_handlers(application)
     transfer_handlers(application)
 
-    async def error_handler(update, context):
-        logger.error(f"Update {update} caused error {context.error}")
-        if "Conflict: terminated by other getUpdates request" in str(context.error):
-            logger.warning("Detected getUpdates conflict. Retrying polling...")
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    await application.updater.stop()
-                    await asyncio.sleep(15)  # Increased delay
-                    await application.updater.start_polling(drop_pending_updates=True)
-                    logger.info("Polling restarted successfully")
-                    return
-                except Exception as e:
-                    logger.error(f"Retry {attempt + 1}/{max_retries} failed: {e}")
-                    await asyncio.sleep(5)
-            logger.error("Failed to recover from conflict after retries. Please check for duplicate bot instances.")
-
-    application.add_error_handler(error_handler)
-
+    logger.info("Starting bot with polling...")
     try:
         application.run_polling(
             drop_pending_updates=True,
