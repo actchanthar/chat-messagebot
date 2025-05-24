@@ -2,7 +2,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
-from collections import deque
 import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -17,17 +16,35 @@ class Database:
         self.rewards = self.db.rewards
         self.settings = self.db.settings
         self.withdrawals = self.db.withdrawals
-        self.message_history = {}
-        self._ensure_indexes()
-
-    def _ensure_indexes(self):
+        # Removed self.message_history since it's no longer needed
+        # Test the connection and ensure indexes on startup
         try:
-            self.users.create_index([("user_id", 1)], unique=True)
-            self.users.create_index([("invite_count", -1)])
-            self.users.create_index([("messages", -1)])
-            self.groups.create_index([("group_id", 1)], unique=True)
-            self.settings.create_index([("type", 1)], unique=True)
-            self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self.test_connection())
+            logger.info("Successfully connected to MongoDB")
+            loop.run_until_complete(self._ensure_indexes())
+            logger.info("Database indexes ensured")
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {e}")
+            raise Exception(f"Database initialization failed: {e}")
+
+    async def test_connection(self):
+        """Test the MongoDB connection by listing collections."""
+        try:
+            await self.db.list_collection_names()
+            logger.info("MongoDB connection test successful")
+        except Exception as e:
+            logger.error(f"Connection test failed: {e}")
+            raise
+
+    async def _ensure_indexes(self):
+        try:
+            await self.users.create_index([("user_id", 1)], unique=True)
+            await self.users.create_index([("invite_count", -1)])
+            await self.users.create_index([("messages", -1)])
+            await self.groups.create_index([("group_id", 1)], unique=True)
+            await self.settings.create_index([("type", 1)], unique=True)
+            await self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)
             logger.info("Database indexes ensured")
         except Exception as e:
             logger.error(f"Failed to create indexes: {e}")
@@ -84,7 +101,7 @@ class Database:
                     updates["invite_count"] = max(0, updates["invite_count"])
                 if "balance" in updates:
                     updates["balance"] = max(0, updates["balance"])
-                if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
+                if "message_timestamps" in updates and isinstance(updates["message_timestamps"], list):
                     updates["message_timestamps"] = list(updates["message_timestamps"])
                 logger.info(f"Updating user {user_id} with: {updates}")
                 result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
@@ -185,25 +202,6 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"Error setting message rate: {e}")
-            return False
-
-    async def check_rate_limit(self, user_id, message_text=None):
-        try:
-            user = await self.get_user(user_id)
-            if not user:
-                return False
-            current_time = datetime.utcnow()
-            timestamps = deque(user.get("message_timestamps", []), maxlen=5)
-            timestamps.append(current_time)
-            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
-            if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
-                return True
-            if message_text and user_id in self.message_history and self.message_history[user_id] == message_text:
-                return True
-            self.message_history[user_id] = message_text
-            return False
-        except Exception as e:
-            logger.error(f"Error checking rate limit for user {user_id}: {e}")
             return False
 
     async def get_force_sub_channels(self):
