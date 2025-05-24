@@ -2,7 +2,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
-import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,29 +15,19 @@ class Database:
         self.rewards = self.db.rewards
         self.settings = self.db.settings
         self.withdrawals = self.db.withdrawals
+        self._ensure_indexes()
 
-    async def test_connection(self):
-        """Test the MongoDB connection by listing collections."""
+    def _ensure_indexes(self):
         try:
-            await self.db.list_collection_names()
-            logger.info("MongoDB connection test successful")
-        except Exception as e:
-            logger.error(f"Connection test failed: {e}")
-            raise
-
-    async def ensure_indexes(self):
-        """Ensure database indexes asynchronously."""
-        try:
-            await self.users.create_index([("user_id", 1)], unique=True)
-            await self.users.create_index([("invite_count", -1)])
-            await self.users.create_index([("messages", -1)])
-            await self.groups.create_index([("group_id", 1)], unique=True)
-            await self.settings.create_index([("type", 1)], unique=True)
-            await self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)
+            self.users.create_index([("user_id", 1)], unique=True)
+            self.users.create_index([("invite_count", -1)])
+            self.users.create_index([("messages", -1)])
+            self.groups.create_index([("group_id", 1)], unique=True)
+            self.settings.create_index([("type", 1)], unique=True)
+            self.withdrawals.create_index([("withdrawal_id", 1)], unique=True)
             logger.info("Database indexes ensured")
         except Exception as e:
             logger.error(f"Failed to create indexes: {e}")
-            raise
 
     async def get_user(self, user_id):
         try:
@@ -77,6 +66,7 @@ class Database:
                 if "duplicate key" in str(e).lower():
                     return await self.get_user(user_id)
                 if attempt < max_retries - 1:
+                    import asyncio
                     await asyncio.sleep(1)
                 else:
                     logger.error(f"Failed to create user {user_id}: {e}")
@@ -103,6 +93,7 @@ class Database:
                 return result.modified_count > 0
             except Exception as e:
                 if attempt < max_retries - 1:
+                    import asyncio
                     await asyncio.sleep(1)
                 else:
                     logger.error(f"Error updating user {user_id}: {e}")
