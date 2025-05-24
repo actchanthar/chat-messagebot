@@ -67,7 +67,6 @@ class Database:
                 if "duplicate key" in str(e).lower():
                     return await self.get_user(user_id)
                 if attempt < max_retries - 1:
-                    import asyncio
                     await asyncio.sleep(1)
                 else:
                     logger.error(f"Failed to create user {user_id}: {e}")
@@ -94,7 +93,6 @@ class Database:
                 return result.modified_count > 0
             except Exception as e:
                 if attempt < max_retries - 1:
-                    import asyncio
                     await asyncio.sleep(1)
                 else:
                     logger.error(f"Error updating user {user_id}: {e}")
@@ -272,6 +270,3 @@ class Database:
         except Exception as e:
             logger.error(f"Error awarding weekly rewards: {e}")
             return False
-
-# Instantiate the database object
-db = Database()
