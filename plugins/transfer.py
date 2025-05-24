@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ConversationHandler, ContextTypes, filters
 from database.database import db
 import logging
 from config import CURRENCY
@@ -63,6 +63,12 @@ async def transfer_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"Insufficient balance. Your balance is {balance:.2f} {CURRENCY}.")
         logger.info(f"User {user_id} has insufficient balance ({balance}) for transfer of {amount}")
         return ConversationHandler.END
+
+    # Fetch sender's name and username for confirmation
+    sender_name = sender.get("name", "Unknown")
+    sender_username = sender.get("username", "N/A")
+    if sender_username != "N/A":
+        sender_username = f"@{sender_username}"
 
     # Show confirmation with unique callback data
     timestamp = int(datetime.utcnow().timestamp())
@@ -133,12 +139,25 @@ async def confirm_transfer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             if success:
                 new_sender_balance = balance - amount
                 target_balance = target.get("balance", 0) + amount
+
+                # Fetch sender details for notification
+                sender_name = sender.get("name", "Unknown")
+                sender_username = sender.get("username", "N/A")
+                if sender_username != "N/A":
+                    sender_username = f"@{sender_username}"
+                else:
+                    sender_username = "NoUsername"
+
+                # Notify sender
                 await query.edit_message_text(
                     f"Transferred {amount:.2f} {CURRENCY} to user {target_user_id}. Your new balance: {new_sender_balance:.2f} {CURRENCY}."
                 )
+
+                # Notify recipient with requested format
+                recipient_message = f"You received {amount:.2f} {CURRENCY} from {sender_name} ({sender_username})!"
                 await context.bot.send_message(
                     chat_id=target_user_id,
-                    text=f"You received {amount:.2f} {CURRENCY} from {query.from_user.full_name} (@{query.from_user.username or 'N/A'})! New balance: {target_balance:.2f} {CURRENCY}."
+                    text=recipient_message
                 )
                 logger.info(f"User {sender_id} successfully transferred {amount:.2f} {CURRENCY} to {target_user_id}")
             else:
