@@ -37,14 +37,6 @@ async def pre_start_cleanup():
 
 async def main():
     """Main function to run the bot."""
-    # Test database connection and ensure indexes
-    try:
-        await db.test_connection()
-        await db.ensure_indexes()
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
-        raise
-
     # Run cleanup in the application’s event loop
     await pre_start_cleanup()
 
