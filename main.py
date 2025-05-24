@@ -26,7 +26,7 @@ from plugins.add_bonus import register_handlers as add_bonus_handlers
 from plugins.grok import register_handlers as grok_handlers
 from plugins.transfer import register_handlers as transfer_handlers
 import logging
-import os
+import asyncio
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -80,7 +80,6 @@ def main():
     application.add_error_handler(error_handler)
 
     try:
-        # Fallback to polling since webhook setup failed
         application.run_polling(
             drop_pending_updates=True,
             timeout=30,
