@@ -64,6 +64,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 except Exception as e:
                     logger.error(f"Failed to create invite link for {cid}: {str(e)}")
                     url = f"https://t.me/c/{cid.replace('-100', '')}"
+            logger.info(f"Generated URL for {cid}: {url}")
             keyboard.append([InlineKeyboardButton(f"Join {name}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -102,7 +103,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Earn money by sending messages in the group!\n"
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
         "Use the buttons below to check your balance, withdraw, or contact support.\n"
-        "သင့်ဲလက်ကျန်ငွေ စစ်ဆေးရန်၊ ထုတ်ယူရန် သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ ထုတ်ယူရန် သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
     )
 
     keyboard = [
@@ -159,6 +160,7 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 except Exception as e:
                     logger.error(f"Failed to create invite link for {cid}: {str(e)}")
                     url = f"https://t.me/c/{cid.replace('-100', '')}"
+            logger.info(f"Generated URL for {cid}: {url}")
             keyboard.append([InlineKeyboardButton(f"Join {name}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
