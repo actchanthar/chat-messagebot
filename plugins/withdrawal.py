@@ -191,7 +191,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         else:
             await message.reply_text(
                 "Please provide your phone number (e.g., 09123456789).\n"
-                "သင့်ဖုန်းနံပါတ်ကိုပို့ပေးပါ (ဥပမာ: 09123456789)"
+                "သင့်ဖုန်းနံပါတ်ကိုပို့ပေးပါ (ဥပမာ 09123456789)"
             )
         return STEP_DETAILS
 
@@ -338,19 +338,9 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                         chat_id=GROUP_CHAT_IDS[0],
                         text=group_message
                     )
-                    logger.info(f"Posted withdrawal announcement for user {user_id} to group")
+                    logger.info(f"Posted withdrawal announcement for user {user_id} to group {GROUP_CHAT_IDS[0]}")
                 except Exception as e:
                     logger.error(f"Failed to post group announcement for user {user_id}: {e}")
-
-                users = await db.get_all_users()
-                for u in users:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=u["user_id"],
-                            text=group_message
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to broadcast to user {u['user_id']}: {e}")
 
                 await query.message.reply_text(
                     f"Withdrawal approved for user {user_id}. Amount: {amount} {CURRENCY}. New balance: {new_balance} {CURRENCY}."
