@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from database.database import db
 import logging
 from config import BOT_USERNAME, FORCE_SUB_CHANNELS
@@ -17,7 +17,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name, invited_by)
-        # Check force-subscription for new user
         all_subscribed = True
         for channel_id in FORCE_SUB_CHANNELS:
             try:
@@ -30,7 +29,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
                 all_subscribed = False
         if all_subscribed and invited_by:
-            # Reward inviter and invitee
             inviter = await db.get_user(invited_by)
             if inviter:
                 await db.add_invite(invited_by, user_id)
@@ -66,7 +64,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
     )
 
-    # Top users by messages
     users = await db.get_all_users()
     target_group = "-1002061898677"
     if users:
