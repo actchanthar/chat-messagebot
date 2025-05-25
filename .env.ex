@@ -1,0 +1,2 @@
+BOT_TOKEN=your_bot_token
+MONGODB_URL=your_mongodb_url
