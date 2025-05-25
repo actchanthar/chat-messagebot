@@ -1,62 +1,66 @@
 from telegram import Update
-from telegram.ext import CallbackContext
-from config import PER_MESSAGE_REWARD, SPAM_THRESHOLD, SIMILARITY_THRESHOLD
-from database.database import get_user, update_user, log_message, get_chat_group
-from difflib import SequenceMatcher
-import time
-from plugins.force_sub import check_subscription
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from database.database import db
+import logging
+from config import GROUP_CHAT_IDS, COUNT_MESSAGES, CURRENCY
 
-message_timestamps = {}
-last_messages = {}
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-async def count_message(update: Update, context: CallbackContext):
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
-    message_text = update.message.text.lower() if update.message.text else ""
-
-    chat_group = await get_chat_group(chat_id)
-    if not chat_group:
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not COUNT_MESSAGES:
         return
 
-    if not await check_subscription(update, context):
+    user_id = str(update.effective_user.id)
+    chat_id = str(update.effective_chat.id)
+    logger.info(f"Message from user {user_id} in chat {chat_id}")
+
+    if chat_id not in GROUP_CHAT_IDS:
+        logger.debug(f"Message in non-tracked chat {chat_id}")
         return
 
-    current_time = time.time()
-    user_key = f"{chat_id}:{user_id}"
-    if user_key not in message_timestamps:
-        message_timestamps[user_key] = []
-    message_timestamps[user_key].append(current_time)
-    message_timestamps[user_key] = [t for t in message_timestamps[user_key] if current_time - t < 60]
-
-    if len(message_timestamps[user_key]) > SPAM_THRESHOLD:
-        await update.message.delete()
-        await context.bot.send_message(chat_id=chat_id, text=f"@{update.effective_user.username} စာပို့တာ အရမ်းများနေပါတယ်။ နှေးနှေးပို့ပါ။")
-        return
-
-    if user_key in last_messages:
-        similarity = SequenceMatcher(None, last_messages[user_key], message_text).ratio()
-        if similarity > SIMILARITY_THRESHOLD:
-            await update.message.delete()
-            await context.bot.send_message(chat_id=chat_id, text=f"@{update.effective_user.username} တူညီတဲ့ စာများ မပို့ပါနဲ့။")
+    user = await db.get_user(user_id)
+    if not user:
+        logger.info(f"User {user_id} not found, creating new user")
+        user = await db.create_user(user_id, update.effective_user.full_name, None)
+        if not user:
+            logger.error(f"Failed to create user {user_id}")
             return
 
-    last_messages[user_key] = message_text
+    if user.get("banned", False):
+        logger.info(f"User {user_id} is banned, ignoring message")
+        return
 
-    await log_message(user_id, chat_id, message_text, current_time)
-    user = await get_user(user_id, chat_id)
-    balance = user.get("balance", 0) + PER_MESSAGE_REWARD if user else PER_MESSAGE_REWARD
-    await update_user(user_id, chat_id, {"balance": balance})
+    # Check if user has joined all required channels
+    all_subscribed = True
+    for channel_id in await db.get_required_channels():
+        if not await db.is_user_subscribed(user_id, channel_id):
+            all_subscribed = False
+            break
 
-    # Notify user in the group every 10 messages
-    if balance % 10 == 0:
-        await context.bot.send_message(chat_id=chat_id, text=f"@{update.effective_user.username} သင့်မှာ {balance} ကျပ် ရှိပါတယ်။")
-        # Notify the admins who added the group
-        admin_ids = chat_group.get("admin_ids", [])
-        for admin_id in admin_ids:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=f"📊 User @{update.effective_user.username} (ID: {user_id}) reached {balance} ကျပ် in group {chat_id}"
-                )
-            except Exception as e:
-                print(f"Failed to notify admin {admin_id}: {e}")
+    if not all_subscribed:
+        logger.info(f"User {user_id} not subscribed to all channels, ignoring message")
+        return
+
+    # Increment message count
+    group_messages = user.get("group_messages", {})
+    group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
+    total_messages = user.get("messages", 0) + 1
+
+    # Calculate balance based on messages
+    messages_per_kyat = await db.get_messages_per_kyat() or 1
+    balance = total_messages / messages_per_kyat
+
+    try:
+        await db.update_user(user_id, {
+            "messages": total_messages,
+            "group_messages": group_messages,
+            "balance": balance
+        })
+        logger.info(f"Updated user {user_id}: messages={total_messages}, balance={balance} {CURRENCY}")
+    except Exception as e:
+        logger.error(f"Error updating user {user_id} message count: {e}")
+
+def register_handlers(application: Application):
+    logger.info("Registering message handler")
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(GROUP_CHAT_IDS), handle_message))
