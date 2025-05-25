@@ -2,79 +2,95 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import LOG_CHANNEL_ID, ADMIN_IDS
+from config import ADMIN_IDS, FORCE_SUB_CHANNELS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def addchnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
+    logger.info(f"Add_channel command by user {user_id}")
+
     if user_id not in ADMIN_IDS:
+        logger.warning(f"Unauthorized add_channel attempt by user {user_id}")
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
     if len(context.args) < 2:
         await update.message.reply_text("Usage: /addchnl <channel_id> <channel_name>")
+        logger.info(f"Insufficient arguments for add_channel by user {user_id}")
         return
 
-    channel_id, *channel_name = context.args
-    channel_name = " ".join(channel_name)
-    if not channel_id.startswith("-100"):
-        await update.message.reply_text("Invalid channel ID. Must start with -100.")
-        return
+    channel_id = context.args[0]
+    channel_name = " ".join(context.args[1:])
+    try:
+        # Validate channel ID
+        if not channel_id.startswith("-100"):
+            await update.message.reply_text("Invalid channel ID. It should start with -100 (e.g., -1002171798406).")
+            return
 
-    result = await db.add_channel(channel_id, channel_name)
-    if result == "exists":
-        await update.message.reply_text(f"Channel {channel_id} already exists.")
-    elif result:
-        await update.message.reply_text(f"Added channel {channel_name} ({channel_id}).")
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"Admin added channel {channel_name} ({channel_id})."
-        )
-    else:
-        await update.message.reply_text("Failed to add channel.")
+        # Check if bot is admin in the channel
+        member = await context.bot.get_chat_member(channel_id, context.bot.id)
+        if member.status not in ["administrator", "creator"]:
+            await update.message.reply_text("Please make the bot an admin in the channel first.")
+            return
 
-async def delchnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        await db.add_channel(channel_id, channel_name)
+        if channel_id not in FORCE_SUB_CHANNELS:
+            FORCE_SUB_CHANNELS.append(channel_id)
+        await update.message.reply_text(f"Added channel {channel_name} ({channel_id}) to force-subscription list.")
+        logger.info(f"User {user_id} added channel {channel_id}: {channel_name}")
+    except Exception as e:
+        await update.message.reply_text("Error adding channel. Ensure the channel ID is correct and the bot is an admin.")
+        logger.error(f"Error adding channel {channel_id} by user {user_id}: {e}")
+
+async def delete_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
+    logger.info(f"Delete_channel command by user {user_id}")
+
     if user_id not in ADMIN_IDS:
+        logger.warning(f"Unauthorized delete_channel attempt by user {user_id}")
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
     if not context.args:
         await update.message.reply_text("Usage: /delchnl <channel_id>")
+        logger.info(f"Insufficient arguments for delete_channel by user {user_id}")
         return
 
     channel_id = context.args[0]
-    if not channel_id.startswith("-100"):
-        await update.message.reply_text("Invalid channel ID. Must start with -100.")
-        return
+    try:
+        await db.delete_channel(channel_id)
+        if channel_id in FORCE_SUB_CHANNELS:
+            FORCE_SUB_CHANNELS.remove(channel_id)
+        await update.message.reply_text(f"Removed channel {channel_id} from force-subscription list.")
+        logger.info(f"User {user_id} deleted channel {channel_id}")
+    except Exception as e:
+        await update.message.reply_text("Error removing channel. Ensure the channel ID is correct.")
+        logger.error(f"Error removing channel {channel_id} by user {user_id}: {e}")
 
-    if await db.remove_channel(channel_id):
-        await update.message.reply_text(f"Removed channel {channel_id}.")
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"Admin removed channel {channel_id}."
-        )
-    else:
-        await update.message.reply_text("Channel not found or failed to remove.")
-
-async def listchnl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
+    logger.info(f"List_channels command by user {user_id}")
+
     if user_id not in ADMIN_IDS:
+        logger.warning(f"Unauthorized list_channels attempt by user {user_id}")
         await update.message.reply_text("You are not authorized to use this command.")
         return
 
     channels = await db.get_channels()
     if not channels:
-        await update.message.reply_text("No channels configured.")
+        await update.message.reply_text("No channels in force-subscription list.")
         return
 
-    channel_list = "\n".join([f"{c['name']} - {c['channel_id']}" for c in channels])
-    await update.message.reply_text(f"Force-subscription channels:\n{channel_list}")
+    message = "Force-Subscription Channels:\n\n"
+    for channel in channels:
+        message += f"Name: {channel['name']}\nID: {channel['channel_id']}\n\n"
+    await update.message.reply_text(message)
+    logger.info(f"User {user_id} listed channels")
 
 def register_handlers(application: Application):
     logger.info("Registering channel handlers")
-    application.add_handler(CommandHandler("addchnl", addchnl))
-    application.add_handler(CommandHandler("delchnl", delchnl))
-    application.add_handler(CommandHandler("listchnl", listchnl))
+    application.add_handler(CommandHandler("addchnl", add_channel))
+    application.add_handler(CommandHandler("delchnl", delete_channel))
+    application.add_handler(CommandHandler("listchnl", list_channels))
