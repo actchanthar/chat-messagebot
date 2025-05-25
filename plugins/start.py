@@ -14,7 +14,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     invited_by = args[0] if args else None
     logger.info(f"Start command by user {user_id} in chat {chat_id}, invited_by: {invited_by}")
 
-    # Create or fetch user
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name, invited_by)
@@ -24,14 +23,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         logger.info(f"Created new user {user_id}")
 
-    # Get required channels from database
     required_channels = await db.get_channels()
     if not required_channels:
-        logger.warning("No channels found in database")
+        logger.warning("No channels in database")
         await update.message.reply_text("Error: No channels configured. Contact support.")
         return
 
-    # Check subscription to required channels
     all_subscribed = True
     for channel in required_channels:
         channel_id = channel["channel_id"]
@@ -44,26 +41,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await db.update_subscription(user_id, channel_id)
                 logger.info(f"User {user_id} subscribed to {channel_id}")
         except Exception as e:
-            logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
+            logger.error(f"Error checking subscription for {user_id} in {channel_id}: {str(e)}")
             all_subscribed = False
-            await update.message.reply_text(f"Error checking channel {channel_id}. Please try again or contact support.")
-            return
 
     if not all_subscribed:
-        # Generate channel join links
         keyboard = []
         for channel in required_channels:
             cid = channel["channel_id"]
             name = channel["name"]
             username = channel.get("username")
-            url = f"https://t.me/{username[1:]}" if username and username.startswith("@") else None
-            if not url:
+            url = None
+            if username and username.startswith("@"):
+                url = f"https://t.me/{username[1:]}"
+            else:
                 try:
                     invite_link = await context.bot.create_chat_invite_link(cid)
-                    url = invite_link
+                    url = invite_link.invite_link if hasattr(invite_link, 'invite_link') else str(invite_link)
                 except Exception as e:
                     logger.error(f"Failed to create invite link for {cid}: {str(e)}")
                     url = f"https://t.me/c/{cid.replace('-100', '')}"
+            if not isinstance(url, str):
+                logger.error(f"Invalid URL for {cid}: {url}")
+                url = f"https://t.me/c/{cid.replace('-100', '')}"  # Fallback
             logger.info(f"Generated URL for {cid}: {url}")
             keyboard.append([InlineKeyboardButton(f"Join {name}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
@@ -76,7 +75,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info(f"Prompted user {user_id} to join channels: {[c['channel_id'] for c in required_channels]}")
         return
 
-    # Handle referral bonuses
     if invited_by and user.get("invited_by") == invited_by:
         inviter = await db.get_user(invited_by)
         if inviter:
@@ -88,38 +86,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             try:
                 await context.bot.send_message(
                     chat_id=invited_by,
-                    text=f"You earned 25 kyat for inviting {update.effective_user.full_name}! New balance: {inviter_balance} kyat."
+                    text=f"You earned 25 kyat for inviting {update.effective_user.full_name}! Balance: {inviter_balance} kyat."
                 )
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"Welcome! You earned 50 kyat for joining all channels. Balance: {invitee_balance} kyat."
+                    text=f"Welcome! You earned 50 kyat for joining. Balance: {invitee_balance} kyat."
                 )
             except Exception as e:
-                logger.error(f"Error notifying referral rewards for {invited_by}/{user_id}: {str(e)}")
+                logger.error(f"Error notifying referral rewards: {str(e)}")
 
-    # Send welcome message
     welcome_message = (
         f"Welcome to {BOT_USERNAME}, {update.effective_user.full_name}! 🎉\n"
         "Earn money by sending messages in the group!\n"
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
-        "Use the buttons below to check your balance, withdraw, or contact support.\n"
-        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ ထုတ်ယူရန် သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+        "Use the buttons below to check your balance, withdraw, or contact support."
     )
-
     keyboard = [
-        [
-            InlineKeyboardButton("Check Balance", callback_data="balance"),
-            InlineKeyboardButton("Withdrawal", callback_data="withdraw")
-        ],
-        [
-            InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
-            InlineKeyboardButton("Support Channel", url="https://t.me/ITAnimeAI")
-        ]
+        [InlineKeyboardButton("Check Balance", callback_data="balance"), InlineKeyboardButton("Withdrawal", callback_data="withdraw")],
+        [InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"), InlineKeyboardButton("Support", url="https://t.me/ITAnimeAI")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
-    logger.info(f"Sent welcome message to user {user_id} in chat {chat_id}")
+    logger.info(f"Sent welcome to user {user_id}")
 
 async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -140,11 +128,11 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await db.update_subscription(user_id, channel_id)
                 logger.info(f"User {user_id} subscribed to {channel_id}")
         except Exception as e:
-            logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {str(e)}")
+            logger.error(f"Error checking subscription: {str(e)}")
             all_subscribed = False
 
     if all_subscribed:
-        await query.message.reply_text("You have joined all channels! Use /start to continue.")
+        await query.message.reply_text("Joined all channels! Use /start to continue.")
         logger.info(f"User {user_id} subscribed to all channels")
     else:
         keyboard = []
@@ -152,14 +140,19 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
             cid = channel["channel_id"]
             name = channel["name"]
             username = channel.get("username")
-            url = f"https://t.me/{username[1:]}" if username and username.startswith("@") else None
-            if not url:
+            url = None
+            if username and username.startswith("@"):
+                url = f"https://t.me/{username[1:]}"
+            else:
                 try:
                     invite_link = await context.bot.create_chat_invite_link(cid)
-                    url = invite_link
+                    url = invite_link.invite_link if hasattr(invite_link, 'invite_link') else str(invite_link)
                 except Exception as e:
                     logger.error(f"Failed to create invite link for {cid}: {str(e)}")
                     url = f"https://t.me/c/{cid.replace('-100', '')}"
+            if not isinstance(url, str):
+                logger.error(f"Invalid URL for {cid}: {url}")
+                url = f"https://t.me/c/{cid.replace('-100', '')}"
             logger.info(f"Generated URL for {cid}: {url}")
             keyboard.append([InlineKeyboardButton(f"Join {name}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
@@ -169,7 +162,7 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ ဝင်ရောက်ပါ။",
             reply_markup=reply_markup
         )
-        logger.info(f"User {user_id} prompted to join channels")
+        logger.info(f"Prompted user {user_id} to join channels")
 
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
