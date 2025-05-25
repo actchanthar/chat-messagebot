@@ -1,11 +1,10 @@
 import logging
 from telegram.ext import Application
-from config import BOT_TOKEN
+from config import BOT_TOKEN, ADMIN_IDS
 from plugins import (
     start,
     withdrawal,
     message_handler,
-    message_counter,
     setmessage,
     top,
     addgroup,
@@ -25,14 +24,17 @@ from plugins import (
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+async def post_init(application: Application) -> None:
+    application.bot_data["admin_ids"] = ADMIN_IDS
+    logger.info("Bot initialized with admin IDs: %s", ADMIN_IDS)
+
 def main():
     logger.info("Starting bot...")
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     start.register_handlers(application)
     withdrawal.register_handlers(application)
     message_handler.register_handlers(application)
-    message_counter.register_handlers(application)
     setmessage.register_handlers(application)
     top.register_handlers(application)
     addgroup.register_handlers(application)
