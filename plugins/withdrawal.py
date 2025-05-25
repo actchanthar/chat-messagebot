@@ -35,12 +35,12 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"You have reached the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}.")
         return
 
-    invite_count = user.get("invited_users", [])  # List of invited user IDs
-    invite_requirement = 0 if user_id in ADMIN_IDS else 3  # No invite requirement for admins
+    invite_count = len(user.get("invited_users", []))  # Count invited users
+    invite_requirement = 0 if user_id in ADMIN_IDS else await db.get_invite_requirement()  # 3 for non-admins
 
-    if len(invite_count) < invite_requirement:  # Use len() to get number of invites
-        logger.info(f"User {user_id} has {len(invite_count)} invites, needs {invite_requirement}")
-        await update.message.reply_text(f"You need to invite at least {invite_requirement} users to withdraw. Current invites: {len(invite_count)}.")
+    if invite_count < invite_requirement:
+        logger.info(f"User {user_id} has {invite_count} invites, needs {invite_requirement}")
+        await update.message.reply_text(f"You need to invite at least {invite_requirement} users to withdraw. Current invites: {invite_count}.")
         return
 
     keyboard = [[InlineKeyboardButton(method, callback_data=f"withdraw_{method}")] for method in PAYMENT_METHODS]
