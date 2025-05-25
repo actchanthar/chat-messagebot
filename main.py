@@ -16,7 +16,8 @@ from plugins import (
     add_bonus,
     restwithdraw,
     transfer,
-    couple
+    couple,
+    balance
 )
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -41,6 +42,7 @@ def main():
     restwithdraw.register_handlers(application)
     transfer.register_handlers(application)
     couple.register_handlers(application)
+    balance.register_handlers(application)
 
     logger.info("Bot started. Polling...")
     application.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
