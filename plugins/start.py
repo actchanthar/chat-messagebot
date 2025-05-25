@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from database.database import db
 import logging
-from config import BOT_USERNAME, FORCE_SUB_CHANNELS, GROUP_CHAT_IDS
+from config import BOT_USERNAME, GROUP_CHAT_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,9 +24,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         logger.info(f"Created new user {user_id}")
 
+    # Get required channels from database
+    required_channels = await db.get_channels()
+    if not required_channels:
+        logger.warning("No channels found in database")
+        await update.message.reply_text("Error: No channels configured. Contact support.")
+        return
+
     # Check subscription to required channels
     all_subscribed = True
-    for channel_id in FORCE_SUB_CHANNELS:
+    for channel in required_channels:
+        channel_id = channel["channel_id"]
         try:
             member = await context.bot.get_chat_member(channel_id, user_id)
             if member.status not in ["member", "administrator", "creator"]:
@@ -42,26 +50,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
     if not all_subscribed:
-        # Fetch channel details
-        channels = []
-        for cid in FORCE_SUB_CHANNELS:
-            try:
-                chat = await context.bot.get_chat(cid)
-                name = chat.title or f"Channel {cid}"
-                url = f"https://t.me/{chat.username[1:]}" if chat.username else None
-                if not url:
-                    try:
-                        invite_link = await context.bot.create_chat_invite_link(cid)
-                        url = invite_link
-                    except Exception as e:
-                        logger.error(f"Failed to create invite link for {cid}: {str(e)}")
-                        url = f"https://t.me/c/{cid.replace('-100', '')}"
-                channels.append({"channel_id": cid, "name": name, "url": url})
-            except Exception as e:
-                logger.error(f"Error fetching channel {cid}: {str(e)}")
-                channels.append({"channel_id": cid, "name": f"Channel {cid}", "url": f"https://t.me/c/{cid.replace('-100', '')}"})
-
-        keyboard = [[InlineKeyboardButton(f"Join {c['name']}", url=c['url'])] for c in channels]
+        # Generate channel join links
+        keyboard = []
+        for channel in required_channels:
+            cid = channel["channel_id"]
+            name = channel["name"]
+            username = channel.get("username")
+            url = f"https://t.me/{username[1:]}" if username and username.startswith("@") else None
+            if not url:
+                try:
+                    invite_link = await context.bot.create_chat_invite_link(cid)
+                    url = invite_link
+                except Exception as e:
+                    logger.error(f"Failed to create invite link for {cid}: {str(e)}")
+                    url = f"https://t.me/c/{cid.replace('-100', '')}"
+            keyboard.append([InlineKeyboardButton(f"Join {name}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -69,7 +72,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ ဝင်ရောက်ပါ။",
             reply_markup=reply_markup
         )
-        logger.info(f"Prompted user {user_id} to join channels")
+        logger.info(f"Prompted user {user_id} to join channels: {[c['channel_id'] for c in required_channels]}")
         return
 
     # Handle referral bonuses
@@ -99,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Earn money by sending messages in the group!\n"
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
         "Use the buttons below to check your balance, withdraw, or contact support.\n"
-        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ ထုတ်ယူရန် သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+        "သင့်ဲလက်ကျန်ငွေ စစ်ဆေးရန်၊ ထုတ်ယူရန် သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
     )
 
     keyboard = [
@@ -123,8 +126,10 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = str(query.from_user.id)
     logger.info(f"Checking subscription for user {user_id}")
 
+    required_channels = await db.get_channels()
     all_subscribed = True
-    for channel_id in FORCE_SUB_CHANNELS:
+    for channel in required_channels:
+        channel_id = channel["channel_id"]
         try:
             member = await context.bot.get_chat_member(channel_id, user_id)
             if member.status not in ["member", "administrator", "creator"]:
@@ -141,25 +146,20 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text("You have joined all channels! Use /start to continue.")
         logger.info(f"User {user_id} subscribed to all channels")
     else:
-        channels = []
-        for cid in FORCE_SUB_CHANNELS:
-            try:
-                chat = await context.bot.get_chat(cid)
-                name = chat.title or f"Channel {cid}"
-                url = f"https://t.me/{chat.username[1:]}" if chat.username else None
-                if not url:
-                    try:
-                        invite_link = await context.bot.create_chat_invite_link(cid)
-                        url = invite_link
-                    except Exception as e:
-                        logger.error(f"Failed to create invite link for {cid}: {str(e)}")
-                        url = f"https://t.me/c/{cid.replace('-100', '')}"
-                channels.append({"channel_id": cid, "name": name, "url": url})
-            except Exception as e:
-                logger.error(f"Error fetching channel {cid}: {str(e)}")
-                channels.append({"channel_id": cid, "name": f"Channel {cid}", "url": f"https://t.me/c/{cid.replace('-100', '')}"})
-
-        keyboard = [[InlineKeyboardButton(f"Join {c['name']}", url=c['url'])] for c in channels]
+        keyboard = []
+        for channel in required_channels:
+            cid = channel["channel_id"]
+            name = channel["name"]
+            username = channel.get("username")
+            url = f"https://t.me/{username[1:]}" if username and username.startswith("@") else None
+            if not url:
+                try:
+                    invite_link = await context.bot.create_chat_invite_link(cid)
+                    url = invite_link
+                except Exception as e:
+                    logger.error(f"Failed to create invite link for {cid}: {str(e)}")
+                    url = f"https://t.me/c/{cid.replace('-100', '')}"
+            keyboard.append([InlineKeyboardButton(f"Join {name}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.message.reply_text(
