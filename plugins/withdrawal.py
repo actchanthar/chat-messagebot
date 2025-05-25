@@ -35,8 +35,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"You have reached the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}.")
         return
 
-    invite_count = len(user.get("invited_users", []))  # Count invited users
-    invite_requirement = 0 if user_id in ADMIN_IDS else await db.get_invite_requirement()  # 3 for non-admins
+    invite_count = len(user.get("invited_users", [])) if "invited_users" in user else user.get("invites", 0)
+    invite_requirement = 0 if user_id in ADMIN_IDS else await db.get_invite_requirement()
 
     if invite_count < invite_requirement:
         logger.info(f"User {user_id} has {invite_count} invites, needs {invite_requirement}")
