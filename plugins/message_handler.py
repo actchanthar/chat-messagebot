@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 from database.database import db
 import logging
 from config import GROUP_CHAT_IDS, COUNT_MESSAGES, CURRENCY
