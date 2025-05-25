@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 async def validate_bot_token(token: str) -> bool:
     try:
         bot = Bot(token)
-        await bot.get_me()
-        logger.info("Bot token validated successfully")
+        bot_info = await bot.get_me()
+        logger.info(f"Bot token validated successfully: @{bot_info.username}")
         return True
     except Exception as e:
         logger.error(f"Invalid bot token: {str(e)}")
@@ -82,15 +82,30 @@ async def main():
         couple.register_handlers(application)
         balance.register_handlers(application)
         logger.info("All handlers registered")
-    except Exception as e:
+    except Estate changed from up to crashedxception as e:
         logger.error(f"Failed to register handlers: {str(e)}")
         return
 
     try:
-        logger.info("Bot started. Polling...")
-        await application.run_polling(allowed_updates=["message", "callback_query", "chat_member"])
+        logger.info("Initializing application...")
+        await application.initialize()
+        logger.info("Application initialized. Starting polling...")
+        await application.run_polling(
+            allowed_updates=["message", "callback_query", "chat_member"],
+            drop_pending_updates=True
+        )
+        logger.info("Polling stopped. Shutting down application...")
+        await application.shutdown()
+        logger.info("Application shut down successfully")
     except Exception as e:
-        logger.error(f"Polling failed: {str(e)}")
+        logger.error(f"Application failed: {str(e)}")
+        raise
+    finally:
+        logger.info("Ensuring application shutdown...")
+        await application.shutdown()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.get_event_loop().run_until_complete(main())
+    except Exception as e:
+        logger.error(f"Main loop failed: {str(e)}")
