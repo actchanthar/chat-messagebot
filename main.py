@@ -4,7 +4,9 @@ from config import BOT_TOKEN
 from plugins import (
     start,
     withdrawal,
-    message_handler,  # Must reference message_handler
+    message_handler,
+    message_counter,
+    setmessage,
     top,
     addgroup,
     checkgroup,
@@ -30,6 +32,8 @@ def main():
     start.register_handlers(application)
     withdrawal.register_handlers(application)
     message_handler.register_handlers(application)
+    message_counter.register_handlers(application)  # Added
+    setmessage.register_handlers(application)  # Added
     top.register_handlers(application)
     addgroup.register_handlers(application)
     checkgroup.register_handlers(application)
