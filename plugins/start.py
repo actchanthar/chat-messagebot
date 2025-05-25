@@ -34,11 +34,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not all_subscribed:
         channels = await db.get_channels()
         if not channels:
-            channels = [{"channel_id": cid, "name": f"Channel {cid}"} for cid in FORCE_SUB_CHANNELS]
-        keyboard = [
-            [InlineKeyboardButton(f"Join {c['name']}", url=f"https://t.me/{c['channel_id'].replace('-100', '')}")]
-            for c in channels
-        ]
+            channels = []
+            for cid in FORCE_SUB_CHANNELS:
+                try:
+                    chat = await context.bot.get_chat(cid)
+                    name = chat.title or f"Channel {cid}"
+                    username = chat.username or cid
+                    channels.append({"channel_id": cid, "name": name, "username": username})
+                except Exception as e:
+                    logger.error(f"Error fetching channel {cid}: {e}")
+                    channels.append({"channel_id": cid, "name": f"Channel {cid}", "username": cid})
+
+        keyboard = []
+        for c in channels:
+            if c["username"].startswith("@"):
+                url = f"https://t.me/{c['username'][1:]}"
+            else:
+                try:
+                    invite_link = await context.bot.export_chat_invite_link(c["channel_id"])
+                    url = invite_link
+                except Exception as e:
+                    logger.error(f"Error generating invite link for {c['channel_id']}: {e}")
+                    url = f"https://t.me/c/{c['channel_id'].replace('-100', '')}"
+            keyboard.append([InlineKeyboardButton(f"Join {c['name']}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -143,11 +161,29 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         channels = await db.get_channels()
         if not channels:
-            channels = [{"channel_id": cid, "name": f"Channel {cid}"} for cid in FORCE_SUB_CHANNELS]
-        keyboard = [
-            [InlineKeyboardButton(f"Join {c['name']}", url=f"https://t.me/{c['channel_id'].replace('-100', '')}")]
-            for c in channels
-        ]
+            channels = []
+            for cid in FORCE_SUB_CHANNELS:
+                try:
+                    chat = await context.bot.get_chat(cid)
+                    name = chat.title or f"Channel {cid}"
+                    username = chat.username or cid
+                    channels.append({"channel_id": cid, "name": name, "username": username})
+                except Exception as e:
+                    logger.error(f"Error fetching channel {cid}: {e}")
+                    channels.append({"channel_id": cid, "name": f"Channel {cid}", "username": cid})
+
+        keyboard = []
+        for c in channels:
+            if c["username"].startswith("@"):
+                url = f"https://t.me/{c['username'][1:]}"
+            else:
+                try:
+                    invite_link = await context.bot.export_chat_invite_link(c["channel_id"])
+                    url = invite_link
+                except Exception as e:
+                    logger.error(f"Error generating invite link for {c['channel_id']}: {e}")
+                    url = f"https://t.me/c/{c['channel_id'].replace('-100', '')}"
+            keyboard.append([InlineKeyboardButton(f"Join {c['name']}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.message.reply_text(
