@@ -82,7 +82,7 @@ async def main():
         couple.register_handlers(application)
         balance.register_handlers(application)
         logger.info("All handlers registered")
-    except Estate changed from up to crashedxception as e:
+    except Exception as e:
         logger.error(f"Failed to register handlers: {str(e)}")
         return
 
