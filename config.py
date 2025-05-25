@@ -1,9 +1,14 @@
-BOT_TOKEN = "7784918819:AAGxcb10Je-oSKZVoOGDjpcpaFgMq1FNTr8"
-MONGO_URI = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-REQUIRED_CHANNELS = [-1002097823468, -1001610001670]
-PER_MESSAGE_REWARD = 1
-MIN_WITHDRAWAL = 500
-SPAM_THRESHOLD = 5
-SIMILARITY_THRESHOLD = 0.8
-LOG_CHANNEL = -1002185995735
-ADMIN_IDS = [5062124930]  # Replace with your Telegram user ID
+# config.py
+BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
+BOT_USERNAME = "@actearnbot"  # Added for referral links
+MONGODB_NAME = "actchat1"
+MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+WITHDRAWAL_THRESHOLD = 100
+DAILY_WITHDRAWAL_LIMIT = 2500
+CURRENCY = "kyat"
+COUNT_MESSAGES = True
+GROUP_CHAT_IDS = ["-1002061898677", "-1002217915135"]
+FORCE_SUB_CHANNELS = ["-1002097823468", "-1001610001670"]  # Added force-sub channels
+LOG_CHANNEL_ID = "-1002555129360"
+PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Phone Bill"]
+ADMIN_IDS = ["5062124930"]
