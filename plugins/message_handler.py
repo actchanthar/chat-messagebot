@@ -14,10 +14,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
-    logger.info(f"Processing message from user {user_id} in chat {chat_id}")
+    logger.info(f"Received message from user {user_id} in chat {chat_id}")
 
     if chat_id not in GROUP_CHAT_IDS:
-        logger.debug(f"Message in non-tracked chat {chat_id}, GROUP_CHAT_IDS: {GROUP_CHAT_IDS}")
+        logger.info(f"Chat {chat_id} not in GROUP_CHAT_IDS: {GROUP_CHAT_IDS}")
         return
 
     user = await db.get_user(user_id)
@@ -40,17 +40,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Calculate balance
     messages_per_kyat = await db.get_messages_per_kyat() or 1
     balance = total_messages / messages_per_kyat
-    logger.info(f"User {user_id}: total_messages={total_messages}, messages_per_kyat={messages_per_kyat}, new_balance={balance}")
+    logger.info(f"User {user_id}: messages={total_messages}, messages_per_kyat={messages_per_kyat}, balance={balance}")
 
     try:
-        await db.update_user(user_id, {
+        success = await db.update_user(user_id, {
             "messages": total_messages,
             "group_messages": group_messages,
             "balance": balance
         })
-        logger.info(f"Updated user {user_id}: messages={total_messages}, balance={balance} {CURRENCY}")
+        if success:
+            logger.info(f"Successfully updated user {user_id}: messages={total_messages}, balance={balance} {CURRENCY}")
+        else:
+            logger.error(f"No changes made for user {user_id} in database update")
     except Exception as e:
-        logger.error(f"Failed to update user {user_id} message count: {e}")
+        logger.error(f"Error updating user {user_id}: {e}")
 
 def register_handlers(application: Application):
     logger.info("Registering message handler")
