@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not COUNT_MESSAGES:
-        logger.info("Message counting disabled in config")
+        logger.info("Message counting disabled")
         return
 
     user_id = str(update.effective_user.id)
@@ -32,15 +32,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"User {user_id} is banned, ignoring message")
         return
 
-    # Increment message count
+    # Update message count
     group_messages = user.get("group_messages", {})
     group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
     total_messages = user.get("messages", 0) + 1
 
-    # Calculate balance (1 message = 1 kyat)
-    messages_per_kyat = 1  # Hardcoded for 1:1 ratio
-    balance = total_messages  # Simplified: balance = total_messages
-    logger.info(f"User {user_id}: total_messages={total_messages}, messages_per_kyat={messages_per_kyat}, new_balance={balance}")
+    # Update balance (1 message = 1 kyat)
+    messages_per_kyat = 1  # Hardcoded
+    balance = total_messages
+    logger.info(f"User {user_id}: messages={total_messages}, balance={balance}")
 
     try:
         await db.update_user(user_id, {
@@ -48,7 +48,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "group_messages": group_messages,
             "balance": balance
         })
-        logger.info(f"Successfully updated user {user_id}: messages={total_messages}, balance={balance} {CURRENCY}")
+        logger.info(f"Updated user {user_id}: messages={total_messages}, balance={balance} {CURRENCY}")
     except Exception as e:
         logger.error(f"Failed to update user {user_id}: {str(e)}")
 
