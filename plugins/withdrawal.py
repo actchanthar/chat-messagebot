@@ -342,7 +342,6 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 except Exception as e:
                     logger.error(f"Failed to post group announcement for user {user_id}: {e}")
 
-                # Broadcast to all users
                 users = await db.get_all_users()
                 for u in users:
                     try:
