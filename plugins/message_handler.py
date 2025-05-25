@@ -3,9 +3,16 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes, Com
 from database.database import db
 import logging
 from config import GROUP_CHAT_IDS, COUNT_MESSAGES, CURRENCY
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Rate limiting: max 5 messages per user per minute
+RATE_LIMIT = 5
+RATE_LIMIT_WINDOW = timedelta(minutes=1)
+user_message_timestamps = defaultdict(list)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not COUNT_MESSAGES:
@@ -14,6 +21,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     user_id = str(update.effective_user.id)
     chat_id = str(update.effective_chat.id)
+    current_time = datetime.utcnow()
+
+    # Rate limiting
+    user_timestamps = user_message_timestamps[user_id]
+    user_timestamps = [t for t in user_timestamps if current_time - t < RATE_LIMIT_WINDOW]
+    user_timestamps.append(current_time)
+    user_message_timestamps[user_id] = user_timestamps
+
+    if len(user_timestamps) > RATE_LIMIT:
+        logger.info(f"User {user_id} rate limited: {len(user_timestamps)} messages")
+        return
+
     logger.info(f"Processing message from user {user_id} in chat {chat_id}")
 
     if chat_id not in GROUP_CHAT_IDS:
@@ -52,7 +71,19 @@ async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logger.info(f"Chat ID requested: {chat_id}")
     await update.message.reply_text(f"Chat ID: {chat_id}")
 
+async def reset_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    if user_id not in context.bot_data.get("admin_ids", []):
+        await update.message.reply_text("You are not authorized.")
+        return
+    target_id = context.args[0] if context.args else user_id
+    if await db.reset_user_messages(target_id):
+        await update.message.reply_text(f"Messages reset for user {target_id}.")
+    else:
+        await update.message.reply_text(f"Failed to reset messages for user {target_id}.")
+
 def register_handlers(application: Application):
     logger.info("Registering message handler")
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(GROUP_CHAT_IDS), handle_message))
     application.add_handler(CommandHandler("getchatid", get_chat_id))
+    application.add_handler(CommandHandler("resetmessages", reset_messages))
