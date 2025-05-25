@@ -17,30 +17,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     logger.info(f"Processing message from user {user_id} in chat {chat_id}")
 
     if chat_id not in GROUP_CHAT_IDS:
-        logger.debug(f"Ignoring message in non-tracked chat {chat_id}. Expected: {GROUP_CHAT_IDS}")
+        logger.debug(f"Ignoring message in chat {chat_id}. Expected: {GROUP_CHAT_IDS}")
         return
 
     user = await db.get_user(user_id)
     if not user:
-        logger.info(f"User {user_id} not found, creating new user")
+        logger.info(f"Creating user {user_id}")
         user = await db.create_user(user_id, update.effective_user.full_name, None)
         if not user:
             logger.error(f"Failed to create user {user_id}")
             return
 
     if user.get("banned", False):
-        logger.info(f"User {user_id} is banned, ignoring message")
+        logger.info(f"User {user_id} is banned")
         return
 
-    # Update message count
     group_messages = user.get("group_messages", {})
     group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
     total_messages = user.get("messages", 0) + 1
-
-    # Update balance (1 message = 1 kyat)
-    messages_per_kyat = 1  # Hardcoded
-    balance = total_messages
-    logger.info(f"User {user_id}: messages={total_messages}, balance={balance}")
+    balance = total_messages  # 1 message = 1 kyat
 
     try:
         await db.update_user(user_id, {
