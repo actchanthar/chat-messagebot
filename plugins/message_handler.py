@@ -38,7 +38,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     total_messages = user.get("messages", 0) + 1
 
     # Update balance (1 message = 1 kyat)
-    messages_per_kyat = 1  # Hardcode to ensure 1:1 ratio
+    messages_per_kyat = 1  # Hardcode for 1:1 ratio
     balance = total_messages / messages_per_kyat
     logger.info(f"User {user_id}: messages={total_messages}, messages_per_kyat={messages_per_kyat}, balance={balance}")
 
