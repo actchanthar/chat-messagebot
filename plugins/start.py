@@ -62,7 +62,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     url = f"https://t.me/c/{cid.replace('-100', '')}"
             if not isinstance(url, str):
                 logger.error(f"Invalid URL for {cid}: {url}")
-                url = f"https://t.me/c/{cid.replace('-100', '')}"  # Fallback
+                url = f"https://t.me/c/{cid.replace('-100', '')}"
             logger.info(f"Generated URL for {cid}: {url}")
             keyboard.append([InlineKeyboardButton(f"Join {name}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
