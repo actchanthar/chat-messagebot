@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from database.database import db
 import logging
-from config import BOT_USERNAME, FORCE_SUB_CHANNELS
+from config import BOT_USERNAME, FORCE_SUB_CHANNELS, GROUP_CHAT_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -17,46 +17,57 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name, invited_by)
-        all_subscribed = True
-        for channel_id in FORCE_SUB_CHANNELS:
-            try:
-                member = await context.bot.get_chat_member(channel_id, user_id)
-                if member.status in ["member", "administrator", "creator"]:
-                    await db.update_subscription(user_id, channel_id)
-                else:
-                    all_subscribed = False
-            except Exception as e:
-                logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
-                all_subscribed = False
-        if all_subscribed and invited_by:
-            inviter = await db.get_user(invited_by)
-            if inviter:
-                await db.add_invite(invited_by, user_id)
-                inviter_balance = inviter.get("balance", 0) + 25
-                invitee_balance = user.get("balance", 0) + 50
-                await db.update_user(invited_by, {"balance": inviter_balance, "invites": inviter.get("invites", 0) + 1})
-                await db.update_user(user_id, {"balance": invitee_balance})
-                try:
-                    await context.bot.send_message(
-                        chat_id=invited_by,
-                        text=f"You earned 25 kyat for inviting {update.effective_user.full_name}! Your new balance is {inviter_balance} kyat."
-                    )
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=f"Welcome! You earned 50 kyat for joining all required channels. Your balance is {invitee_balance} kyat."
-                    )
-                except Exception as e:
-                    logger.error(f"Error notifying users {invited_by}/{user_id} of referral rewards: {e}")
-            else:
-                logger.warning(f"Inviter {invited_by} not found")
 
-        if not all_subscribed:
-            channels = await db.get_channels()
-            channel_text = "\n".join([f"{c['name']} ({c['channel_id']})" for c in channels])
-            await update.message.reply_text(
-                f"Please join the following channels to activate your account:\n{channel_text}"
-            )
-            return
+    # Check subscription to all required channels
+    all_subscribed = True
+    for channel_id in FORCE_SUB_CHANNELS:
+        try:
+            member = await context.bot.get_chat_member(channel_id, user_id)
+            if member.status in ["member", "administrator", "creator"]:
+                await db.update_subscription(user_id, channel_id)
+            else:
+                all_subscribed = False
+        except Exception as e:
+            logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
+            all_subscribed = False
+
+    if not all_subscribed:
+        channels = await db.get_channels()
+        if not channels:
+            channels = [{"channel_id": cid, "name": f"Channel {cid}"} for cid in FORCE_SUB_CHANNELS]
+        keyboard = [
+            [InlineKeyboardButton(f"Join {c['name']}", url=f"https://t.me/{c['channel_id'].replace('-100', '')}")]
+            for c in channels
+        ]
+        keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "Please join the following channels to activate your account:\n"
+            "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ ဝင်ရောက်ပါ။",
+            reply_markup=reply_markup
+        )
+        return
+
+    # Award referral bonuses if all channels are joined
+    if invited_by and user.get("invited_by") == invited_by:
+        inviter = await db.get_user(invited_by)
+        if inviter:
+            await db.add_invite(invited_by, user_id)
+            inviter_balance = inviter.get("balance", 0) + 25
+            invitee_balance = user.get("balance", 0) + 50
+            await db.update_user(invited_by, {"balance": inviter_balance, "invites": inviter.get("invites", 0) + 1})
+            await db.update_user(user_id, {"balance": invitee_balance})
+            try:
+                await context.bot.send_message(
+                    chat_id=invited_by,
+                    text=f"You earned 25 kyat for inviting {update.effective_user.full_name}! Your new balance is {inviter_balance} kyat."
+                )
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"Welcome! You earned 50 kyat for joining all required channels. Your balance is {invitee_balance} kyat."
+                )
+            except Exception as e:
+                logger.error(f"Error notifying users {invited_by}/{user_id} of referral rewards: {e}")
 
     welcome_message = (
         f"Welcome to {BOT_USERNAME}, {update.effective_user.full_name}! 🎉\n"
@@ -65,7 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
     users = await db.get_all_users()
-    target_group = "-1002061898677"
+    target_group = GROUP_CHAT_IDS[0]
     if users:
         sorted_users = sorted(
             users,
@@ -87,22 +98,64 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
 
     welcome_message += (
-        "\nUse the buttons below to check your balance, withdraw, or join our group.\n"
+        "\nUse the buttons below to check your balance, withdraw, or contact support.\n"
         "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ ထုတ်ယူရန် သို့မဟုတ် အုပ်စုသို့ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
     )
 
     keyboard = [
         [
-            InlineKeyboardButton("Balance", callback_data="balance"),
-            InlineKeyboardButton("Withdraw", callback_data="withdraw")
+            InlineKeyboardButton("Check Balance", callback_data="balance"),
+            InlineKeyboardButton("Withdrawal", callback_data="withdraw")
         ],
-        [InlineKeyboardButton("Join Group", url="https://t.me/yourgroup")],
-        [InlineKeyboardButton("Referral Link", callback_data="referral_link")]
+        [
+            InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
+            InlineKeyboardButton("Support Channel", url="https://t.me/ITAnimeAI")
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
     logger.info(f"Sent welcome message to user {user_id} in chat {chat_id}")
+
+async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    user_id = str(query.from_user.id)
+    logger.info(f"Check subscription for user {user_id}")
+
+    all_subscribed = True
+    for channel_id in FORCE_SUB_CHANNELS:
+        try:
+            member = await context.bot.get_chat_member(channel_id, user_id)
+            if member.status in ["member", "administrator", "creator"]:
+                await db.update_subscription(user_id, channel_id)
+            else:
+                all_subscribed = False
+        except Exception as e:
+            logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
+            all_subscribed = False
+
+    if all_subscribed:
+        await query.message.reply_text(
+            "You have joined all required channels! Use /start to continue."
+        )
+        logger.info(f"User {user_id} subscribed to all channels")
+    else:
+        channels = await db.get_channels()
+        if not channels:
+            channels = [{"channel_id": cid, "name": f"Channel {cid}"} for cid in FORCE_SUB_CHANNELS]
+        keyboard = [
+            [InlineKeyboardButton(f"Join {c['name']}", url=f"https://t.me/{c['channel_id'].replace('-100', '')}")]
+            for c in channels
+        ]
+        keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text(
+            "Please join all required channels:\n"
+            "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ ဝင်ရောက်ပါ။",
+            reply_markup=reply_markup
+        )
+        logger.info(f"User {user_id} not subscribed to all channels")
 
 async def referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -121,4 +174,5 @@ async def referral_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(check_subscription, pattern="^check_subscription$"))
     application.add_handler(CallbackQueryHandler(referral_link, pattern="^referral_link$"))
