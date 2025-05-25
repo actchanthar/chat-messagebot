@@ -21,6 +21,20 @@ class Database:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
 
+    async def migrate_users(self):
+        """Migrate users with 'invites' to 'invited_users' list."""
+        try:
+            async for user in self.users.find({"invited_users": {"$exists": False}}):
+                user_id = user["user_id"]
+                invites = user.get("invites", 0)
+                await self.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"invited_users": [], "invites": invites if isinstance(invites, int) else 0}}
+                )
+                logger.info(f"Migrated user {user_id} to include invited_users")
+        except Exception as e:
+            logger.error(f"Error during user migration: {e}")
+
     async def create_user(self, user_id: str, name: str, invited_by: str = None) -> dict:
         user = {
             "user_id": user_id,
@@ -29,7 +43,7 @@ class Database:
             "messages": 0,
             "group_messages": {},
             "invites": 0,
-            "invited_users": [],  # Explicitly define invited_users
+            "invited_users": [],
             "invited_by": invited_by,
             "subscriptions": [],
             "banned": False,
@@ -85,7 +99,9 @@ class Database:
     async def get_invites(self, user_id: str) -> int:
         try:
             user = await self.get_user(user_id)
-            return len(user.get("invited_users", [])) if user else 0
+            if user:
+                return len(user.get("invited_users", [])) if "invited_users" in user else user.get("invites", 0)
+            return 0
         except Exception as e:
             logger.error(f"Error getting invites for {user_id}: {e}")
             return 0
@@ -228,7 +244,7 @@ class Database:
     async def get_invite_requirement(self) -> int:
         try:
             setting = await self.settings.find_one({"key": "invite_requirement"})
-            return int(setting.get("value", 3)) if setting else 3  # Default to 3
+            return int(setting.get("value", 3)) if setting else 3
         except Exception as e:
             logger.error(f"Error getting invite requirement: {e}")
             return 3
