@@ -17,6 +17,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name, invited_by)
+        logger.info(f"Created new user {user_id}")
 
     # Check subscription to all required channels
     all_subscribed = True
@@ -27,9 +28,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await db.update_subscription(user_id, channel_id)
             else:
                 all_subscribed = False
+                logger.info(f"User {user_id} not subscribed to {channel_id}")
         except Exception as e:
             logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
             all_subscribed = False
+            await update.message.reply_text(f"Error checking channel {channel_id}. Please contact support.")
 
     if not all_subscribed:
         channels = await db.get_channels()
@@ -39,23 +42,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 try:
                     chat = await context.bot.get_chat(cid)
                     name = chat.title or f"Channel {cid}"
-                    username = chat.username or cid
-                    channels.append({"channel_id": cid, "name": name, "username": username})
+                    username = chat.username or None
+                    invite_link = await context.bot.create_chat_invite_link(cid) if not username else None
+                    channels.append({"channel_id": cid, "name": name, "username": username, "invite_link": invite_link})
                 except Exception as e:
                     logger.error(f"Error fetching channel {cid}: {e}")
-                    channels.append({"channel_id": cid, "name": f"Channel {cid}", "username": cid})
+                    channels.append({"channel_id": cid, "name": f"Channel {cid}", "username": None, "invite_link": None})
 
         keyboard = []
         for c in channels:
-            if c["username"].startswith("@"):
+            if c["username"]:
                 url = f"https://t.me/{c['username'][1:]}"
+            elif c["invite_link"]:
+                url = c["invite_link"]
             else:
-                try:
-                    invite_link = await context.bot.export_chat_invite_link(c["channel_id"])
-                    url = invite_link
-                except Exception as e:
-                    logger.error(f"Error generating invite link for {c['channel_id']}: {e}")
-                    url = f"https://t.me/c/{c['channel_id'].replace('-100', '')}"
+                url = f"https://t.me/c/{c['channel_id'].replace('-100', '')}"
+                logger.warning(f"No username or invite link for {c['channel_id']}, using fallback URL: {url}")
             keyboard.append([InlineKeyboardButton(f"Join {c['name']}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -64,6 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ ဝင်ရောက်ပါ။",
             reply_markup=reply_markup
         )
+        logger.info(f"Prompted user {user_id} to join channels")
         return
 
     # Award referral bonuses if all channels are joined
@@ -149,6 +152,7 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await db.update_subscription(user_id, channel_id)
             else:
                 all_subscribed = False
+                logger.info(f"User {user_id} not subscribed to {channel_id}")
         except Exception as e:
             logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
             all_subscribed = False
@@ -166,23 +170,22 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 try:
                     chat = await context.bot.get_chat(cid)
                     name = chat.title or f"Channel {cid}"
-                    username = chat.username or cid
-                    channels.append({"channel_id": cid, "name": name, "username": username})
+                    username = chat.username or None
+                    invite_link = await context.bot.create_chat_invite_link(cid) if not username else None
+                    channels.append({"channel_id": cid, "name": name, "username": username, "invite_link": invite_link})
                 except Exception as e:
                     logger.error(f"Error fetching channel {cid}: {e}")
-                    channels.append({"channel_id": cid, "name": f"Channel {cid}", "username": cid})
+                    channels.append({"channel_id": cid, "name": f"Channel {cid}", "username": None, "invite_link": None})
 
         keyboard = []
         for c in channels:
-            if c["username"].startswith("@"):
+            if c["username"]:
                 url = f"https://t.me/{c['username'][1:]}"
+            elif c["invite_link"]:
+                url = c["invite_link"]
             else:
-                try:
-                    invite_link = await context.bot.export_chat_invite_link(c["channel_id"])
-                    url = invite_link
-                except Exception as e:
-                    logger.error(f"Error generating invite link for {c['channel_id']}: {e}")
-                    url = f"https://t.me/c/{c['channel_id'].replace('-100', '')}"
+                url = f"https://t.me/c/{c['channel_id'].replace('-100', '')}"
+                logger.warning(f"No username or invite link for {c['channel_id']}, using fallback URL: {url}")
             keyboard.append([InlineKeyboardButton(f"Join {c['name']}", url=url)])
         keyboard.append([InlineKeyboardButton("Check Subscription", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
