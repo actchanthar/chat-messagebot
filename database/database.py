@@ -9,12 +9,17 @@ logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        self.client = AsyncIOMotorClient(MONGODB_URL)
-        self.db = self.client[MONGODB_NAME]
-        self.users = self.db.users
-        self.channels = self.db.channels
-        self.withdrawals = self.db.withdrawals
-        self.settings = self.db.settings
+        try:
+            self.client = AsyncIOMotorClient(MONGODB_URL)
+            self.db = self.client[MONGODB_NAME]
+            self.users = self.db.users
+            self.channels = self.db.channels
+            self.withdrawals = self.db.withdrawals
+            self.settings = self.db.settings
+            logger.info("Connected to MongoDB")
+        except Exception as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            raise
 
     async def create_user(self, user_id: str, name: str, invited_by: str = None) -> dict:
         user = {
@@ -24,10 +29,13 @@ class Database:
             "messages": 0,
             "group_messages": {},
             "invites": 0,
+            "invited_users": [],  # Explicitly define invited_users
             "invited_by": invited_by,
             "subscriptions": [],
             "banned": False,
-            "created_at": datetime.utcnow()
+            "created_at": datetime.utcnow(),
+            "today_withdrawn": 0,
+            "payment_number": None
         }
         try:
             await self.users.insert_one(user)
@@ -77,7 +85,7 @@ class Database:
     async def get_invites(self, user_id: str) -> int:
         try:
             user = await self.get_user(user_id)
-            return user.get("invites", 0) if user else 0
+            return len(user.get("invited_users", [])) if user else 0
         except Exception as e:
             logger.error(f"Error getting invites for {user_id}: {e}")
             return 0
@@ -220,10 +228,10 @@ class Database:
     async def get_invite_requirement(self) -> int:
         try:
             setting = await self.settings.find_one({"key": "invite_requirement"})
-            return int(setting.get("value", 0)) if setting else 0
+            return int(setting.get("value", 3)) if setting else 3  # Default to 3
         except Exception as e:
             logger.error(f"Error getting invite requirement: {e}")
-            return 0
+            return 3
 
     async def set_invite_requirement(self, value: int) -> bool:
         try:
@@ -257,6 +265,15 @@ class Database:
             return True
         except Exception as e:
             logger.error(f"Error setting messages per kyat: {e}")
+            return False
+
+    async def reset_user_messages(self, user_id: str) -> bool:
+        try:
+            await self.update_user(user_id, {"messages": 0, "group_messages": {}, "balance": 0})
+            logger.info(f"Reset messages for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error resetting messages for user {user_id}: {e}")
             return False
 
 db = Database()
