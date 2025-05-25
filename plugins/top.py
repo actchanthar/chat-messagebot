@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import CURRENCY, LOG_CHANNEL_ID
+from config import CURRENCY, LOG_CHANNEL_ID, ADMIN_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     total_users = len(users)
     phone_bill_reward = await db.get_phone_bill_reward()
 
-    # Top users by invites
     top_invites = await db.get_top_users(10, by="invites")
     top_message = (
         f"Top Users by Invites (၇ ရက်တစ်ခါ Top 1-3 ကို {phone_bill_reward} မဲဖောက်ပေးပါတယ် 🎁: 10000):\n\n"
@@ -45,7 +44,6 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             else f"{i}. {user['name']} - {invites} invites, {percentage:.1f}% - {balance} {CURRENCY}\n"
         )
 
-    # Top users by messages
     target_group = "-1002061898677"
     top_messages = await db.get_top_users(10, by="messages")
     top_message += (
