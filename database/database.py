@@ -15,195 +15,10 @@ class Database:
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
-        self.channels = self.db.channels  # New collection for force-sub channels
-        self.invites = self.db.invites  # New collection for tracking invites
-        self.message_history = {}  # In-memory cache for duplicate checking
-
-    async def get_user(self, user_id):
-        try:
-            user = await self.users.find_one({"user_id": str(user_id)})
-            logger.info(f"Retrieved user {user_id} from database: {user}")
-            return user
-        except Exception as e:
-            logger.error(f"Error retrieving user {user_id}: {e}")
-            return None
-
-    async def create_user(self, user_id, name):
-        try:
-            user = {
-                "user_id": str(user_id),
-                "name": name,
-                "balance": 0,
-                "messages": 0,
-                "group_messages": {"-1002061898677": 0},
-                "withdrawn_today": 0,
-                "last_withdrawal": None,
-                "banned": False,
-                "notified_10kyat": False,
-                "last_activity": datetime.utcnow(),
-                "message_timestamps": deque(maxlen=5),
-                "invites": 0,  # Track number of successful invites
-                "invited_by": None,  # Track who invited this user
-                "referral_link": f"https://t.me/{self.client.get_me().username}?start={user_id}"  # Generate referral link
-            }
-            result = await self.users.insert_one(user)
-            logger.info(f"Created new user {user_id} with name {name}")
-            return user
-        except Exception as e:
-            logger.error(f"Error creating user {user_id}: {e}")
-            return None
-
-    async def update_user(self, user_id, updates):
-        try:
-            result = await self.users.update_one({"user_id": str(user_id)}, {"$set": updates})
-            if result.modified_count > 0:
-                updates_log = {k: v for k, v in updates.items()}
-                if "message_timestamps" in updates_log:
-                    updates_log["message_timestamps"] = f"[{len(updates['message_timestamps'])} timestamps]"
-                logger.info(f"Updated user {user_id}: {updates_log}")
-                return True
-            logger.info(f"No changes made to user {user_id}")
-            return False
-        except Exception as e:
-            logger.error(f"Error updating user {user_id}: {e}")
-            return False
-
-    async def get_all_users(self):
-        try:
-            users = await self.users.find().to_list(length=None)
-            logger.info(f"Retrieved all users: {len(users)} users")
-            return users
-        except Exception as e:
-            logger.error(f"Error retrieving all users: {e}")
-            return []
-
-    async def get_top_users(self, limit=10, by="messages"):
-        try:
-            if by == "invites":
-                top_users = await self.users.find(
-                    {"banned": False},
-                    {"user_id": 1, "name": 1, "invites": 1, "balance": 1, "_id": 0}
-                ).sort("invites", -1).limit(limit).to_list(length=limit)
-            else:
-                top_users = await self.users.find(
-                    {"banned": False},
-                    {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "_id": 0}
-                ).sort("messages", -1).limit(limit).to_list(length=limit)
-            logger.info(f"Retrieved top {limit} users by {by}: {top_users}")
-            return top_users
-        except Exception as e:
-            logger.error(f"Error retrieving top users by {by}: {e}")
-            return []
-
-    async def add_group(self, group_id):
-        try:
-            existing_group = await self.groups.find_one({"group_id": str(group_id)})
-            if existing_group:
-                logger.info(f"Group {group_id} already exists in approved groups")
-                return "exists"
-            result = await self.groups.insert_one({"group_id": str(group_id)})
-            logger.info(f"Added group {group_id} to approved groups")
-            return True
-        except Exception as e:
-            logger.error(f"Error adding group {group_id}: {str(e)}")
-            return False
-
-    async def get_approved_groups(self):
-        try:
-            groups = await self.groups.find({}, {"group_id": 1 Ascending: 1
-System: Based on your input, I've identified several issues with your bot and provided a complete set of updated files to address them, along with implementing the new features you requested. Below is a summary of the fixes and new features, followed by the updated code files.
-
----
-
-### Issues Identified and Fixes
-1. **Withdraw Button Not Processing**:
-   - The Withdraw button (`callback_data="withdraw"`) in `start.py` triggers the `withdraw` function in `withdrawal.py`, but it may fail due to improper handling of the callback or conversation state.
-   - **Fix**: Ensured the `withdraw` function handles both command and callback triggers correctly and validated the conversation flow to prevent state issues. The conversation handler in `withdrawal.py` has been updated to ensure seamless transitions between states and proper cleanup of `user_data`.
-
-2. **Messages Counting but Balance Not Increasing**:
-   - The `message_handler.py` increments messages and balance, but you mentioned the balance isn't increasing despite messages being counted. This is because the earning rate is set to 1 message = 1 kyat, whereas you want 3 messages = 1 kyat, as configured by `/setmessage 3`.
-   - **Fix**: Updated `message_handler.py` to use the `message_rate` from the database (set by `/setmessage`) to calculate the balance increment. For example, if `message_rate` is 3, the balance increases by 1 kyat for every 3 messages. Also ensured database updates are consistent and atomic to prevent partial updates.
-
-3. **Force-Subscription and Invite System**:
-   - You want users to invite 15 people (set via `/setinvite 15`), and invited users must join force-subscription channels (e.g., `-1002097823468`, `-1001610001670`) for the invite to count. Admins should be exempt from this requirement.
-   - **Implementation**: Added a new `channels` collection to store force-subscription channels and an `invites` collection to track referrals. Modified `withdrawal.py` to check if the user has invited the required number of users who have joined all force-sub channels. Admins (user ID 5062124930) are exempt from this check.
-
-4. **Referral System**:
-   - When a user (A) invites another user (B), and B joins the force-sub channels, A gets 25 kyat per invited user, and B gets 50 kyat upon joining.
-   - **Implementation**: Added `/referral_users` command to display referral stats and implemented logic in `start.py` to handle referral links (`/start <user_id>`). When a new user joins force-sub channels, the inviter and invitee are credited appropriately, with notifications sent to both.
-
-5. **Top Command Updates**:
-   - You requested `/top` to show two leaderboards: one for top users by invites and one by messages, matching the format you provided.
-   - **Implementation**: Modified `top.py` to fetch and display both leaderboards, using the `invites` field for invite rankings and `group_messages` for message rankings. The format matches your example, with top 3 users in bold and weekly rewards noted.
-
-6. **Withdrawal Announcements**:
-   - Announce withdrawals to the group (`GROUP_CHAT_IDS[0]`) and via `/users` (broadcast to all users) in the specified format:
-     ```
-     ID: <user_id>
-     First name Last name: <name>
-     Username: @<username>
-     သည် စုစု‌ပေါင်း <amount> ငွေထုတ်ယူခဲ့ပါသည်။
-     လက်ရှိလက်�ကျန်ငွေ <last_amount>
-     ```
-   - **Implementation**: Updated `withdrawal.py` to post the announcement to the group and broadcast it to all users via a new function in `users.py`.
-
-7. **Payment Method Selection**:
-   - Users must choose KBZ Pay, Wave Pay, or Phone Bill for withdrawals, with specific prompts and validations (e.g., Phone Bill minimum 1000 kyat, increments of 1000).
-   - **Implementation**: Updated `withdrawal.py` to enforce Phone Bill withdrawals in increments of 1000 kyat (1000, 2000, 3000, etc.) and added QR code support for KBZ Pay and Wave Pay (users can send text or an image, though image processing is noted as a limitation).
-
-8. **Couple Feature**:
-   - Add `/couple` command to randomly pair two users every 10 minutes with the message:
-     ```
-     <Firstname1> mention သူသည် <Firstname2> mention သင်နဲ့ဖူးစာဖက်ပါ ရီးစားရှာ‌ပေးတာပါ
-     ပိုက်ဆံပေးစရာမလိုပါဘူး 😅 ရန်မဖြစ်ကြပါနဲ့
-     ```
-   - **Implementation**: Created a new `couple.py` plugin with a scheduled job using `Application.job_queue` to run every 10 minutes, selecting two random users from the database and posting to the group.
-
-9. **New Commands**:
-   - **/pbroadcast**: Send a pinned broadcast message to all users (admin-only).
-   - **/addchnl**: Add a channel for force-subscription (admin-only).
-   - **/delchnl**: Remove a force-subscription channel (admin-only).
-   - **/listchnl**: List all force-subscription channels (admin-only).
-   - **/Add_bonus**: Add bonus kyat to a user’s balance (admin-only).
-   - **/restwithdraw**: Reset pending withdrawal requests for a specific user or all users (admin-only).
-   - **/setmessage**: Set the number of messages required for 1 kyat (e.g., `/setmessage 3`).
-   - **/transfer**: Transfer kyat from one user to another (user command).
-   - **/referral_users**: Show referral stats for a user.
-   - **Implementation**: Created new plugins (`channels.py`, `add_bonus.py`, `restwithdraw.py`, `transfer.py`) and updated `start.py`, `withdrawal.py`, and `message_handler.py` to support these features.
-
----
-
-### Updated and New Files
-Below are the complete, updated files with all fixes and new features. Unchanged files (`main.py`, `Procfile`, `requirements.txt`, `runtime.txt`, `addgroup.py`, `checkgroup.py`, `setphonebill.py`, `users.py`, `broadcast.py`, `help.py`) remain as you provided. New files are included for new commands. I’ve also added a `README.md` as requested.
-
-#### `database/database.py`
-Updated to include:
-- New collections: `channels` (force-sub channels), `invites` (referral tracking).
-- Support for message rate (`message_rate`), invite requirements (`invite_requirement`), and referral logic.
-- Methods for resetting withdrawals, transferring balances, and checking channel subscriptions.
-
-```python
-from motor.motor_asyncio import AsyncIOMotorClient
-from config import MONGODB_URL, MONGODB_NAME
-import logging
-from datetime import datetime, timedelta
-from collections import deque
-
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-class Database:
-    def __init__(self):
-        self.client = AsyncIOMotorClient(MONGODB_URL)
-        self.db = self.client[MONGODB_NAME]
-        self.users = self.db.users
-        self.groups = self.db.groups
-        self.rewards = self.db.rewards
-        self.settings = self.db.settings
-        self.channels = self.db.channels  # For force-sub channels
-        self.invites = self.db.invites  # For tracking invites
-        self.withdrawals = self.db.withdrawals  # For tracking pending withdrawals
-        self.message_history = {}  # In-memory cache for duplicate checking
+        self.channels = self.db.channels
+        self.invites = self.db.invites
+        self.withdrawals = self.db.withdrawals
+        self.message_history = {}
 
     async def get_user(self, user_id):
         try:
@@ -231,7 +46,7 @@ class Database:
                 "invites": 0,
                 "invited_by": str(invited_by) if invited_by else None,
                 "subscribed_channels": [],
-                "referral_link": f"https://t.me/ACTMoneyBot?start={user_id}"  # Dynamic bot username
+                "referral_link": f"https://t.me/ACTMoneyBot?start={user_id}"
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created user {user_id} with name {name}, invited_by: {invited_by}")
@@ -369,7 +184,7 @@ class Database:
     async def get_phone_bill_reward(self):
         try:
             setting = await self.settings.find_one({"type": "phone_bill_reward"})
-            return setting.get("value", "Phone Bill 1000 kyat")
+            return setting.get("value", "Phone Bill 1000 kyat") if setting else "Phone Bill 1000 kyat"
         except Exception as e:
             logger.error(f"Error retrieving phone_bill_reward: {e}")
             return "Phone Bill 1000 kyat"
@@ -596,5 +411,4 @@ class Database:
             logger.error(f"Error retrieving pending withdrawals for user {user_id}: {e}")
             return []
 
-# Singleton instance
 db = Database()
