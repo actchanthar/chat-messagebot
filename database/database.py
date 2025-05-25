@@ -16,13 +16,14 @@ class Database:
             self.channels = self.db.channels
             self.withdrawals = self.db.withdrawals
             self.settings = self.db.settings
+            # Test connection
+            self.client.admin.command('ping')
             logger.info("Connected to MongoDB")
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
 
     async def migrate_users(self):
-        """Migrate users with 'invites' to 'invited_users' list."""
         try:
             async for user in self.users.find({"invited_users": {"$exists": False}}):
                 user_id = user["user_id"]
