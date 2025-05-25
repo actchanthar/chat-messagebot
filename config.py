@@ -1,8 +1,7 @@
-# config.py
-BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
-BOT_USERNAME = "@actearnbot"  # Added for referral links
+BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"  # REPLACE
+BOT_USERNAME = "@actearnbot"
 MONGODB_NAME = "actchat1"
-MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+MONGODB_URL = "mongodb+srv://2234act:2234act@cluster0.rwjacbj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"  # REPLACE
 WITHDRAWAL_THRESHOLD = 100
 DAILY_WITHDRAWAL_LIMIT = 2500
 CURRENCY = "kyat"
