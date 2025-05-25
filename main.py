@@ -4,7 +4,7 @@ from config import BOT_TOKEN
 from plugins import (
     start,
     withdrawal,
-    message_handler,  # Update to this
+    message_handler,  # Must reference message_handler
     top,
     addgroup,
     checkgroup,
