@@ -18,7 +18,7 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     balance = user.get("balance", 0)
     messages = user.get("messages", 0)
-    invites = len(user.get("invited_users", []))
+    invites = len(user.get("invited_users", [])) if "invited_users" in user else user.get("invites", 0)
 
     message = (
         f"Your Balance: {balance} kyat\n"
@@ -42,7 +42,7 @@ async def balance_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     balance = user.get("balance", 0)
     messages = user.get("messages", 0)
-    invites = len(user.get("invited_users", []))
+    invites = len(user.get("invited_users", [])) if "invited_users" in user else user.get("invites", 0)
 
     message = (
         f"Your Balance: {balance} kyat\n"
