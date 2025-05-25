@@ -32,8 +32,8 @@ def main():
     start.register_handlers(application)
     withdrawal.register_handlers(application)
     message_handler.register_handlers(application)
-    message_counter.register_handlers(application)  # Added
-    setmessage.register_handlers(application)  # Added
+    message_counter.register_handlers(application)
+    setmessage.register_handlers(application)
     top.register_handlers(application)
     addgroup.register_handlers(application)
     checkgroup.register_handlers(application)
