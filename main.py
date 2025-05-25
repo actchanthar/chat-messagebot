@@ -1,6 +1,7 @@
 import logging
 from telegram.ext import Application
 from config import BOT_TOKEN, ADMIN_IDS
+from database.database import db
 from plugins import (
     start,
     withdrawal,
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
     application.bot_data["admin_ids"] = ADMIN_IDS
+    await db.migrate_users()  # Run schema migration
     logger.info("Bot initialized with admin IDs: %s", ADMIN_IDS)
 
 def main():
