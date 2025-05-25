@@ -31,7 +31,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name)
 
-    message_rate = await db.get_message_rate()  # e.g., 3 messages = 1 kyat
+    message_rate = await db.get_message_rate()
     new_messages = user.get("messages", 0) + 1
     group_messages = user.get("group_messages", {})
     current_group_messages = group_messages.get(chat_id, 0) + 1
