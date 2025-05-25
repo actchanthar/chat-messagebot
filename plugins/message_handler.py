@@ -92,9 +92,28 @@ async def debug_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"Message counting enabled: {COUNT_MESSAGES}"
     )
 
+async def test_bot(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    logger.info(f"Test bot command by user {user_id}")
+    try:
+        bot = await context.bot.get_me()
+        db_status = "Connected" if await db.get_user(user_id) is not None else "Failed"
+        await update.message.reply_text(
+            f"Bot Status: Running\n"
+            f"Bot Username: @{bot.username}\n"
+            f"Database Status: {db_status}\n"
+            f"Message Counting: {'Enabled' if COUNT_MESSAGES else 'Disabled'}\n"
+            f"Group Chat IDs: {GROUP_CHAT_IDS}"
+        )
+        logger.info(f"Bot test successful for user {user_id}")
+    except Exception as e:
+        logger.error(f"Bot test failed for user {user_id}: {str(e)}")
+        await update.message.reply_text(f"Bot test failed: {str(e)}")
+
 def register_handlers(application: Application):
     logger.info("Registering message handler")
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(GROUP_CHAT_IDS), handle_message))
     application.add_handler(CommandHandler("getchatid", get_chat_id))
     application.add_handler(CommandHandler("resetmessages", reset_messages))
     application.add_handler(CommandHandler("debugmessage", debug_message))
+    application.add_handler(CommandHandler("testbot", test_bot))
