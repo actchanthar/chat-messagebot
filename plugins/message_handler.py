@@ -82,8 +82,19 @@ async def reset_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         await update.message.reply_text(f"Failed to reset messages for user {target_id}.")
 
+async def debug_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.effective_user.id)
+    chat_id = str(update.effective_chat.id)
+    logger.info(f"Debug message command by user {user_id} in chat {chat_id}")
+    await update.message.reply_text(
+        f"Chat ID: {chat_id}\n"
+        f"Expected GROUP_CHAT_IDS: {GROUP_CHAT_IDS}\n"
+        f"Message counting enabled: {COUNT_MESSAGES}"
+    )
+
 def register_handlers(application: Application):
     logger.info("Registering message handler")
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Chat(GROUP_CHAT_IDS), handle_message))
     application.add_handler(CommandHandler("getchatid", get_chat_id))
     application.add_handler(CommandHandler("resetmessages", reset_messages))
+    application.add_handler(CommandHandler("debugmessage", debug_message))
