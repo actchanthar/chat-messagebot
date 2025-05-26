@@ -8,16 +8,15 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> bool:
-    channels = await db.get_channels()
-    if not channels:
+    if not CHANNEL_IDS:
         return True  # No channels to check
-    for channel in channels:
+    for channel_id in CHANNEL_IDS:
         try:
-            member = await context.bot.get_chat_member(channel["channel_id"], user_id)
+            member = await context.bot.get_chat_member(channel_id, user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
         except Exception as e:
-            logger.error(f"Error checking subscription for user {user_id} in channel {channel['channel_id']}: {e}")
+            logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
             return False
     return True
 
@@ -28,8 +27,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Check force subscription
     if not await check_subscription(context, int(user_id), chat_id):
-        channels = await db.get_channels()
-        keyboard = [[InlineKeyboardButton(channel["channel_name"], url=f"https://t.me/{channel['channel_id']}")] for channel in channels]
+        keyboard = [[InlineKeyboardButton(f"Channel {i+1}", url=f"https://t.me/{channel_id[5:]}")] for i, channel_id in enumerate(CHANNEL_IDS)]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Please join the following channels to use the bot:\n"
@@ -87,7 +85,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("Check Balance", callback_data="balance"),
             InlineKeyboardButton("Withdraw", callback_data="withdraw")
         ],
-        [InlineKeyboardButton("Join Group", url=f"https://t.me/{GROUP_CHAT_IDS[0]}")]
+        [InlineKeyboardButton("Join Group", url=f"https://t.me/{GROUP_CHAT_IDS[0][5:]}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
