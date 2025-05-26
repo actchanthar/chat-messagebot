@@ -13,11 +13,11 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
         return True  # No channels to check
     for channel in channels:
         try:
-            member = await context.bot.get_chat_member(channel["chat_id"], user_id)
+            member = await context.bot.get_chat_member(channel["channel_id"], user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
         except Exception as e:
-            logger.error(f"Error checking subscription for user {user_id} in channel {channel['chat_id']}: {e}")
+            logger.error(f"Error checking subscription for user {user_id} in channel {channel['channel_id']}: {e}")
             return False
     return True
 
@@ -29,7 +29,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Check force subscription
     channels = await db.get_channels()
     if not await check_subscription(context, int(user_id), chat_id):
-        keyboard = [[InlineKeyboardButton(channel["name"], url=f"https://t.me/{channel['name'][1:]}")] for channel in channels]
+        keyboard = [[InlineKeyboardButton(channel["channel_name"], url=f"https://t.me/{channel['channel_name'][1:]}")] for channel in channels]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Please join the following channels to use the bot:\n"
@@ -81,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_message += (
         f"\nCurrent earning rate: {message_rate} messages = 1 kyat\n"
         "Use the buttons below to interact with the bot.\n"
-        "အောက်ပါခလုတ်များကို အသုံးပြုပါ�।"
+        "အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
     )
 
     keyboard = [
