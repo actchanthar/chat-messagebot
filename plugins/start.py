@@ -47,6 +47,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
         "Earn money by sending messages in the group!\n"
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
+        "Dev: @When_the_night_falls_my_soul_se\n"
+        "Updates Channel: https://t.me/ITAnimeAI\n\n"
     )
 
     users = await db.get_all_users()
@@ -76,14 +78,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     welcome_message += (
         f"\nCurrent earning rate: {message_rate} messages = 1 kyat\n"
-        "Use the buttons below to check your balance, withdraw your earnings, or join our group.\n"
-        "သင့်လက်ကျန်ငွေ စစ်ဆေးရန်၊ သင့်ဝင်ငွေများကို ထုတ်ယူရန် သို့မဟုတ် ကျွန်ုပ်တို့၏ အုပ်စုသို့ ဝင်ရောက်ရန် အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+        "Use the buttons below to interact with the bot.\n"
+        "အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
     )
 
     keyboard = [
         [
             InlineKeyboardButton("Check Balance", callback_data="balance"),
-            InlineKeyboardButton("Withdraw", callback_data="withdraw")
+            InlineKeyboardButton("Withdrawal", callback_data="withdraw")
+        ],
+        [
+            InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
+            InlineKeyboardButton("Updates Channel", url="https://t.me/ITAnimeAI")
         ],
         [InlineKeyboardButton("Join Group", url=f"https://t.me/{GROUP_CHAT_IDS[0][5:]}")]
     ]
