@@ -15,14 +15,16 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Usage: /addchnl <channel_id> <channel_name>")
+        await update.message.reply_text("Usage: /addchnl <channel_id> <channel_username>")
         return
 
-    channel_id, channel_name = args[0], " ".join(args[1:])
+    channel_id, channel_username = args[0], args[1]
     try:
         channel_id = str(int(channel_id))  # Ensure channel_id is numeric
-        await db.add_channel(channel_id, channel_name)
-        await update.message.reply_text(f"Channel {channel_name} ({channel_id}) added successfully.")
+        if not channel_username.startswith("@"):
+            channel_username = f"@{channel_username}"
+        await db.add_channel(channel_id, channel_username)
+        await update.message.reply_text(f"Channel {channel_username} ({channel_id}) added successfully.")
         logger.info(f"Channel {channel_id} added by admin {user_id}")
     except ValueError:
         await update.message.reply_text("Invalid channel ID. Please provide a numeric ID (e.g., -1001234567890).")
