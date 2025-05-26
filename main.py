@@ -7,7 +7,6 @@ from plugins import (
     addgroup,
     balance,
     broadcast,
-    channel,
     checkgroup,
     couple,
     help,
@@ -49,7 +48,6 @@ def main() -> None:
     addgroup.register_handlers(application)
     balance.register_handlers(application)
     broadcast.register_handlers(application)
-    channel.register_handlers(application)
     checkgroup.register_handlers(application)
     couple.register_handlers(application)
     help.register_handlers(application)
