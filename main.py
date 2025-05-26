@@ -1,5 +1,6 @@
 import logging
-from telegram.ext import Application
+from telegram import Update  # Added
+from telegram.ext import Application, ContextTypes  # Added ContextTypes
 from config import BOT_TOKEN
 
 # Import plugin handlers
