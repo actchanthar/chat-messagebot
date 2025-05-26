@@ -2,26 +2,24 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import GROUP_CHAT_IDS, CHANNEL_IDS
+from config import GROUP_CHAT_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Static channel mapping (replace with actual usernames)
-CHANNEL_MAP = {
-    "-1002097823468": "@YourChannel1",
-    "-1001610001670": "@YourChannel2",
-    "-1002171798406": "@YourChannel3"
-}
-
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> bool:
-    for channel_id in CHANNEL_IDS:
+    channels = await db.get_channels()
+    if not channels:
+        logger.info("No channels found for subscription check")
+        return True  # No channels to check
+    for channel in channels:
         try:
-            member = await context.bot.get_chat_member(channel_id, user_id)
+            member = await context.bot.get_chat_member(channel["channel_id"], user_id)
             if member.status not in ["member", "administrator", "creator"]:
+                logger.info(f"User {user_id} not subscribed to channel {channel['channel_id']}")
                 return False
         except Exception as e:
-            logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
+            logger.error(f"Error checking subscription for user {user_id} in channel {channel['channel_id']}: {e}")
             return False
     return True
 
@@ -31,8 +29,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
 
     # Check force subscription
+    channels = await db.get_channels()
     if not await check_subscription(context, int(user_id), chat_id):
-        keyboard = [[InlineKeyboardButton(CHANNEL_MAP[channel_id], url=f"https://t.me/{CHANNEL_MAP[channel_id][1:]}")] for channel_id in CHANNEL_IDS]
+        keyboard = [[InlineKeyboardButton(channel["channel_name"], url=f"https://t.me/{channel['channel_name'][1:]}")] for channel in channels]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Please join the following channels to use the bot:\n"
@@ -45,6 +44,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await db.get_user(user_id)
     if not user:
         user = await db.create_user(user_id, update.effective_user.full_name)
+        if not user:  # Check if user creation failed
+            logger.error(f"Failed to create user {user_id}")
+            await update.message.reply_text("Error creating user. Please try again later.")
+            return
         logger.info(f"Created new user {user_id} during start command")
 
     welcome_message = (
