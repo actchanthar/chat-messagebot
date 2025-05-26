@@ -43,10 +43,12 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await (update.message or update.callback_query.message).reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
-    if user.get("invites", 0) < INVITE_THRESHOLD:
-        logger.info(f"User {user_id} has insufficient invites: {user.get('invites', 0)}/{INVITE_THRESHOLD}")
+    # Check number of invited users (use len of invites list or invited_users field)
+    invite_count = len(user.get("invites", []))  # or user.get("invited_users", 0) if that's the correct field
+    if invite_count < INVITE_THRESHOLD:
+        logger.info(f"User {user_id} has insufficient invites: {invite_count}/{INVITE_THRESHOLD}")
         await (update.message or update.callback_query.message).reply_text(
-            f"You need at least {INVITE_THRESHOLD} invites to withdraw. Current invites: {user.get('invites', 0)}."
+            f"You need at least {INVITE_THRESHOLD} invites to withdraw. Current invites: {invite_count}."
         )
         return ConversationHandler.END
 
@@ -171,7 +173,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         elif payment_method == "Wave Pay":
             await message.reply_text(
                 "Please provide your Wave Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n"
-                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။\n"
+                "ကျေးဇူးပြု၍ သင်ၕို Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။\n"
                 "သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
             )
         else:
@@ -262,7 +264,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await message.reply_text(
         f"Your withdrawal request for {amount} {CURRENCY} has been submitted. Please wait for admin approval. ⏳\n"
-        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်�। ကျေးဇူးပြု၍ အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ပါ။"
+        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ ကျေးဇူးပြု၍ အုပ်ချုပ်ရေးမှူး၏ အတည်ပြုချက်ကို စောင့်ပါ။"
     )
     logger.info(f"User {user_id} submitted withdrawal request for {amount} {CURRENCY}")
 
