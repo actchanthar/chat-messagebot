@@ -21,15 +21,13 @@ async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     target_user_id, amount = args[0], args[1]
     try:
         amount = float(amount)
-        user = await db.get_user(target_user_id)
-        if not user:
-            await update.message.reply_text("User not found.")
-            return
-
-        new_balance = user.get("balance", 0) + amount
-        await db.update_user(target_user_id, {"balance": new_balance})
-        await update.message.reply_text(f"Added {amount} kyat to user {target_user_id}. New balance: {new_balance} kyat.")
-        logger.info(f"Admin {user_id} added bonus {amount} to user {target_user_id}")
+        success = await db.add_bonus(target_user_id, amount)
+        if success:
+            user = await db.get_user(target_user_id)
+            await update.message.reply_text(f"Added {amount} kyat to user {target_user_id}. New balance: {user.get('balance', 0)} kyat.")
+            logger.info(f"Admin {user_id} added bonus {amount} to user {target_user_id}")
+        else:
+            await update.message.reply_text("User not found or error adding bonus.")
     except ValueError:
         await update.message.reply_text("Invalid amount. Please provide a number.")
     except Exception as e:
@@ -55,7 +53,7 @@ async def set_invite(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await update.message.reply_text("User not found.")
             return
 
-        await db.update_user(target_user_id, {"invited_users": count})
+        await db.update_user(target_user_id, {"invites": count})
         await update.message.reply_text(f"Set invite count to {count} for user {target_user_id}.")
         logger.info(f"Admin {user_id} set invite count to {count} for user {target_user_id}")
     except ValueError:
@@ -86,7 +84,7 @@ async def set_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         target_group = GROUP_CHAT_IDS[0]
         group_messages = user.get("group_messages", {})
         group_messages[target_group] = count
-        await db.update_user(target_user_id, {"group_messages": group_messages})
+        await db.update_user(target_user_id, {"group_messages": group_messages, "messages": count})
         await update.message.reply_text(f"Set message count to {count} for user {target_user_id} in group {target_group}.")
         logger.info(f"Admin {user_id} set message count to {count} for user {target_user_id}")
     except ValueError:
