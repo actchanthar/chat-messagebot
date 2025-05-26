@@ -5,8 +5,10 @@ from config import BOT_TOKEN
 # Import plugin handlers
 from plugins import (
     addgroup,
+    admin,  # New
     balance,
     broadcast,
+    channel,  # Added
     checkgroup,
     couple,
     help,
@@ -46,8 +48,10 @@ def main() -> None:
     # Register plugin handlers
     logger.info("Registering plugin handlers")
     addgroup.register_handlers(application)
+    admin.register_handlers(application)  # New
     balance.register_handlers(application)
     broadcast.register_handlers(application)
+    channel.register_handlers(application)  # Added
     checkgroup.register_handlers(application)
     couple.register_handlers(application)
     help.register_handlers(application)
