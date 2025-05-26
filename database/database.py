@@ -15,12 +15,15 @@ class Database:
         self.groups = self.db.groups
         self.rewards = self.db.rewards
         self.settings = self.db.settings
-        self.channels = self.db.channels  # New collection for force subscription channels
-        self.message_history = {}  # In-memory cache for duplicate checking
+        self.channels = self.db.channels
+        self.message_history = {}
 
     async def get_user(self, user_id):
         try:
             user = await self.users.find_one({"user_id": user_id})
+            if user and "message_timestamps" in user:
+                # Convert list back to deque when retrieving
+                user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             logger.info(f"Retrieved user {user_id} from database: {user}")
             return user
         except Exception as e:
@@ -40,12 +43,14 @@ class Database:
                 "banned": False,
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
-                "message_timestamps": deque(maxlen=5),
-                "invites": 0,  # New field for tracking invites
-                "pending_withdrawals": []  # New field for tracking pending withdrawals
+                "message_timestamps": [],  # Store as list in MongoDB
+                "invites": 0,
+                "pending_withdrawals": []
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created new user {user_id} with name {name}")
+            # Convert back to deque for in-memory usage
+            user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
@@ -53,6 +58,9 @@ class Database:
 
     async def update_user(self, user_id, updates):
         try:
+            # Convert deque to list before updating MongoDB
+            if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
+                updates["message_timestamps"] = list(updates["message_timestamps"])
             result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
             if result.modified_count > 0:
                 updates_log = {k: v for k, v in updates.items()}
@@ -69,6 +77,10 @@ class Database:
     async def get_all_users(self):
         try:
             users = await self.users.find().to_list(length=None)
+            # Convert message_timestamps to deque for each user
+            for user in users:
+                if "message_timestamps" in user:
+                    user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             logger.info(f"Retrieved all users: {len(users)} users")
             return users
         except Exception as e:
@@ -250,7 +262,7 @@ class Database:
 
     async def add_bonus(self, user_id, amount):
         try:
-            user = await self.get_user(user_id)
+            user = await db.get_user(user_id)
             if not user:
                 return False
             current_balance = user.get("balance", 0)
@@ -312,7 +324,7 @@ class Database:
             # Check 5 messages per minute limit
             timestamps = user.get("message_timestamps", deque(maxlen=5))
             timestamps.append(current_time)
-            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
+            await self.update_user(user_id, {"message_timestamps": timestamps})
             if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
                 logger.warning(f"Rate limit exceeded for user {user_id} (5 messages per minute)")
                 return True
