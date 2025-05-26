@@ -45,7 +45,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     # Skip invite check for admins
     if user_id not in ADMIN_IDS:
-        invite_count = user.get("invited_users", 0)  # Use invited_users instead of invites
+        invite_count = user.get("invites", 0)  # Use invites from database
         if invite_count < INVITE_THRESHOLD:
             logger.info(f"User {user_id} has insufficient invites: {invite_count}/{INVITE_THRESHOLD}")
             await (update.message or update.callback_query.message).reply_text(
@@ -187,7 +187,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     except ValueError:
         await message.reply_text(
             "Please enter a valid number (e.g., 100).\n"
-            "ကျေးဇူးပြု၍ မှန်�ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
+            "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
         )
         return STEP_AMOUNT
 
