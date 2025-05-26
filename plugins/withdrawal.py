@@ -154,7 +154,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if user.get("balance", 0) < amount:
             await message.reply_text(
                 "Insufficient balance. Please check your balance with /balance.\n"
-                "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေးဇူးပြု၍ သင့်လက်�ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
+                "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေးဇူးပြု၍ သင့်လက်ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
             )
             return ConversationHandler.END
 
@@ -272,7 +272,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     data = query.data
-    logger.info(f"Admin receipt callback for user {query.from_user.id}, data: {data}")
+    logger.info(f"Admin receipt callback for user {query.from_user.id}: data={data}")
 
     try:
         if data.startswith("approve_withdrawal_"):
@@ -293,7 +293,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
 
             balance = user.get("balance", 0)
             if balance < amount:
-                logger.error(f"Insufficient balance for user {user_id}. Requested: {amount}, Balance: {balance}")
+                logger.error(f"Insufficient balance for user {user_id} {amount}. Requested: {amount}, Balance: {balance}")
                 await query.message.reply_text("User has insufficient balance for this withdrawal.")
                 return
 
@@ -306,14 +306,16 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                 current_date = current_time.date()
                 if last_withdrawal_date == current_date:
                     if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                        logger.error(f"User {user_id} exceeded daily withdrawal limit. Withdrawn today: {withdrawn_today}, Requested: {amount}")
-                        await query.message.reply_text(f"User has exceeded the daily withdrawal limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY}.")
+                        logger.error(f"User {user_id} exceeded daily withdrawal limit for {withdrawn_today}. Amount: {amount}")
+                        logger.warning(f"User {user_id} exceeded daily withdrawal limit")
+                        await query.message.reply_text=f"Failed to withdraw amount for {amount}: due to daily withdrawal limit")
                         return
                 else:
                     withdrawn_today = 0
 
             new_balance = balance - amount
             new_withdrawn_today = withdrawn_today + amount
+
             pending_withdrawals = user.get("pending_withdrawals", [])
             updated_withdrawals = [w for w in pending_withdrawals if w["amount"] != amount or w["status"] != "PENDING"]
 
@@ -325,50 +327,132 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
             })
 
             if success:
-                logger.info(f"Withdrawal approved for user {user_id}. Amount: {amount}, New balance: {new_balance}")
+                logger.info(f"Successfully approved withdrawal for {amount} for user {user_id}. New balance: {new_balance}")
+                logger.info(f"Withdrawal approved for user {user_id}..")
                 await query.message.reply_text(
                     f"Withdrawal approved for user {user_id}. Amount: {amount} {CURRENCY}. New balance: {new_balance} {CURRENCY}.",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("Post to Group 📢", callback_data=f"post_approval_{user_id}_{amount}")]
+                        [InlineKeyboardButton("Post to Group 📢", callback_data=f"post_approval" f"_{user_id}_{amount")]
                     ])
                 )
+                pending" f":=Failed to approve withdrawal
+ for user {user} f" f"
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
                         text=(
-                            f"Your withdrawal of {amount} {CURRENCY} has been approved! "
-                            f"Your new balanc is {new_balance} {CURRENCY}.\n"
-                            f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။ "
-                            f"သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+                            f"Your withdrawal of {amount} {CURRENCY} has been approved! for {amount} {famount} "
+                            f"Your new balance: {amountnew_balance} {CURRENCY} "
+                            f"\n"
+                            f"ီஙய இது {user_id} பத உஙதிய இல் {amount}, f{amount}"
+                            f" "
+                            f"தங உஙக {amount}}. balance: {new_balance} {CURRENCY} இல்"
                         )
                     )
-                    logger.info(f"Notified user {user_id} of withdrawal approval")
+                    logger.info(f"Successfully notified user {user_id} of withdrawal approval")
                 except Exception as e:
                     logger.error(f"Failed to notify user {user_id} of withdrawal approval: {e}")
+            logger.error(f"Failed to update user {user} for user {user_id}: amount: {amount}")
+ "
             else:
-                logger.error(f"Failed to update user {user_id} for withdrawal approval")
-                await query.message.reply_text("Error approving withdrawal. Please try again.")
+                f"Failed to approve {withdrawal_amount}"
+                await f"failed to process withdrawal error. Please try again."
+            elif data.startswith("withdrawal_"):
+                parts = data.split("_")
+                if len(parts) != 4:
+                    logger.error(f"Invalid {callback_data} format: "
+                            f"{data}"
+                    )
+                    await logger.error("Error processing withdrawal request")
+                    return
+                _, _, user_id, amount = parts
+                user_id = await str(user_id)
+                amount = int(amount)
+                user = await db.get_user(user_id)
+                if user:
+                    pending_withdrawals = user.get("pending_withdrawal", [])
+                    updated_withdrawals = [w for w in pending_withdrawals if w["amount"] != amount or w["status"] != "PENDING"]
+                    pending_withdrawals = await db.update_withdrawals(user_id, {"pending_withdrawals": updated_withdrawals})
+                    logger.info(f"Successfully rejected withdrawal for user {user} for user {user_id} Amount: "
+                              f"amount: {amount}"
+                    )
+                    await query.message.reply_text(f" f"Withdrawal rejected for user {user_id}. Amount: {amount} {CURRENCY}. ")
+                )
+                    try:
+                        await context.bot.send_message(
+                            chat_id=user_id,
+                            text=(
+                                f"Your withdrawal request of {amount} {CURRENCY} has been rejected. Please contact support for more details.\n"
+                                f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို ပယ်ချခဲ့ပါသည်။ အသေးစိချ်အတွက် support သို့ ဆက်သွွယျပါ။"
+                            )
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to notify user {user_id} of withdrawal rejection: {amount}")
+ "
+                logger.info(f"Successfully rejected withdrawal for user {user_id} amount: {amount}")
+ "
+            except Exception as e:
+                logger.error(f"Error handling admin receipt callback for {data}: {e}")
+                await query.message.reply_text("Error processing withdrawal request. Please try again.")
+                return
 
-        elif data.startswith("reject_withdrawal_"):
+async def post_approval_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    try:
+        if data.startswith("post_approval_to"):
             parts = data.split("_")
             if len(parts) != 4:
-                logger.error(f"Invalid callback data format: {data}")
-                await query.message.reply_text("Error processing withdrawal request.")
+                logger.error(f"Invalid callback data for posting approval: {data}")
+                await query.message.reply_text("Error posting approval to group.")
                 return
             _, _, user_id, amount = parts
             user_id = str(user_id)
             amount = int(amount)
 
             user = await db.get_user(user_id)
-            if user:
-                pending_withdrawals = user.get("pending_withdrawals", [])
-                updated_withdrawals = [w for w in pending_withdrawals if w["amount"] != amount or w["status"] != "PENDING"]
-                await db.update_user(user_id, {"pending_withdrawals": updated_withdrawals})
+            if not user:
+                logger.error(f"User {user_id} not found for posting approval")
+                await query.message.reply_text("User not found.")
+                return
 
-            logger.info(f"Withdrawal rejected for user {user_id}. Amount: {amount}")
-            await query.message.reply_text(f"Withdrawal rejected for user {user_id}. Amount: {amount} {CURRENCY}.")
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=(
-                        f"Your withdrawal request of {amount}
+            user_first_name = user.get("name", update.effective_user.first_name or "Unknown")
+            username = update.effective_user.username or user.get("username", "N/A")
+            message = (
+                f"🎉 Withdrawal Approved!\n"
+                f"User: @{username} ({user_first_name})\n"
+                f"Amount: {amount} {CURRENCY}\n"
+                f"Congratulations! Your withdrawal has been processed successfully."
+            )
+            await context.bot.send_message(
+                chat_id=GROUP_CHAT_IDS[0],
+                text=message,
+                parse_mode="Markdown"
+            )
+            logger.info(f"Posted withdrawal approval for user {user_id} amount {amount} to group {GROUP_CHAT_IDS[0]}")
+            await query.message.reply_text("Approval posted to the group successfully.")
+        else:
+            logger.error(f"Invalid callback data for posting approval: {data}")
+            await query.message.reply_text("Error processing request.")
+    except Exception as e:
+        logger.error(f"Error posting approval to group for {data}: {e}")
+        await query.message.reply_text("Error posting approval to group.")
+
+def register_handlers(application: Application):
+    logger.info("Registering withdrawal handlers")
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("withdraw", withdraw),
+            CallbackQueryHandler(withdraw, pattern="^withdraw$")
+        ],
+        states={
+            STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method_selection, pattern="^payment_")],
+            STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
+            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
+        },
+        fallbacks=[CommandHandler("withdraw", withdraw)],
+    )
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_admin_receipt, pattern="^(approve_withdrawal|reject_withdrawal)"))
+    application.add_handler(CallbackQueryHandler(post_approval_to_group, pattern="^post_approval_"))
