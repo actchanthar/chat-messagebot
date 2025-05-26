@@ -5,10 +5,10 @@ from config import BOT_TOKEN
 # Import plugin handlers
 from plugins import (
     addgroup,
-    admin,  # New
+    admin,
     balance,
     broadcast,
-    channel,  # Added
+    channel,
     checkgroup,
     couple,
     help,
@@ -41,17 +41,23 @@ async def post_init(application: Application) -> None:
     ])
     logger.info("Bot commands set successfully")
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error(f"Update {update} caused error: {context.error}")
+
 def main() -> None:
     # Initialize the application
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
+    # Register error handler
+    application.add_error_handler(error_handler)
+
     # Register plugin handlers
     logger.info("Registering plugin handlers")
     addgroup.register_handlers(application)
-    admin.register_handlers(application)  # New
+    admin.register_handlers(application)
     balance.register_handlers(application)
     broadcast.register_handlers(application)
-    channel.register_handlers(application)  # Added
+    channel.register_handlers(application)
     checkgroup.register_handlers(application)
     couple.register_handlers(application)
     help.register_handlers(application)
