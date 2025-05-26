@@ -2,38 +2,51 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import GROUP_CHAT_IDS
+from config import LOG_CHANNEL_ID, ADMIN_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def checkgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = str(update.effective_chat.id)
-    logger.info(f"Checkgroup command by user {user_id} in chat {chat_id}")
+    chat_id = update.effective_chat.id
+    logger.info(f"Checkgroup command initiated by user {user_id} in chat {chat_id}")
 
-    if await db.check_rate_limit(user_id):
-        logger.warning(f"Rate limit exceeded for user {user_id}")
-        await update.message.reply_text("You're sending commands too quickly. Please wait a moment.")
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("You are not authorized to use this command.")
+        logger.info(f"Unauthorized checkgroup attempt by user {user_id}")
         return
 
-    approved_groups = await db.get_approved_groups()
-    if not approved_groups:
-        logger.info("No approved groups found")
-        await update.message.reply_text("No approved groups found.")
+    if not context.args:
+        await update.message.reply_text("Please provide a group ID. Usage: /checkgroup <group_id>")
+        logger.info(f"No group ID provided by user {user_id}")
         return
 
-    response = "Group Message Counts:\n"
-    for group_id in approved_groups:
-        if group_id not in GROUP_CHAT_IDS:
-            continue
-        message_count = await db.get_group_message_count(group_id)
-        response += f"Group {group_id}: {message_count} messages\n"
-        logger.info(f"Group {group_id} has {message_count} messages")
+    group_id = context.args[0]
+    if not group_id.startswith("-100"):
+        await update.message.reply_text("Invalid group ID. It should start with -100 (e.g., -1002061898677).")
+        logger.info(f"Invalid group ID {group_id} provided by user {user_id}")
+        return
 
-    await update.message.reply_text(response)
-    logger.info(f"Sent group message counts to user {user_id}")
+    if group_id != "-1002061898677":
+        await update.message.reply_text(f"Only group -1002061898677 is approved for message counting.")
+        logger.info(f"Group {group_id} not approved, checked by user {user_id}")
+        return
+
+    total_messages = await db.get_group_message_count(group_id)
+    message_rate = await db.get_message_rate()
+    await update.message.reply_text(
+        f"Group {group_id} is approved for message counting.\n"
+        f"Total messages counted: {total_messages}\n"
+        f"Earning rate: {message_rate} messages = 1 kyat"
+    )
+    logger.info(f"Checked group {group_id} for user {user_id}: {total_messages} messages")
+
+    await context.bot.send_message(
+        chat_id=LOG_CHANNEL_ID,
+        text=f"Admin checked group {group_id}: {total_messages} messages counted. Earning rate: {message_rate} messages = 1 kyat."
+    )
 
 def register_handlers(application: Application):
-    logger.info("Registering checkgroup handler")
+    logger.info("Registering checkgroup handlers")
     application.add_handler(CommandHandler("checkgroup", checkgroup))
