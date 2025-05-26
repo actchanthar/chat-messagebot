@@ -38,6 +38,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await (update.message or update.callback_query.message).reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
 
+    logger.info(f"User {user_id} data: {user}")  # Debug user data
+
     if user.get("banned", False):
         logger.info(f"User {user_id} is banned")
         await (update.message or update.callback_query.message).reply_text("You are banned from using this bot.")
@@ -45,26 +47,34 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     # Skip invite check for admins
     if user_id not in ADMIN_IDS:
-        invite_count = user.get("invites", 0)  # Use invites from database
+        invite_count = user.get("invites", 0)
+        logger.info(f"Checking invites for user {user_id}: {invite_count}/{INVITE_THRESHOLD}")
         if invite_count < INVITE_THRESHOLD:
             logger.info(f"User {user_id} has insufficient invites: {invite_count}/{INVITE_THRESHOLD}")
             await (update.message or update.callback_query.message).reply_text(
                 f"You need at least {INVITE_THRESHOLD} invites to withdraw. Current invites: {invite_count}."
             )
             return ConversationHandler.END
+    else:
+        logger.info(f"User {user_id} is admin, skipping invite check")
 
     context.user_data.clear()
     logger.info(f"Cleared user_data for user {user_id} before starting withdrawal process")
 
     keyboard = [[InlineKeyboardButton(method, callback_data=f"payment_{method}")] for method in PAYMENT_METHODS]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await (update.message or update.callback_query.message).reply_text(
-        "Please select a payment method: 💳\n"
-        "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။\n"
-        "Warning ⚠️: အချက်လက်လိုသေချာစွာရေးပါ မှားရေးပါက ငွေများပြန်ရမည်မဟုတ်",
-        reply_markup=reply_markup
-    )
-    logger.info(f"User {user_id} prompted for payment method selection with buttons: {PAYMENT_METHODS}")
+    try:
+        await (update.message or update.callback_query.message).reply_text(
+            "Please select a payment method: 💳\n"
+            "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။\n"
+            "Warning ⚠️: အချက်လက်လိုသေချာစွာရေးပါ မှားရေးပါက ငွေများပြန်ရမည်မဟုတ်",
+            reply_markup=reply_markup
+        )
+        logger.info(f"Prompted user {user_id} for payment method selection with buttons: {PAYMENT_METHODS}")
+    except Exception as e:
+        logger.error(f"Error sending payment method prompt to user {user_id}: {e}")
+        return ConversationHandler.END
+
     return STEP_PAYMENT_METHOD
 
 async def handle_payment_method_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -107,7 +117,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
     message = update.message
-    logger.info(f"Received message for amount input from user {user_id} in chat {chat_id}: {message.text}, context: {context.user_data}")
+    logger.info(f"Received amount input from user {user_id} in chat {chat_id}: {message.text}, context: {context.user_data}")
 
     payment_method = context.user_data.get("payment_method")
     if not payment_method:
@@ -155,9 +165,10 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 withdrawn_today = 0
 
         if user.get("balance", 0) < amount:
+            logger.info(f"User {user_id} has insufficient balance. Balance: {user.get('balance', 0)}, Requested: {amount}")
             await message.reply_text(
                 "Insufficient balance. Please check your balance with /balance.\n"
-                "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေးဇူးပြု၍ သင့်လက်ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
+                "လက်ကျန်ငွေ မလုံလောက်ပါ။ ကျေး�ူးပြု၍ သင့်လက်ကျန်ငွေကို /balance ဖြင့် စစ်ဆေးပါ။"
             )
             return ConversationHandler.END
 
@@ -174,7 +185,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         elif payment_method == "Wave Pay":
             await message.reply_text(
                 "Please provide your Wave Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n"
-                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။\n"
+                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)�।\n"
                 "သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
             )
         else:
@@ -344,7 +355,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                             f"Your withdrawal of {amount} {CURRENCY} has been approved! "
                             f"Your new balance: {new_balance} {CURRENCY}\n"
                             f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။ "
-                            f"သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်။"
+                            f"သင့်လက်ကျန်ငွေ အသစ်မှာ {new_balance} {CURRENCY} ဖြစ်ပါသည်"
                         )
                     )
                     logger.info(f"Notified user {user_id} of withdrawal approval")
@@ -377,7 +388,7 @@ async def handle_admin_receipt(update: Update, context: ContextTypes.DEFAULT_TYP
                     chat_id=user_id,
                     text=(
                         f"Your withdrawal request of {amount} {CURRENCY} has been rejected. Please contact support for more details.\n"
-                        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို ပယ်ချခဲ့ပါသည်။ အသေးစိတ်အတွက် support သို့ ဆက်သွယ်ပါ။"
+                        f"သင့်ငွေထုတ်မှု တောင်းဆိုမှု {amount} {CURRENCY} ကို ပယ်ချခဲ့ပါသည်. အသေးစိတ်အတွက် support သို့ဆက်သွယ်ပါ."
                     )
                 )
             except Exception as e:
@@ -419,7 +430,7 @@ async def post_approval_to_group(update: Update, context: ContextTypes.DEFAULT_T
             await context.bot.send_message(
                 chat_id=GROUP_CHAT_IDS[0],
                 text=message,
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             logger.info(f"Posted withdrawal approval for user {user_id} amount {amount} to group {GROUP_CHAT_IDS[0]}")
             await query.message.reply_text("Approval posted to the group successfully.")
