@@ -9,76 +9,78 @@ logger = logging.getLogger(__name__)
 
 async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = str(update.effective_chat.id)
-    logger.info(f"Top command by user {user_id} in chat {chat_id}")
+    chat_id = update.effective_chat.id
+    logger.info(f"Top command initiated by user {user_id} in chat {chat_id}")
 
     if await db.check_rate_limit(user_id):
-        logger.warning(f"Rate limit for user {user_id}")
+        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
         return
 
     if await db.award_weekly_rewards():
         phone_bill_reward = await db.get_phone_bill_reward()
-        await update.message.reply_text(
-            f"Weekly rewards of 100 kyat awarded to top 3 users! (Withdrawable via {phone_bill_reward})"
-        )
+        await update.message.reply_text(f"Weekly rewards of 100 kyat awarded to the top 3 users! (Can be withdrawn via {phone_bill_reward})")
+        logger.info(f"Weekly rewards processed for user {user_id}")
 
+    # Top users by messages
     users = await db.get_all_users()
     if not users:
         await update.message.reply_text("No users available yet.")
+        logger.warning(f"No users found for user {user_id}")
         return
 
-    total_users = len(users)
-    phone_bill_reward = await db.get_phone_bill_reward()
+    target_group = "-1002061898677"
+    sorted_users = sorted(
+        users,
+        key=lambda x: x.get("group_messages", {}).get(target_group, 0),
+        reverse=True
+    )[:10]
 
-    top_invites = await db.get_top_users(10, by="invites")
-    top_message = (
-        f"Top Users by Invites (၇ ရက်တစ်ခါ Top 1-3 ကို {phone_bill_reward} မဲဖောက်ပေးပါတယ် 🎁: 10000):\n\n"
-        f"Total Users: {total_users}\n\n"
-    )
+    phone_bill_reward = await db.get_phone_bill_reward()
+    message_rate = await db.get_message_rate()
+    top_message = f"🏆 Top Users (by messages):\n\n(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို {phone_bill_reward} မဲဖောက်ပေးပါတယ်):\n\n"
+    for i, user in enumerate(sorted_users, 1):
+        group_messages = user.get("group_messages", {}).get(target_group, 0)
+        balance = user.get("balance", 0)
+        if i <= 3:
+            top_message += f"{i}. <b>{user['name']}</b> - {group_messages} msg, {balance} {CURRENCY}\n"
+        else:
+            top_message += f"{i}. {user['name']} - {group_messages} msg, {balance} {CURRENCY}\n"
+
+    # Top users by invites
+    top_invites = await db.get_top_users(10, sort_by="invites")
+    top_invites_message = f"\n🏆 Top Users by Invites (၇ ရက်တစ်ခါ Top 1-3 ကို {phone_bill_reward} မဲဖောက်ပေးပါတယ်):\n\n"
+    total_users = len(users)
+    top_invites_message += f"Total Users: {total_users}\n\n"
     for i, user in enumerate(top_invites, 1):
         invites = user.get("invites", 0)
         balance = user.get("balance", 0)
-        percentage = (invites / max(total_users, 1)) * 100
-        top_message += (
-            f"{i}. <b>{user['name']}</b> - {invites} invites, {percentage:.1f}% - {balance} {CURRENCY}\n" if i <= 3
-            else f"{i}. {user['name']} - {invites} invites, {percentage:.1f}% - {balance} {CURRENCY}\n"
-        )
+        if i <= 3:
+            top_invites_message += f"{i}. <b>{user['name']}</b> - {invites} invites, {balance} {CURRENCY}\n"
+        else:
+            top_invites_message += f"{i}. {user['name']} - {invites} invites, {balance} {CURRENCY}\n"
 
-    target_group = "-1002061898677"
-    top_messages = await db.get_top_users(10, by="messages")
-    top_message += (
-        f"\n🏆 Top Users (by messages):\n\n"
-        f"(၇ ရက်တစ်ခါ Top 1-3 ကို {phone_bill_reward} မဲဖောက်ပေးပါတယ် 🎁: 10000):\n\n"
-        f"Total Users: {total_users}\n\n"
-    )
-    for i, user in enumerate(top_messages, 1):
-        messages = user.get("group_messages", {}).get(target_group, 0)
-        balance = user.get("balance", 0)
-        top_message += (
-            f"{i}. <b>{user['name']}</b> - {messages} msg, {balance} {CURRENCY}\n" if i <= 3
-            else f"{i}. {user['name']} - {messages} msg, {balance} {CURRENCY}\n"
-        )
-
-    await update.message.reply_text(top_message, parse_mode="HTML")
-    logger.info(f"Sent top users list to user {user_id}")
+    await update.message.reply_text(top_message + top_invites_message, parse_mode="HTML")
+    logger.info(f"Sent top users list to user {user_id} in chat {chat_id}")
 
 async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
-    chat_id = str(update.effective_chat.id)
-    logger.info(f"Rest command by user {user_id} in chat {chat_id}")
+    chat_id = update.effective_chat.id
+    logger.info(f"Rest command initiated by user {user_id} in chat {chat_id}")
 
     if user_id not in ADMIN_IDS:
         await update.message.reply_text("You are not authorized to use this command.")
+        logger.info(f"Unauthorized rest attempt by user {user_id}")
         return
 
     if await db.check_rate_limit(user_id):
-        logger.warning(f"Rate limit for user {user_id}")
+        logger.warning(f"Rate limit enforced for user {user_id} in chat {chat_id}")
         return
 
-    result = await db.users.update_many({}, {"$set": {"messages": 0, "group_messages": {}}})
+    result = await db.users.update_many({}, {"$set": {"messages": 0, "group_messages": {"-1002061898677": 0}}})
     if result.modified_count > 0:
-        await update.message.reply_text("Leaderboard reset. Messages set to 0, balances preserved.")
+        await update.message.reply_text("Leaderboard has been reset. Messages set to 0, balances preserved.")
         logger.info(f"Reset messages for {result.modified_count} users by admin {user_id}")
+
         current_top = await db.get_top_users()
         log_message = "Leaderboard reset by admin:\n🏆 Top Users:\n"
         for i, user in enumerate(current_top, 1):
@@ -87,6 +89,7 @@ async def rest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id=LOG_CHANNEL_ID, text=log_message)
     else:
         await update.message.reply_text("No users found to reset.")
+        logger.info(f"No users modified during reset by user {user_id}")
 
 def register_handlers(application: Application):
     logger.info("Registering top and rest handlers")
