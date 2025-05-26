@@ -8,7 +8,7 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler,
 )
-from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS, INVITE_THRESHOLD
+from config import GROUP_CHAT_IDS, WITHDRAWAL_THRESHOLD, DAILY_WITHDRAWAL_LIMIT, CURRENCY, LOG_CHANNEL_ID, PAYMENT_METHODS, INVITE_THRESHOLD, ADMIN_IDS
 from database.database import db
 import logging
 from datetime import datetime, timezone
@@ -43,14 +43,15 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await (update.message or update.callback_query.message).reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
-    # Check number of invited users (use len of invites list or invited_users field)
-    invite_count = len(user.get("invites", []))  # or user.get("invited_users", 0) if that's the correct field
-    if invite_count < INVITE_THRESHOLD:
-        logger.info(f"User {user_id} has insufficient invites: {invite_count}/{INVITE_THRESHOLD}")
-        await (update.message or update.callback_query.message).reply_text(
-            f"You need at least {INVITE_THRESHOLD} invites to withdraw. Current invites: {invite_count}."
-        )
-        return ConversationHandler.END
+    # Skip invite check for admins
+    if user_id not in ADMIN_IDS:
+        invite_count = user.get("invited_users", 0)  # Use invited_users instead of invites
+        if invite_count < INVITE_THRESHOLD:
+            logger.info(f"User {user_id} has insufficient invites: {invite_count}/{INVITE_THRESHOLD}")
+            await (update.message or update.callback_query.message).reply_text(
+                f"You need at least {INVITE_THRESHOLD} invites to withdraw. Current invites: {invite_count}."
+            )
+            return ConversationHandler.END
 
     context.user_data.clear()
     logger.info(f"Cleared user_data for user {user_id} before starting withdrawal process")
@@ -173,7 +174,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         elif payment_method == "Wave Pay":
             await message.reply_text(
                 "Please provide your Wave Pay account details (e.g., 09123456789 ZAYAR KO KO MIN ZAW).\n"
-                "ကျေးဇူးပြု၍ သင်ၕို Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။\n"
+                "ကျေးဇူးပြု၍ သင်၏ Wave Pay အကောင့်အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 ZAYAR KO KO MIN ZAW)။\n"
                 "သို့မဟုတ် QR Image ဖြင့်၎င်း ပေးပို့နိုင်သည်။"
             )
         else:
@@ -186,7 +187,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     except ValueError:
         await message.reply_text(
             "Please enter a valid number (e.g., 100).\n"
-            "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
+            "ကျေးဇူးပြု၍ မှန်�ကန်သော နံပါတ်ထည့်ပါ (ဥပမာ 100)။"
         )
         return STEP_AMOUNT
 
