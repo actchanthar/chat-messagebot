@@ -2,21 +2,22 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import GROUP_CHAT_IDS, CHANNEL_IDS
+from config import GROUP_CHAT_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> bool:
-    if not CHANNEL_IDS:
+    channels = await db.get_channels()
+    if not channels:
         return True  # No channels to check
-    for channel_id in CHANNEL_IDS:
+    for channel in channels:
         try:
-            member = await context.bot.get_chat_member(channel_id, user_id)
+            member = await context.bot.get_chat_member(channel["chat_id"], user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 return False
         except Exception as e:
-            logger.error(f"Error checking subscription for user {user_id} in channel {channel_id}: {e}")
+            logger.error(f"Error checking subscription for user {user_id} in channel {channel['chat_id']}: {e}")
             return False
     return True
 
@@ -26,8 +27,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
 
     # Check force subscription
+    channels = await db.get_channels()
     if not await check_subscription(context, int(user_id), chat_id):
-        keyboard = [[InlineKeyboardButton(f"Channel {i+1}", url=f"https://t.me/{channel_id[5:]}")] for i, channel_id in enumerate(CHANNEL_IDS)]
+        keyboard = [[InlineKeyboardButton(channel["name"], url=f"https://t.me/{channel['name'][1:]}")] for channel in channels]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Please join the following channels to use the bot:\n"
@@ -79,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_message += (
         f"\nCurrent earning rate: {message_rate} messages = 1 kyat\n"
         "Use the buttons below to interact with the bot.\n"
-        "အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+        "အောက်ပါခလုတ်များကို အသုံးပြုပါ�।"
     )
 
     keyboard = [
