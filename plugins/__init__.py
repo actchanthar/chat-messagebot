@@ -1,4 +1,3 @@
-# Import all plugin modules to make them available via 'from plugins import ...'
 from .addgroup import *
 from .admin import *
 from .balance import *
@@ -14,4 +13,4 @@ from .top import *
 from .transfer import *
 from .users import *
 from .withdrawal import *
-from .rmamount import *  # Add rmamount to the package
+from .rmamount import *
