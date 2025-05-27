@@ -1,11 +1,11 @@
 import logging
 import traceback
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, ContextTypes
 
 from config import BOT_TOKEN
 
-# Import plugin handlers (these should now resolve to modules)
+# Import plugin handlers
 from plugins import (
     addgroup,
     admin,
@@ -34,20 +34,21 @@ logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
     logger.info("Bot is starting...")
-    await application.bot.set_my_commands([
-        ("start", "Start the bot"),
-        ("balance", "Check your balance"),
-        ("top", "View top users"),
-        ("withdraw", "Withdraw earnings"),
-        ("couple", "Find a random couple match"),
-        ("transfer", "Transfer balance to another user"),
-        ("help", "Show help message"),
-        ("rmamount", "Reset daily withdrawal amount (admin only)"),
-        ("addgroup", "Add a group for message counting (admin only)"),
-        ("Add_bonus", "Add bonus to a user (admin only)"),
-        ("setinvite", "Set invite count for a user (admin only)"),
-        ("setmessage", "Set message count for a user (admin only)")
-    ])
+    commands = [
+        BotCommand("start", "Start the bot"),
+        BotCommand("balance", "Check your balance"),
+        BotCommand("top", "View top users"),
+        BotCommand("withdraw", "Withdraw earnings"),
+        BotCommand("couple", "Find a random couple match"),
+        BotCommand("transfer", "Transfer balance to another user"),
+        BotCommand("help", "Show help message"),
+        BotCommand("rmamount", "Reset daily withdrawal amount (admin only)"),
+        BotCommand("addgroup", "Add a group for message counting (admin only)"),
+        BotCommand("add_bonus", "Add bonus to a user (admin only)"),  # Changed to lowercase
+        BotCommand("setinvite", "Set invite count for a user (admin only)"),
+        BotCommand("setmessage", "Set message count for a user (admin only)")
+    ]
+    await application.bot.set_my_commands(commands)
     logger.info("Bot commands set successfully")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -97,4 +98,4 @@ def main() -> None:
         logger.info("Bot stopped")
 
 if __name__ == "__main__":
-    main()
+    main(
