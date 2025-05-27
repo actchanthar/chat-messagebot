@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters, ConversationHandler
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
 from database.database import db
 import logging
 from config import COUNT_MESSAGES
@@ -16,11 +16,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Skip if in a private chat or no message text/caption
     if update.effective_chat.type == "private" or not message_text:
         logger.info(f"Skipping message in private chat or empty message for user {user_id}")
-        return
-
-    # Skip if in a conversation state (e.g., /withdraw or /rmamount)
-    if context.conversation_handler and context.conversation_handler.is_running(update, context):
-        logger.info(f"Skipping message during active conversation for user {user_id}")
         return
 
     if not COUNT_MESSAGES:
