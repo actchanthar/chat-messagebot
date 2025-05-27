@@ -99,7 +99,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
             InlineKeyboardButton("Updates Channel", url="https://t.me/ITAnimeAI")
         ],
-        [InlineKeyboardButton("Join Group", url=f"https://t.me/{GROUP_CHAT_IDS[0][5:]}")]
+        [InlineKeyboardButton("Join Earnings Group", url=f"https://t.me/stranger77777777777")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
