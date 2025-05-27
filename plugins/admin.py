@@ -15,7 +15,7 @@ async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     args = context.args
     if len(args) != 2:
-        await update.message.reply_text("Usage: /Add_bonus <user_id> <amount>")
+        await update.message.reply_text("Usage: /add_bonus <user_id> <amount>")
         return
 
     target_user_id, amount = args[0], args[1]
@@ -95,6 +95,6 @@ async def set_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 def register_handlers(application: Application):
     logger.info("Registering admin handlers")
-    application.add_handler(CommandHandler("Add_bonus", add_bonus))
+    application.add_handler(CommandHandler("add_bonus", add_bonus))  # Updated to lowercase
     application.add_handler(CommandHandler("setinvite", set_invite))
     application.add_handler(CommandHandler("setmessage", set_message))
