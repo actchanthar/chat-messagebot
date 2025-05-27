@@ -44,7 +44,7 @@ async def post_init(application: Application) -> None:
         BotCommand("help", "Show help message"),
         BotCommand("rmamount", "Reset daily withdrawal amount (admin only)"),
         BotCommand("addgroup", "Add a group for message counting (admin only)"),
-        BotCommand("add_bonus", "Add bonus to a user (admin only)"),  # Changed to lowercase
+        BotCommand("add_bonus", "Add bonus to a user (admin only)"),
         BotCommand("setinvite", "Set invite count for a user (admin only)"),
         BotCommand("setmessage", "Set message count for a user (admin only)")
     ]
@@ -98,4 +98,4 @@ def main() -> None:
         logger.info("Bot stopped")
 
 if __name__ == "__main__":
-    main(
+    main()
