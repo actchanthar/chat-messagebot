@@ -57,6 +57,15 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     logger.info(f"Prompted user {user_id} for payment method selection")
     return STEP_PAYMENT_METHOD
 
+async def handle_withdraw_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle the 'withdraw' callback from the start message."""
+    query = update.callback_query
+    await query.answer()
+    user_id = str(update.effective_user.id)
+    logger.info(f"Withdraw button clicked by user {user_id}")
+    await query.message.delete()  # Optional: Delete the start message to avoid clutter
+    return await withdraw(update, context)  # Reuse the withdraw function
+
 async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -152,13 +161,13 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         # Prompt for payment details based on method
         if payment_method == "KBZ Pay":
             await message.reply_text(
-                "Please provide your KBZ Pay details (e.g., 09123456789 NAME).\n"
-                "သင့် KBZ Pay အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 နာမည်)။"
+                "Please provide your KBZ Pay details (e.g., 09123456789 NAME) or upload a QR image.\n"
+                "သင့် KBZ Pay အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 နာမည်) သို့မဟုတ် QR ပုံကို တင်ပါ။"
             )
         elif payment_method == "Wave Pay":
             await message.reply_text(
-                "Please provide your Wave Pay details (e.g., 09123456789 NAME).\n"
-                "သင့် Wave Pay အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 နာမည်)။"
+                "Please provide your Wave Pay details (e.g., 09123456789 NAME) or upload a QR image.\n"
+                "သင့် Wave Pay အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 နာမည်) သို့မဟုတ် QR ပုံကို တင်ပါ။"
             )
         else:  # Phone Bill
             await message.reply_text(
@@ -179,26 +188,38 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = str(update.effective_user.id)
-    message = update.message
-    logger.info(f"Received payment details from user {user_id}: {message.text}")
+    logger.info(f"Received payment details from user {user_id}")
 
     # Verify required data
     amount = context.user_data.get("withdrawal_amount")
     payment_method = context.user_data.get("payment_method")
     if not amount or not payment_method:
         logger.error(f"Missing amount or method for user {user_id}: {context.user_data}")
-        await message.reply_text("Error: Invalid withdrawal data. Please start again with /withdraw.")
+        await update.message.reply_text("Error: Invalid withdrawal data. Please start again with /withdraw.")
         return ConversationHandler.END
+
+    # Handle photo (QR image) or text input
+    details = None
+    if update.message and update.message.photo:
+        photo_file = await update.message.photo[-1].get_file()
+        details = f"QR Image: {photo_file.file_id}"  # Store file_id for later use
+        logger.info(f"User {user_id} uploaded QR image with file_id: {details}")
+    elif update.message and update.message.text:
+        details = update.message.text.strip() or "No details provided"
+        logger.info(f"User {user_id} provided text details: {details}")
+    else:
+        logger.warning(f"No valid input from user {user_id}")
+        await update.message.reply_text("Please provide details or upload a QR image.")
+        return STEP_DETAILS
 
     # Fetch user data
     user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found")
-        await message.reply_text("User not found. Please start with /start.")
+        await update.message.reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
 
     # Store payment details
-    details = message.text.strip() or "No details provided"
     context.user_data["withdrawal_details"] = details
     logger.info(f"Stored payment details for user {user_id}: {details}")
 
@@ -242,11 +263,11 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.info(f"Withdrawal request submitted to log channel for user {user_id}")
     except Exception as e:
         logger.error(f"Failed to submit withdrawal request for user {user_id}: {e}")
-        await message.reply_text("Error submitting request. Please try again.")
+        await update.message.reply_text("Error submitting request. Please try again.")
         return ConversationHandler.END
 
     # Notify user
-    await message.reply_text(
+    await update.message.reply_text(
         f"Withdrawal request for {amount} {CURRENCY} submitted. Awaiting admin approval. ⏳\n"
         f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ အက်ဒမင်၏ အတည်ပြုချက်ကို စောင့်ပါ။"
     )
@@ -282,6 +303,7 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             else:
                 withdrawn_today = amount
 
+            # Update the user's balance and withdrawal records
             await db.update_user(user_id, {
                 "balance": new_balance,
                 "last_withdrawal": current_time,
@@ -318,15 +340,18 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
 def register_handlers(application: Application):
     logger.info("Registering withdrawal handlers")
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("withdraw", withdraw)],
+        entry_points=[
+            CommandHandler("withdraw", withdraw),
+            CallbackQueryHandler(handle_withdraw_button, pattern="^withdraw$")  # Handle button click
+        ],
         states={
             STEP_PAYMENT_METHOD: [CallbackQueryHandler(handle_payment_method, pattern="^method_")],
             STEP_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)],
-            STEP_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_details)],
+            STEP_DETAILS: [MessageHandler(filters.PHOTO | filters.TEXT & ~filters.COMMAND, handle_details)],
         },
         fallbacks=[CommandHandler("withdraw", withdraw)],
-        conversation_timeout=300  # 5 minutes timeout
+        conversation_timeout=300,  # 5 minutes timeout
+        per_message=False  # Prevents tracking every message
     )
-    # Add the handler with higher precedence
     application.add_handler(conv_handler, group=1)  # Higher group number for priority
     application.add_handler(CallbackQueryHandler(handle_admin_action, pattern="^(approve_|reject_)"), group=1)
