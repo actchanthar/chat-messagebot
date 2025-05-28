@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Setup SSH key and known hosts
@@ -18,7 +18,10 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -t rsa ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
+          echo "Checking server IP: '${{ secrets.SERVER_IP }}'"
+          ssh-keyscan -t rsa "${{ secrets.SERVER_IP }}" >> ~/.ssh/known_hosts
+          cat ~/.ssh/known_hosts
 
       - name: SSH and deploy
         uses: appleboy/ssh-action@v0.1.7
