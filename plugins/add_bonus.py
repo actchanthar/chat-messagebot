@@ -33,17 +33,23 @@ async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if success:
             user = await db.get_user(target_user_id)
             new_balance = user.get("balance", 0) if user else 0
+            new_balance_rounded = int(new_balance)  # Round to whole number
             await update.message.reply_text(
-                f"Added {amount} {CURRENCY} to user {target_user_id}. New balance: {new_balance} {CURRENCY}."
+                f"Added {int(amount)} {CURRENCY} to user {target_user_id}. New balance: {new_balance_rounded} {CURRENCY}."
             )
             await context.bot.send_message(
                 chat_id=LOG_CHANNEL_ID,
-                text=f"Admin {user_id} added {amount} {CURRENCY} bonus to user {target_user_id}. New balance: {new_balance} {CURRENCY}."
+                text=f"Admin {user_id} added {int(amount)} {CURRENCY} bonus to user {target_user_id}. New balance: {new_balance_rounded} {CURRENCY}."
             )
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text=f"You received a bonus of {amount} {CURRENCY}! Your new balance is {new_balance} {CURRENCY}."
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=target_user_id,
+                    text=f"You received a bonus of {int(amount)} {CURRENCY}! Your new balance is {new_balance_rounded} {CURRENCY}."
+                )
+                logger.info(f"Notified user {target_user_id} of bonus: {amount} {CURRENCY}")
+            except Exception as e:
+                logger.error(f"Failed to notify user {target_user_id} of bonus: {e}")
+                await update.message.reply_text(f"Bonus added, but failed to notify user {target_user_id}: {str(e)}")
             logger.info(f"Added {amount} {CURRENCY} bonus to user {target_user_id} by admin {user_id}")
         else:
             await update.message.reply_text("Failed to add bonus. User not found or error occurred.")
