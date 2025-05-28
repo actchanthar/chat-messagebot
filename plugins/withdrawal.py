@@ -26,20 +26,29 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     # Ensure the command is used in a private chat
     if update.effective_chat.type != "private":
+        if update.callback_query:
+            await update.callback_query.answer("Please use /withdraw in a private chat.")
+        else:
+            await update.message.reply_text("Please use /withdraw in a private chat.")
         logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
-        await update.message.reply_text("Please use /withdraw in a private chat.")
         return ConversationHandler.END
 
     # Fetch user from the database
     user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found in database")
-        await update.message.reply_text("User not found. Please start with /start.")
+        if update.callback_query:
+            await update.callback_query.answer("User not found. Please start with /start.")
+        else:
+            await update.message.reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
 
     if user.get("banned", False):
         logger.info(f"User {user_id} is banned")
-        await update.message.reply_text("You are banned from using this bot.")
+        if update.callback_query:
+            await update.callback_query.answer("You are banned from using this bot.")
+        else:
+            await update.message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
 
     # Clear any existing conversation data
@@ -49,11 +58,19 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Prompt for payment method selection
     keyboard = [[InlineKeyboardButton(method, callback_data=f"method_{method}")] for method in PAYMENT_METHODS]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        "Please select a payment method: 💳\n"
-        "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
-        reply_markup=reply_markup
-    )
+    if update.callback_query:
+        await update.callback_query.message.reply_text(
+            "Please select a payment method: 💳\n"
+            "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
+            reply_markup=reply_markup
+        )
+        await update.callback_query.message.delete()  # Optional: Clean up the start message
+    else:
+        await update.message.reply_text(
+            "Please select a payment method: 💳\n"
+            "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
+            reply_markup=reply_markup
+        )
     logger.info(f"Prompted user {user_id} for payment method selection")
     return STEP_PAYMENT_METHOD
 
@@ -63,7 +80,6 @@ async def handle_withdraw_button(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     user_id = str(update.effective_user.id)
     logger.info(f"Withdraw button clicked by user {user_id}")
-    await query.message.delete()  # Optional: Delete the start message to avoid clutter
     return await withdraw(update, context)  # Reuse the withdraw function
 
 async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -286,12 +302,19 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             user_id, amount = str(user_id), int(amount)
 
             user = await db.get_user(user_id)
-            if not user or user.get("balance", 0) < amount:
-                logger.error(f"Invalid approval for user {user_id} or insufficient balance")
-                await query.message.reply_text("Error: Invalid user or insufficient balance.")
+            if not user:
+                logger.error(f"Invalid approval for user {user_id} (user not found)")
+                await query.message.reply_text("Error: User not found.")
                 return
 
-            new_balance = user["balance"] - amount
+            balance = user.get("balance", 0)
+            if balance < amount:
+                logger.error(f"Insufficient balance for user {user_id}: {balance} < {amount}")
+                await query.message.reply_text(f"Error: Insufficient balance. Current balance: {balance} {CURRENCY}.")
+                return
+
+            # Deduct balance and update withdrawal records atomically
+            new_balance = balance - amount
             withdrawn_today = user.get("withdrawn_today", 0)
             current_time = datetime.now(timezone.utc)
             if user.get("last_withdrawal") and user["last_withdrawal"].date() == current_time.date():
@@ -303,7 +326,6 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             else:
                 withdrawn_today = amount
 
-            # Update the user's balance and withdrawal records
             await db.update_user(user_id, {
                 "balance": new_balance,
                 "last_withdrawal": current_time,
