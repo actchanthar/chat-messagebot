@@ -27,9 +27,9 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.effective_chat.type != "private":
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text("Please use /withdraw in a private chat.")
+            await update.callback_query.message.reply_text("ကျေးဇူးပြု၍ /withdraw ကို သီးသန့်ချက်တွင်သာ အသုံးပြုပါ။")
         else:
-            await update.message.reply_text("Please use /withdraw in a private chat.")
+            await update.message.reply_text("ကျေးဇူးပြု၍ /withdraw ကို သီးသန့်ချက်တွင်သာ အသုံးပြုပါ။")
         logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
         return ConversationHandler.END
 
@@ -38,18 +38,30 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.error(f"User {user_id} not found in database")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text("User not found. Please start with /start.")
+            await update.callback_query.message.reply_text("အသုံးပြုသူ မတွေ့ပါ။ ကျေးဇူးပြု၍ /start ဖြင့် စတင်ပါ။")
         else:
-            await update.message.reply_text("User not found. Please start with /start.")
+            await update.message.reply_text("အသုံးပြုသူ မတွေ့ပါ။ ကျေးဇူးပြု၍ /start ဖြင့် စတင်ပါ။")
         return ConversationHandler.END
 
     if user.get("banned", False):
         logger.info(f"User {user_id} is banned")
         if update.callback_query:
             await update.callback_query.answer()
-            await update.callback_query.message.reply_text("You are banned from using this bot.")
+            await update.callback_query.message.reply_text("သင်သည် ဤဘော့ကို အသုံးပြုခွင့် ပိတ်ပင်ထားပါသည်။")
         else:
-            await update.message.reply_text("You are banned from using this bot.")
+            await update.message.reply_text("သင်သည် ဤဘော့ကို အသုံးပြုခွင့် ပိတ်ပင်ထားပါသည်။")
+        return ConversationHandler.END
+
+    # Check if there are pending withdrawals
+    pending_withdrawals = user.get("pending_withdrawals", [])
+    pending_count = sum(1 for w in pending_withdrawals if w["status"] == "PENDING")
+    if pending_count > 0:
+        logger.info(f"User {user_id} has {pending_count} pending withdrawals, blocking new withdrawal")
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text("သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်မှု ရှိနေပါသည်။ Admin မှ အတည်ပြုပြီးမှ နောက်ထပ် ငွေထုတ်နိုင်ပါသည်။")
+        else:
+            await update.message.reply_text("သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်မှု ရှိနေပါသည်။ Admin မှ အတည်ပြုပြီးမှ နောက်ထပ် ငွေထုတ်နိုင်ပါသည်။")
         return ConversationHandler.END
 
     context.user_data.clear()
@@ -60,13 +72,13 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.message.reply_text(
-            "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
+            "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။ 💳",
             reply_markup=reply_markup
         )
         await update.callback_query.message.delete()
     else:
         await update.message.reply_text(
-            "Please select a payment method: 💳\nကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
+            "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။ 💳",
             reply_markup=reply_markup
         )
     logger.info(f"Prompted user {user_id} for payment method selection")
@@ -86,13 +98,13 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
 
     if not data.startswith("method_"):
         logger.error(f"Invalid callback data for user {user_id}: {data}")
-        await query.message.reply_text("Invalid selection. Please start again with /withdraw.")
+        await query.message.reply_text("ရွေးချယ်မှု မမှန်ကန်ပါ။ ကျေးဇူးပြု၍ /withdraw ဖြင့် ပြန်စတင်ပါ။")
         return ConversationHandler.END
 
     method = data.replace("method_", "")
     if method not in PAYMENT_METHODS:
         logger.error(f"Invalid payment method {method} for user {user_id}")
-        await query.message.reply_text("Invalid payment method. Please try again.")
+        await query.message.reply_text("ငွေပေးချေမှုနည်းလမ်း မမှန်ကန်ပါ။ ကျေးဇူးပြု၍ ပြန်ကြိုးစားပါ။")
         return STEP_PAYMENT_METHOD
 
     context.user_data["payment_method"] = method
@@ -101,13 +113,12 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
     if method == "Phone Bill":
         context.user_data["withdrawal_amount"] = 1000
         await query.message.reply_text(
-            "Phone Bill withdrawals are fixed at 1000 kyat.\nPlease send your phone number (e.g., 09123456789)."
+            "Phone Bill ဖြင့် ငွေထုတ်မှုသည် ၁၀၀၀ ကျပ် ပုံသေဖြစ်ပါသည်။\nသင့်ဖုန်းနံပါတ်ကို ပေးပို့ပါ (ဥပမာ 09123456789)။"
         )
         return STEP_DETAILS
 
     await query.message.reply_text(
-        f"Please enter the amount to withdraw (minimum: {WITHDRAWAL_THRESHOLD} {CURRENCY}).\n"
-        f"ငွေထုတ်ရန် ပမာဏကို ထည့်ပါ (အနည်းဆုံး {WITHDRAWAL_THRESHOLD} {CURRENCY})"
+        f"ငွေထုတ်ရန် ပမာဏကို ထည့်ပါ (အနည်းဆုံး: {WITHDRAWAL_THRESHOLD} {CURRENCY})။"
     )
     return STEP_AMOUNT
 
@@ -119,7 +130,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     payment_method = context.user_data.get("payment_method")
     if not payment_method:
         logger.error(f"No payment method in context for user {user_id}")
-        await message.reply_text("Error: Payment method missing. Please start again with /withdraw.")
+        await message.reply_text("အမှား: ငွေပေးချေမှုနည်းလမ်း မရှိပါ။ ကျေးဇူးပြု၍ /withdraw ဖြင့် ပြန်စတင်ပါ။")
         return ConversationHandler.END
 
     try:
@@ -128,29 +139,32 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
         if amount < WITHDRAWAL_THRESHOLD:
             await message.reply_text(
-                f"Minimum withdrawal is {WITHDRAWAL_THRESHOLD} {CURRENCY}. Please try again."
+                f"အနည်းဆုံး ငွေထုတ်ပမာဏသည် {WITHDRAWAL_THRESHOLD} {CURRENCY} ဖြစ်ပါသည်။ ကျေးဇူးပြု၍ ပြန်ကြိုးစားပါ။"
             )
             return STEP_AMOUNT
 
         user = await db.get_user(user_id)
         if not user:
             logger.error(f"User {user_id} not found")
-            await message.reply_text("User not found. Please start with /start.")
+            await message.reply_text("အသုံးပြုသူ မတွေ့ပါ။ ကျေးဇူးပြု၍ /start ဖြင့် စတင်ပါ။")
             return ConversationHandler.END
 
-        # Calculate available balance (current balance minus pending withdrawals)
-        balance = user.get("balance", 0)
+        # Check if there are pending withdrawals
         pending_withdrawals = user.get("pending_withdrawals", [])
-        total_pending = sum(w["amount"] for w in pending_withdrawals if w["status"] == "PENDING")
-        available_balance = balance - total_pending
-        if available_balance < amount:
-            logger.info(f"Insufficient available balance for user {user_id}: {available_balance} < {amount}, total pending: {total_pending}")
+        pending_count = sum(1 for w in pending_withdrawals if w["status"] == "PENDING")
+        if pending_count > 0:
+            logger.info(f"User {user_id} has {pending_count} pending withdrawals, blocking new withdrawal")
+            await message.reply_text("သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်မှု ရှိနေပါသည်။ Admin မှ အတည်ပြုပြီးမှ နောက်ထပ် ငွေထုတ်နိုင်ပါသည်။")
+            return ConversationHandler.END
+
+        balance = user.get("balance", 0)
+        if balance < amount:
+            logger.info(f"Insufficient balance for user {user_id}: {int(balance)} < {amount}")
             await message.reply_text(
-                f"Insufficient available balance. Your balance is {int(balance)} {CURRENCY}, but {total_pending} {CURRENCY} is pending. Available: {int(available_balance)} {CURRENCY}."
+                f"လက်ကျန်ငွေ မလုံလောက်ပါ။ သင့်လက်ကျန်ငွေသည် {int(balance)} {CURRENCY} ဖြစ်ပါသည်။ /balance ဖြင့် စစ်ဆေးပါ။"
             )
             return ConversationHandler.END
 
-        # Check daily withdrawal limit
         last_withdrawal = user.get("last_withdrawal")
         withdrawn_today = user.get("withdrawn_today", 0)
         current_time = datetime.now(timezone.utc)
@@ -158,7 +172,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
                 logger.info(f"Daily limit exceeded for user {user_id}: {withdrawn_today} + {amount} > {DAILY_WITHDRAWAL_LIMIT}")
                 await message.reply_text(
-                    f"Daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} exceeded. Withdrawn today: {withdrawn_today} {CURRENCY}."
+                    f"နေ့စဉ်ထုတ်ယူနိုင်မှု ကန့်သတ်ချက် {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} ကျော်လွန်သွားပါပြီ။ ယနေ့ထုတ်ပြီးပမာဏ: {withdrawn_today} {CURRENCY}။"
                 )
                 return STEP_AMOUNT
 
@@ -167,17 +181,15 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
         if payment_method == "KBZ Pay":
             await message.reply_text(
-                "Please provide your KBZ Pay details (e.g., 09123456789 NAME) or upload a QR image.\n"
                 "သင့် KBZ Pay အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 နာမည်) သို့မဟုတ် QR ပုံကို တင်ပါ။"
             )
         elif payment_method == "Wave Pay":
             await message.reply_text(
-                "Please provide your Wave Pay details (e.g., 09123456789 NAME) or upload a QR image.\n"
                 "သင့် Wave Pay အသေးစိတ်ကို ပေးပါ (ဥပမာ 09123456789 နာမည်) သို့မဟုတ် QR ပုံကို တင်ပါ။"
             )
         else:  # Phone Bill
             await message.reply_text(
-                "Please send your phone number (e.g., 09123456789)."
+                "သင့်ဖုန်းနံပါတ်ကို ပေးပို့ပါ (ဥပမာ 09123456789)။"
             )
 
         logger.info(f"Prompted user {user_id} for payment details (method: {payment_method})")
@@ -185,11 +197,11 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     except ValueError:
         logger.warning(f"Invalid amount format from user {user_id}: {message.text}")
-        await message.reply_text("Please enter a valid number (e.g., 100).")
+        await message.reply_text("ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်တစ်ခု ထည့်ပါ (ဥပမာ 100)။")
         return STEP_AMOUNT
     except Exception as e:
         logger.error(f"Error processing amount for user {user_id}: {e}")
-        await message.reply_text("An error occurred. Please try again with /withdraw.")
+        await message.reply_text("အမှားတစ်ခု ဖြစ်ပေါ်ခဲ့ပါသည်။ ကျေးဇူးပြု၍ /withdraw ဖြင့် ပြန်ကြိုးစားပါ။")
         return ConversationHandler.END
 
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -200,7 +212,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     payment_method = context.user_data.get("payment_method")
     if not amount or not payment_method:
         logger.error(f"Missing amount or method for user {user_id}: {context.user_data}")
-        await update.message.reply_text("Error: Invalid withdrawal data. Please start again with /withdraw.")
+        await update.message.reply_text("အမှား: ငွေထုတ်မှု ဒေတာ မမှန်ကန်ပါ။ ကျေးဇူးပြု၍ /withdraw ဖြင့် ပြန်စတင်ပါ။")
         return ConversationHandler.END
 
     details = None
@@ -211,42 +223,46 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         details = "QR Image"
         logger.info(f"User {user_id} uploaded QR image with file_id: {photo_file_id}")
     elif update.message and update.message.text:
-        details = update.message.text.strip() or "No details provided"
+        details = update.message.text.strip() or "အသေးစိတ် မပေးထားပါ"
         logger.info(f"User {user_id} provided text details: {details}")
     else:
         logger.warning(f"No valid input from user {user_id}")
-        await update.message.reply_text("Please provide details or upload a QR image.")
+        await update.message.reply_text("ကျေးဇူးပြု၍ အသေးစိတ် ဖြည့်ပါ သို့မဟုတ် QR ပုံကို တင်ပါ။")
         return STEP_DETAILS
 
     user = await db.get_user(user_id)
     if not user:
         logger.error(f"User {user_id} not found")
-        await update.message.reply_text("User not found. Please start with /start.")
+        await update.message.reply_text("အသုံးပြုသူ မတွေ့ပါ။ ကျေးဇူးပြု၍ /start ဖြင့် စတင်ပါ။")
         return ConversationHandler.END
 
+    # Deduct the balance immediately
+    balance = user.get("balance", 0)
+    new_balance = balance - amount
     context.user_data["withdrawal_details"] = details if not photo_file_id else f"QR Image: {photo_file_id}"
     logger.info(f"Stored payment details for user {user_id}: {context.user_data['withdrawal_details']}")
 
     keyboard = [
-        [InlineKeyboardButton("Approve ✅", callback_data=f"approve_{user_id}_{amount}"),
-         InlineKeyboardButton("Reject ❌", callback_data=f"reject_{user_id}_{amount}")]
+        [InlineKeyboardButton("အတည်ပြုမည် ✅", callback_data=f"approve_{user_id}_{amount}"),
+         InlineKeyboardButton("ငြင်းပယ်မည် ❌", callback_data=f"reject_{user_id}_{amount}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    name = user.get("name", "Unknown")
-    username = user.get("username", "N/A")
+    name = user.get("name", "အမည်မသိ")
+    username = user.get("username", "မရှိ")
     log_message = (
-        f"Withdrawal Request:\n"
-        f"User ID: {user_id}\n"
-        f"Name: {name}\n"
-        f"Username: @{username}\n"
-        f"Amount: {amount} {CURRENCY}\n"
-        f"Method: {payment_method}\n"
-        f"Details: {details if not photo_file_id else 'See attached QR image'}\n"
-        f"Status: PENDING ⏳"
+        f"ငွေထုတ်မှု တောင်းဆိုချက်:\n"
+        f"အသုံးပြုသူ ID: {user_id}\n"
+        f"နာမည်: {name}\n"
+        f"အသုံးပြုသူအမည်: @{username}\n"
+        f"ပမာဏ: {amount} {CURRENCY}\n"
+        f"နည်းလမ်း: {payment_method}\n"
+        f"အသေးစိတ်: {details if not photo_file_id else 'ပူးတွဲပါ QR ပုံကို ကြည့်ပါ'}\n"
+        f"အခြေအနေ: ဆိုင်းငံ့ထားသည် ⏳"
     )
 
     try:
+        # Send to admin log channel
         log_msg = await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=log_message,
@@ -256,11 +272,14 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await context.bot.send_photo(
                 chat_id=LOG_CHANNEL_ID,
                 photo=photo_file_id,
-                caption="Attached QR Image for Withdrawal Request",
+                caption="ငွေထုတ်မှုအတွက် ပူးတွဲပါ QR ပုံ",
                 reply_to_message_id=log_msg.message_id
             )
         await context.bot.pin_chat_message(chat_id=LOG_CHANNEL_ID, message_id=log_msg.message_id)
+
+        # Deduct balance and store withdrawal request
         await db.update_user(user_id, {
+            "balance": new_balance,
             "pending_withdrawals": user.get("pending_withdrawals", []) + [{
                 "amount": amount,
                 "payment_method": payment_method,
@@ -269,15 +288,33 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "message_id": log_msg.message_id
             }]
         })
-        logger.info(f"Withdrawal request submitted to log channel for user {user_id}")
+        logger.info(f"Withdrawal request submitted to log channel for user {user_id}, balance deducted to {int(new_balance)}")
+
+        # Announce in group
+        group_message = (
+            f"ငွေထုတ်မှု အသစ် 🚨\n"
+            f"အသုံးပြုသူ: @{username}\n"
+            f"ပမာဏ: {amount} {CURRENCY}\n"
+            f"နည်းလမ်း: {payment_method}\n"
+            f"အခြေအနေ: ဆိုင်းငံ့ထားသည် ⏳"
+        )
+        for group_id in GROUP_CHAT_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=group_id,
+                    text=group_message
+                )
+                logger.info(f"Announced withdrawal request to group {group_id} for user {user_id}")
+            except Exception as e:
+                logger.error(f"Failed to announce withdrawal to group {group_id}: {e}")
+
     except Exception as e:
         logger.error(f"Failed to submit withdrawal request for user {user_id}: {e}")
-        await update.message.reply_text("Error submitting request. Please try again.")
+        await update.message.reply_text("တောင်းဆိုမှု တင်ပြရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။ ကျေးဇူးပြု၍ ထပ်မံကြိုးစားပါ။")
         return ConversationHandler.END
 
     await update.message.reply_text(
-        f"Withdrawal request for {amount} {CURRENCY} submitted. Awaiting admin approval. ⏳\n"
-        f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ အက်ဒမင်၏ အတည်ပြုချက်ကို စောင့်ပါ။"
+        f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို တင်ပြခဲ့ပါသည်။ Admin ၏ အတည်ပြုချက်ကို စောင့်ပါ။ ⏳"
     )
     logger.info(f"Notified user {user_id} of pending withdrawal request")
     return ConversationHandler.END
@@ -296,41 +333,40 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             user = await db.get_user(user_id)
             if not user:
                 logger.error(f"Invalid approval for user {user_id} (user not found)")
-                await query.message.reply_text("Error: User not found.")
+                await query.message.reply_text("အမှား: အသုံးပြုသူ မတွေ့ပါ။")
                 return
 
-            balance = user.get("balance", 0)
+            # Update status to APPROVED
             pending_withdrawals = user.get("pending_withdrawals", [])
-            total_pending = sum(w["amount"] for w in pending_withdrawals if w["status"] == "PENDING")
-            available_balance = balance - total_pending + amount  # Add back the amount being approved
-            if available_balance < amount:
-                logger.error(f"Insufficient available balance for user {user_id}: {available_balance} < {amount}")
-                await query.message.reply_text(f"Error: Insufficient balance. Current balance: {int(balance)} {CURRENCY}, pending: {total_pending} {CURRENCY}.")
-                return
+            updated_withdrawals = []
+            for w in pending_withdrawals:
+                if w["amount"] == amount and w["status"] == "PENDING":
+                    w["status"] = "APPROVED"
+                updated_withdrawals.append(w)
 
-            new_balance = balance - amount
+            # Update withdrawal status
             withdrawn_today = user.get("withdrawn_today", 0)
             current_time = datetime.now(timezone.utc)
             if user.get("last_withdrawal") and user["last_withdrawal"].date() == current_time.date():
-                if withdrawn_today + amount > DAILY_WITHDRAWAL_LIMIT:
-                    logger.error(f"Daily limit exceeded for user {user_id}")
-                    await query.message.reply_text(f"Daily limit of {DAILY_WITHDRAWAL_LIMIT} {CURRENCY} exceeded.")
-                    return
                 withdrawn_today += amount
             else:
                 withdrawn_today = amount
 
             await db.update_user(user_id, {
-                "balance": new_balance,
                 "last_withdrawal": current_time,
                 "withdrawn_today": withdrawn_today,
-                "pending_withdrawals": [w for w in user.get("pending_withdrawals", []) if w["amount"] != amount or w["status"] != "PENDING"]
+                "pending_withdrawals": updated_withdrawals
             })
-            logger.info(f"Approved withdrawal of {amount} {CURRENCY} for user {user_id}. New balance: {int(new_balance)}")
-            await query.message.reply_text(f"Approved {amount} {CURRENCY} for user {user_id}. New balance: {int(new_balance)} {CURRENCY}.")
+            logger.info(f"Approved withdrawal of {amount} {CURRENCY} for user {user_id}")
+
+            # Edit the message to remove buttons and update status
+            updated_message = query.message.text.replace("အခြေအနေ: ဆိုင်းငံ့ထားသည် ⏳", "အခြေအနေ: အတည်ပြုပြီး ✅")
+            await query.message.edit_text(updated_message)
+
+            await query.message.reply_text(f"အသုံးပြုသူ {user_id} အတွက် {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။")
             await context.bot.send_message(
                 user_id,
-                f"Your withdrawal of {amount} {CURRENCY} has been approved. New balance: {int(new_balance)} {CURRENCY}."
+                f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။ လက်ကျန်ငွေ: {int(user.get('balance', 0))} {CURRENCY}။"
             )
 
         elif data.startswith("reject_"):
@@ -338,20 +374,38 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             user_id, amount = str(user_id), int(amount)
 
             user = await db.get_user(user_id)
-            if user:
-                await db.update_user(user_id, {
-                    "pending_withdrawals": [w for w in user.get("pending_withdrawals", []) if w["amount"] != amount or w["status"] != "PENDING"]
-                })
-            logger.info(f"Rejected withdrawal of {amount} {CURRENCY} for user {user_id}")
-            await query.message.reply_text(f"Rejected {amount} {CURRENCY} for user {user_id}.")
+            if not user:
+                logger.error(f"Invalid rejection for user {user_id} (user not found)")
+                await query.message.reply_text("အမှား: အသုံးပြုသူ မတွေ့ပါ။")
+                return
+
+            # Refund the balance
+            balance = user.get("balance", 0)
+            new_balance = balance + amount
+
+            # Remove the withdrawal request
+            pending_withdrawals = user.get("pending_withdrawals", [])
+            updated_withdrawals = [w for w in pending_withdrawals if w["amount"] != amount or w["status"] != "PENDING"]
+
+            await db.update_user(user_id, {
+                "balance": new_balance,
+                "pending_withdrawals": updated_withdrawals
+            })
+            logger.info(f"Rejected withdrawal of {amount} {CURRENCY} for user {user_id}, refunded to {int(new_balance)}")
+
+            # Edit the message to remove buttons and update status
+            updated_message = query.message.text.replace("အခြေအနေ: ဆိုင်းငံ့ထားသည် ⏳", "အခြေအနေ: ငြင်းပယ်ပြီး ❌")
+            await query.message.edit_text(updated_message)
+
+            await query.message.reply_text(f"အသုံးပြုသူ {user_id} အတွက် {amount} {CURRENCY} ကို ငြင်းပယ်လိုက်ပါပြီ။")
             await context.bot.send_message(
                 user_id,
-                f"Your withdrawal of {amount} {CURRENCY} was rejected. Please contact support."
+                f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို ငြင်းပယ်လိုက်ပါပြီ။ လက်ကျန်ငွေ: {int(new_balance)} {CURRENCY}။ ပံ့ပိုးကူညီမှုအတွက် ဆက်သွယ်ပါ။"
             )
 
     except Exception as e:
         logger.error(f"Error in admin action for {data}: {e}")
-        await query.message.reply_text("Error processing request.")
+        await query.message.reply_text("တောင်းဆိုမှု လုပ်ဆောင်ရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။")
 
 def register_handlers(application: Application):
     logger.info("Registering withdrawal handlers")
