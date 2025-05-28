@@ -78,10 +78,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for i, user in enumerate(sorted_users, 1):
                 group_messages = user.get("group_messages", {}).get(target_group, 0)
                 balance = user.get("balance", 0)
+                balance_rounded = int(balance)  # Round to whole number
                 if i <= 3:
-                    top_message += f"{i}. <b>{user['name']}</b> - {group_messages} msg, {balance} kyat\n"
+                    top_message += f"{i}. <b>{user['name']}</b> - {group_messages} msg, {balance_rounded} kyat\n"
                 else:
-                    top_message += f"{i}. {user['name']} - {group_messages} msg, {balance} kyat\n"
+                    top_message += f"{i}. {user['name']} - {group_messages} msg, {balance_rounded} kyat\n"
             welcome_message += top_message
 
     welcome_message += (
