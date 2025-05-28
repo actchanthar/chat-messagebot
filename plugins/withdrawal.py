@@ -27,7 +27,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Ensure the command is used in a private chat
     if update.effective_chat.type != "private":
         if update.callback_query:
-            await update.callback_query.answer("Please use /withdraw in a private chat.")
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text("Please use /withdraw in a private chat.")
         else:
             await update.message.reply_text("Please use /withdraw in a private chat.")
         logger.info(f"User {user_id} attempted withdrawal in non-private chat {chat_id}")
@@ -38,7 +39,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not user:
         logger.error(f"User {user_id} not found in database")
         if update.callback_query:
-            await update.callback_query.answer("User not found. Please start with /start.")
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text("User not found. Please start with /start.")
         else:
             await update.message.reply_text("User not found. Please start with /start.")
         return ConversationHandler.END
@@ -46,7 +48,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if user.get("banned", False):
         logger.info(f"User {user_id} is banned")
         if update.callback_query:
-            await update.callback_query.answer("You are banned from using this bot.")
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text("You are banned from using this bot.")
         else:
             await update.message.reply_text("You are banned from using this bot.")
         return ConversationHandler.END
@@ -59,6 +62,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [[InlineKeyboardButton(method, callback_data=f"method_{method}")] for method in PAYMENT_METHODS]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if update.callback_query:
+        await update.callback_query.answer()
         await update.callback_query.message.reply_text(
             "Please select a payment method: 💳\n"
             "ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ။",
@@ -76,8 +80,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def handle_withdraw_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the 'withdraw' callback from the start message."""
-    query = update.callback_query
-    await query.answer()
     user_id = str(update.effective_user.id)
     logger.info(f"Withdraw button clicked by user {user_id}")
     return await withdraw(update, context)  # Reuse the withdraw function
