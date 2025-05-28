@@ -249,7 +249,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     name = user.get("name", "အမည်မသိ")
-    username = user.get("username", "မရှိ")
+    username = user.get("username", user_id)  # Use user_id if username is None
     log_message = (
         f"ငွေထုတ်မှု တောင်းဆိုချက်:\n"
         f"အသုံးပြုသူ ID: {user_id}\n"
@@ -262,7 +262,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     try:
-        # Send to admin log channel
+        # Send to admin log channel only
         log_msg = await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=log_message,
@@ -289,24 +289,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             }]
         })
         logger.info(f"Withdrawal request submitted to log channel for user {user_id}, balance deducted to {int(new_balance)}")
-
-        # Announce in group
-        group_message = (
-            f"ငွေထုတ်မှု အသစ် 🚨\n"
-            f"အသုံးပြုသူ: @{username}\n"
-            f"ပမာဏ: {amount} {CURRENCY}\n"
-            f"နည်းလမ်း: {payment_method}\n"
-            f"အခြေအနေ: ဆိုင်းငံ့ထားသည် ⏳"
-        )
-        for group_id in GROUP_CHAT_IDS:
-            try:
-                await context.bot.send_message(
-                    chat_id=group_id,
-                    text=group_message
-                )
-                logger.info(f"Announced withdrawal request to group {group_id} for user {user_id}")
-            except Exception as e:
-                logger.error(f"Failed to announce withdrawal to group {group_id}: {e}")
 
     except Exception as e:
         logger.error(f"Failed to submit withdrawal request for user {user_id}: {e}")
@@ -339,9 +321,11 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Update status to APPROVED
             pending_withdrawals = user.get("pending_withdrawals", [])
             updated_withdrawals = []
+            payment_method = None
             for w in pending_withdrawals:
                 if w["amount"] == amount and w["status"] == "PENDING":
                     w["status"] = "APPROVED"
+                    payment_method = w["payment_method"]
                 updated_withdrawals.append(w)
 
             # Update withdrawal status
@@ -368,6 +352,28 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
                 user_id,
                 f"သင့်ငွေထုတ်မှု {amount} {CURRENCY} ကို အတည်ပြုပြီးပါပြီ။ လက်ကျန်ငွေ: {int(user.get('balance', 0))} {CURRENCY}။"
             )
+
+            # Announce in group after approval
+            username = user.get("username", user_id)  # Use user_id if username is None
+            if payment_method == "Phone Bill":
+                group_message = (
+                    f"@{username} သည် PHONE Bill {amount} ထည့်ခဲ့သည်။\n"
+                    f"လက်ရှိလက်ကျန်ငွေ {int(user.get('balance', 0))} {CURRENCY}။"
+                )
+            else:
+                group_message = (
+                    f"@{username} သည် ငွေ {amount} {CURRENCY} ထုတ်ယူခဲ့သည်။\n"
+                    f"လက်ရှိလက်ကျန်ငွေ {int(user.get('balance', 0))} {CURRENCY}။"
+                )
+            for group_id in GROUP_CHAT_IDS:
+                try:
+                    await context.bot.send_message(
+                        chat_id=group_id,
+                        text=group_message
+                    )
+                    logger.info(f"Announced approved withdrawal to group {group_id} for user {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to announce approved withdrawal to group {group_id}: {e}")
 
         elif data.startswith("reject_"):
             _, user_id, amount = data.split("_")
