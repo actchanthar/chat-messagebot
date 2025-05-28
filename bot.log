@@ -144,3 +144,33 @@ And I've never been to France, so it might be nice😕
 2025-05-28 07:05:31,403 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
 2025-05-28 07:05:41,672 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
 2025-05-28 07:05:51,939 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:06:02,204 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:06:10,198 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:06:10,199 - plugins.message_handler - INFO - Message received from user 136817688 in chat -1002474822478: ယုံရလို့ဘဲရေး
+2025-05-28 07:06:10,199 - plugins.message_handler - INFO - Chat -1002474822478 is not the target group (-1002061898677). Skipping update.
+2025-05-28 07:06:19,679 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:06:19,680 - plugins.message_handler - INFO - Message received from user 136817688 in chat -1002474822478: နင်လဲလာရေး
+2025-05-28 07:06:19,680 - plugins.message_handler - INFO - Chat -1002474822478 is not the target group (-1002061898677). Skipping update.
+2025-05-28 07:06:23,173 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:06:33,438 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:06:43,713 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:06:53,985 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:07:04,253 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:07:14,521 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:07:24,787 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:07:35,053 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:07:45,319 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:07:55,585 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:08:05,852 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:08:16,118 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:08:17,762 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:08:17,763 - plugins.message_handler - INFO - Message received from user 6575385239 in chat -1002474822478: ဘာရေးရမာလဲ
+2025-05-28 07:08:17,763 - plugins.message_handler - INFO - Chat -1002474822478 is not the target group (-1002061898677). Skipping update.
+2025-05-28 07:08:28,029 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:08:38,298 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:08:48,564 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:08:58,833 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:09:09,102 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:09:19,370 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:09:29,637 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:09:39,905 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
