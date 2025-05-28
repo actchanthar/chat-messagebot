@@ -10,6 +10,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Add SSH key and known hosts
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+
       - name: SSH and deploy
         uses: appleboy/ssh-action@v0.1.7
         with:
@@ -19,7 +29,5 @@ jobs:
           script: |
             cd /home/ubuntu/chat-messagebot
             git pull origin V3
-            # If you use a virtual environment
             source venv/bin/activate
-            # Restart your app, e.g. if using systemd:
             sudo systemctl restart chat-messagebot.service
