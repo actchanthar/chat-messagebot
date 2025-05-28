@@ -1,0 +1,146 @@
+nohup: ignoring input
+2025-05-28 06:59:30,605 - __main__ - INFO - Registering plugin handlers
+2025-05-28 06:59:30,605 - plugins.addgroup - INFO - Registering addgroup handlers
+2025-05-28 06:59:30,605 - plugins.admin - INFO - Registering admin handlers
+2025-05-28 06:59:30,605 - plugins.balance - INFO - Registering balance handlers
+2025-05-28 06:59:30,605 - plugins.broadcast - INFO - Registering broadcast and pbroadcast handlers
+2025-05-28 06:59:30,606 - plugins.channel - INFO - Registering channel handlers
+2025-05-28 06:59:30,606 - plugins.checkgroup - INFO - Registering checkgroup handlers
+2025-05-28 06:59:30,607 - plugins.couple - INFO - Registering couple handlers
+2025-05-28 06:59:30,607 - plugins.help - INFO - Registering help handlers
+2025-05-28 06:59:30,607 - plugins.setphonebill - INFO - Registering setphonebill handlers
+2025-05-28 06:59:30,607 - plugins.start - INFO - Registering start handlers
+2025-05-28 06:59:30,607 - plugins.top - INFO - Registering top and rest handlers
+2025-05-28 06:59:30,607 - plugins.transfer - INFO - Registering transfer handlers
+2025-05-28 06:59:30,607 - plugins.users - INFO - Registering users handlers
+2025-05-28 06:59:30,607 - plugins.withdrawal - INFO - Registering withdrawal handlers
+/home/ubuntu/chat-messagebot/plugins/withdrawal.py:320: PTBUserWarning: If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message. Read this FAQ entry to learn more about the per_* settings: https://github.com/python-telegram-bot/python-telegram-bot/wiki/Frequently-Asked-Questions#what-do-the-per_-settings-in-conversationhandler-do.
+  conv_handler = ConversationHandler(
+2025-05-28 06:59:30,608 - plugins.rmamount - INFO - Registering rmamount handlers
+2025-05-28 06:59:30,608 - plugins.message_handler - INFO - Registering message handlers
+2025-05-28 06:59:30,608 - __main__ - INFO - Starting bot
+2025-05-28 06:59:31,407 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getMe "HTTP/1.1 200 OK"
+2025-05-28 06:59:31,407 - __main__ - INFO - Bot is starting...
+2025-05-28 06:59:31,839 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/setMyCommands "HTTP/1.1 200 OK"
+2025-05-28 06:59:31,839 - __main__ - INFO - Bot commands set successfully
+2025-05-28 06:59:32,102 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/deleteWebhook "HTTP/1.1 200 OK"
+2025-05-28 06:59:32,103 - telegram.ext.Application - INFO - Application started
+2025-05-28 06:59:33,161 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 06:59:33,167 - plugins.message_handler - INFO - Message received from user 7100934721 in chat -1002670780028: Okok
+2025-05-28 06:59:33,167 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,167 - plugins.message_handler - INFO - Message received from user 7883475633 in chat -1002670780028: ဘာအိုကေတာ
+2025-05-28 06:59:33,167 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,167 - plugins.message_handler - INFO - Message received from user 7883475633 in chat -1002670780028: ချမလား
+2025-05-28 06:59:33,167 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 1984363659 in chat -1002670780028: preနဲ့အာကေကြီးကိုအားကိ
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 1984363659 in chat -1002670780028: ကျ
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 7601228345 in chat -1002670780028: သိပု
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 7601228345 in chat -1002670780028: 😢😢
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 7601228345 in chat -1002670780028: 😢
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 1984363659 in chat -1002670780028: အဲ့လိုထိုင်နေရင်
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 1984363659 in chat -1002670780028: နောက်ကနေ
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:33,168 - plugins.message_handler - INFO - Message received from user 5999402654 in chat -1002061898677: ဟုတ်အကိုဟုတ်
+2025-05-28 06:59:35,658 - database.database - INFO - Retrieved user 5999402654 from database: {'_id': ObjectId('6829a498fc19216177939d37'), 'user_id': '5999402654', 'name': 'ᴱⱽᴼᴹ 𝐊𝐮𝐝𝐨 𝕏 𝐁𝐞𝐧𝐣𝐚𝐦𝐢𝐧', 'balance': 593.0000000000044, 'messages': 1779, 'notified_10kyat': False, 'last_withdrawal': None, 'withdrawn_today': 0, 'group_messages': {'-1002061898677': 1779}, 'message_timestamps': deque([datetime.datetime(2025, 5, 28, 4, 41, 33, 614000), datetime.datetime(2025, 5, 28, 4, 41, 43, 351000), datetime.datetime(2025, 5, 28, 4, 43, 3, 175000), datetime.datetime(2025, 5, 28, 5, 5, 18, 185000), datetime.datetime(2025, 5, 28, 5, 7, 36, 100000)], maxlen=5), 'subscribed_channels': [], 'pending_withdrawals': [], 'invited_users': 0, 'invite_count': 0, 'invites': [], 'last_activity': datetime.datetime(2025, 5, 24, 5, 29, 34, 919000), 'username': 'KUDO_PES'}
+2025-05-28 06:59:35,940 - database.database - INFO - Updated user 5999402654: {'message_timestamps': '[5 timestamps]'}
+2025-05-28 06:59:36,212 - database.database - INFO - Retrieved user 5999402654 from database: {'_id': ObjectId('6829a498fc19216177939d37'), 'user_id': '5999402654', 'name': 'ᴱⱽᴼᴹ 𝐊𝐮𝐝𝐨 𝕏 𝐁𝐞𝐧𝐣𝐚𝐦𝐢𝐧', 'balance': 593.0000000000044, 'messages': 1779, 'notified_10kyat': False, 'last_withdrawal': None, 'withdrawn_today': 0, 'group_messages': {'-1002061898677': 1779}, 'message_timestamps': deque([datetime.datetime(2025, 5, 28, 4, 41, 43, 351000), datetime.datetime(2025, 5, 28, 4, 43, 3, 175000), datetime.datetime(2025, 5, 28, 5, 5, 18, 185000), datetime.datetime(2025, 5, 28, 5, 7, 36, 100000), datetime.datetime(2025, 5, 28, 6, 59, 35, 658000)], maxlen=5), 'subscribed_channels': [], 'pending_withdrawals': [], 'invited_users': 0, 'invite_count': 0, 'invites': [], 'last_activity': datetime.datetime(2025, 5, 24, 5, 29, 34, 919000), 'username': 'KUDO_PES'}
+2025-05-28 06:59:36,761 - database.database - INFO - Updated user 5999402654: {'messages': 1780, 'balance': 593.3333333333378, 'group_messages': {'-1002061898677': 1780}}
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Updated messages to 1780 and balance to 593.3333333333378 for user 5999402654 in group -1002061898677
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 1984363659 in chat -1002670780028: အဲ့သလိုရိုက်ပစ်မယ်
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 6249960673 in chat -1002670780028: https://vt.tiktok.com/ZShopb4Cr/
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 7601228345 in chat -1002670780028: ဘာလဲအဖြူကမီပါဆို
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 7601228345 in chat -1002670780028: ရိုက်ချင်သေး
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 7601228345 in chat -1002670780028: ဒီနေ့မိုးရွာမှာလား
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 7100934721 in chat -1002670780028: ရွာပု
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 1896950937 in chat -1002670780028: ကိုကို
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 7100934721 in chat -1002670780028: 🙂
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 1896950937 in chat -1002670780028: ‌apk
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 1896950937 in chat -1002670780028: Botချေနေ
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Message received from user 7737825377 in chat -1002270480018: မားဖီးယားဂိုဏ်းနဲပုဆိန်းဂိုဏ်းနဲအပြင်ထန် တိုက်ခိုက်ကျသည် မကြာမားဖီးယားဂိုဏ်းကအနိုင်ရရှိတော့မယ် ပုဆိန်းဂိုဏ်းရှုံးရင် မားဖီးယဂိုဏ်းရယ် စစ်သုပ်ဗန်းအဖြစ် ခိုင်းစားသွားမာဖြစ်ပါတယ်။ 
+
+
+         #ပုံမားဖီးယားဂိုဏ်း
+2025-05-28 06:59:36,761 - plugins.message_handler - INFO - Chat -1002270480018 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Message received from user 7100934721 in chat -1002670780028: 🤩
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Message received from user 1896950937 in chat -1002670780028: Someone liked your profile:
+
+Take Ma, 15, Yangon – Talk about something like spicy 🥵 and dark 🌚
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Message received from user 1896950937 in chat -1002670780028: Yes you're my lover
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Message received from user 1896950937 in chat -1002670780028: There's no other
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Message received from user 8184000419 in chat -1002670780028: If you see me in America, I might say, "Hi"
+But if you meet me out in Europe, I'm a talkative guy😒
+
+Maybe we'll talk over scones around lunch some time
+And I've never been to France, so it might be nice😕
+
+@Justfeelthe_vibe
+2025-05-28 06:59:36,762 - plugins.message_handler - INFO - Chat -1002670780028 is not the target group (-1002061898677). Skipping update.
+2025-05-28 06:59:43,436 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 06:59:53,702 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:03,972 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:14,247 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:24,517 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:27,430 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:36,747 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:36,748 - plugins.message_handler - INFO - Message received from user 6575385239 in chat -1002474822478: ပိုင်ရာဆိုင်ရာနဲ့ ငါ့စေ့ညစ်နေပြီ
+2025-05-28 07:00:36,748 - plugins.message_handler - INFO - Chat -1002474822478 is not the target group (-1002061898677). Skipping update.
+2025-05-28 07:00:47,015 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:53,789 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:00:53,790 - plugins.message_handler - INFO - Message received from user 7737825377 in chat -1002270480018: မားဖီးယားဂိုဏ်းက ထုပ်ပြန်လိုက်သည်။  Telegramမှာရှိတဲ့ Social ကြောင်ကွန်ကြောင်ဂန်းကြောင်တွေ့ကို အကုန်ပွဲခေါ်လိုက်သည်။ Debatingမရရင်မလာနဲ Debatingရရင်လာခဲ မားဖီးယားဂိုဏ်းကိုရှုံးရင်။မားဖီးယားဂိုဏ်းရယ် စစ်သုပ်ဗန်းအဖြစ်ခိုင်းစားပြစ်မယ်။ မားဖီးယားဂိုဏ်းရယ်အမိန့်ချမှတ်လိုက်သည်။  ပွဲခေါ်တာကိုမှာမလာရင် အကုန်လက်အောက်ခံဖြစ်တင်သွင်းမယ် 
+မကြောက်ရင် BioကlinkကိုJoinခဲ 
+
+       #Myanmar Pyaere Special      
+             #Forces Mafia Gang
+2025-05-28 07:00:53,790 - plugins.message_handler - INFO - Chat -1002270480018 is not the target group (-1002061898677). Skipping update.
+2025-05-28 07:01:00,410 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:01:00,412 - plugins.message_handler - INFO - Message received from user 6575385239 in chat -1002474822478: အိမွန်ကျော် လပ်ပုဒါ @Bbypuukii
+2025-05-28 07:01:00,412 - plugins.message_handler - INFO - Chat -1002474822478 is not the target group (-1002061898677). Skipping update.
+2025-05-28 07:01:10,678 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:01:20,945 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:01:31,213 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:01:41,483 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:01:51,754 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:02:02,021 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:02:12,290 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:02:22,575 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:02:32,841 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:02:43,111 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:02:53,377 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:03:03,649 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:03:13,915 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:03:24,185 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:03:34,455 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:03:38,454 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:03:48,724 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:03:58,990 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:04:09,257 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:04:19,527 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:04:29,792 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:04:40,063 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:04:50,329 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:05:00,596 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:05:10,863 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:05:21,136 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:05:31,403 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:05:41,672 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
+2025-05-28 07:05:51,939 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo/getUpdates "HTTP/1.1 200 OK"
