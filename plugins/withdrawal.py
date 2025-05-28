@@ -218,10 +218,12 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Handle photo (QR image) or text input
     details = None
+    photo_file_id = None
     if update.message and update.message.photo:
         photo_file = await update.message.photo[-1].get_file()
-        details = f"QR Image: {photo_file.file_id}"  # Store file_id for later use
-        logger.info(f"User {user_id} uploaded QR image with file_id: {details}")
+        photo_file_id = photo_file.file_id  # Store file_id for sending
+        details = f"QR Image"  # Simplified details text
+        logger.info(f"User {user_id} uploaded QR image with file_id: {photo_file_id}")
     elif update.message and update.message.text:
         details = update.message.text.strip() or "No details provided"
         logger.info(f"User {user_id} provided text details: {details}")
@@ -238,8 +240,8 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
     # Store payment details
-    context.user_data["withdrawal_details"] = details
-    logger.info(f"Stored payment details for user {user_id}: {details}")
+    context.user_data["withdrawal_details"] = details if not photo_file_id else f"QR Image: {photo_file_id}"
+    logger.info(f"Stored payment details for user {user_id}: {context.user_data['withdrawal_details']}")
 
     # Prepare admin approval message
     keyboard = [
@@ -257,23 +259,32 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Username: @{username}\n"
         f"Amount: {amount} {CURRENCY}\n"
         f"Method: {payment_method}\n"
-        f"Details: {details}\n"
+        f"Details: {details if not photo_file_id else 'See attached QR image'}\n"
         f"Status: PENDING ⏳"
     )
 
     # Send request to admin log channel
     try:
+        # Send text message
         log_msg = await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=log_message,
             reply_markup=reply_markup
         )
+        # Send QR image if available
+        if photo_file_id:
+            await context.bot.send_photo(
+                chat_id=LOG_CHANNEL_ID,
+                photo=photo_file_id,
+                caption="Attached QR Image for Withdrawal Request",
+                reply_to_message_id=log_msg.message_id
+            )
         await context.bot.pin_chat_message(chat_id=LOG_CHANNEL_ID, message_id=log_msg.message_id)
         await db.update_user(user_id, {
             "pending_withdrawals": user.get("pending_withdrawals", []) + [{
                 "amount": amount,
                 "payment_method": payment_method,
-                "details": details,
+                "details": context.user_data["withdrawal_details"],
                 "status": "PENDING",
                 "message_id": log_msg.message_id
             }]
