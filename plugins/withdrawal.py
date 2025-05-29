@@ -408,17 +408,17 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Sort users by balance in descending order and take top 10
-    sorted_users = sorted(users.items(), key=lambda x: x[1].get("balance", 0), reverse=True)[:10]
+    sorted_users = sorted(users, key=lambda x: x.get("balance", 0), reverse=True)[:10]
     message = "ထိပ်တန်းအသုံးပြုသူ ၁၀ ယောက်၏ လက်ကျန်ငွေ:\n"
-    for user_id, user in sorted_users:
-        name = user.get("first_name", user.get("last_name", user_id))
+    for user in sorted_users:
+        name = user.get("first_name", user.get("last_name", user.get("id", "Unknown")))
         balance = user.get("balance", 0)
         message += f"{name}: {int(balance)} {CURRENCY}\n"
     await update.message.reply_text(message)
 
 async def check_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) != 1:
-        await update.message.reply_text("ကျေးဇူးပြု၍ User ID တစ်ခု ထည့်ပါ (ဥပမာ: /check 123456789)")
+        await update.message.reply_text("ကျေးဇူးပြု၍ User ID တစ်ခု ထည့်ပါ (ဥပမာ: /check_id 123456789)")
         return
 
     user_id = str(context.args[0])
