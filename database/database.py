@@ -22,7 +22,6 @@ class Database:
         try:
             user = await self.users.find_one({"user_id": user_id})
             if user and "message_timestamps" in user:
-                # Convert list back to deque when retrieving
                 user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             logger.info(f"Retrieved user {user_id} from database: {user}")
             return user
@@ -34,9 +33,10 @@ class Database:
         try:
             user = {
                 "user_id": user_id,
-                "name": name,
+                "first_name": name.get("first_name", ""),  # Store first_name
+                "last_name": name.get("last_name", ""),    # Store last_name
                 "balance": 0,
-                "messages": 0,
+                "messages": 0,  # This will be used as message_count
                 "group_messages": {"-1002061898677": 0},
                 "withdrawn_today": 0,
                 "last_withdrawal": None,
@@ -49,7 +49,6 @@ class Database:
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created new user {user_id} with name {name}")
-            # Convert back to deque for in-memory usage
             user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             return user
         except Exception as e:
@@ -92,12 +91,12 @@ class Database:
             if sort_by == "invites":
                 top_users = await self.users.find(
                     {"banned": False},
-                    {"user_id": 1, "name": 1, "invites": 1, "balance": 1, "group_messages": 1, "_id": 0}
+                    {"user_id": 1, "first_name": 1, "last_name": 1, "invites": 1, "balance": 1, "group_messages": 1, "_id": 0}
                 ).sort("invites", -1).limit(limit).to_list(length=limit)
             else:
                 top_users = await self.users.find(
                     {"banned": False},
-                    {"user_id": 1, "name": 1, "messages": 1, "balance": 1, "group_messages": 1, "_id": 0}
+                    {"user_id": 1, "first_name": 1, "last_name": 1, "messages": 1, "balance": 1, "group_messages": 1, "_id": 0}
                 ).sort("messages", -1).limit(limit).to_list(length=limit)
             logger.info(f"Retrieved top {limit} users by {sort_by}: {top_users}")
             return top_users
@@ -262,7 +261,7 @@ class Database:
 
     async def add_bonus(self, user_id, amount):
         try:
-            user = await db.get_user(user_id)
+            user = await self.get_user(user_id)
             if not user:
                 return False
             current_balance = user.get("balance", 0)
@@ -341,17 +340,32 @@ class Database:
             logger.error(f"Error checking rate limit for user {user_id}: {e}")
             return False
 
-    async def increment_invite(self, user_id):
+    async def increment_message_count(self, user_id):
+        """Increment the user's message count."""
         try:
             user = await self.get_user(user_id)
             if not user:
                 return False
-            new_invites = user.get("invites", 0) + 1
-            await self.update_user(user_id, {"invites": new_invites})
-            logger.info(f"Incremented invite count for user {user_id} to {new_invites}")
+            new_message_count = user.get("messages", 0) + 1
+            await self.update_user(user_id, {"messages": new_message_count})
+            logger.info(f"Incremented message count for user {user_id} to {new_message_count}")
             return True
         except Exception as e:
-            logger.error(f"Error incrementing invite for user {user_id}: {e}")
+            logger.error(f"Error incrementing message count for user {user_id}: {e}")
+            return False
+
+    async def update_user_name(self, user_id, first_name, last_name):
+        """Update the user's name in the database."""
+        try:
+            updates = {
+                "first_name": first_name,
+                "last_name": last_name
+            }
+            result = await self.update_user(user_id, updates)
+            logger.info(f"Updated name for user {user_id} to {first_name} {last_name}")
+            return result
+        except Exception as e:
+            logger.error(f"Error updating name for user {user_id}: {e}")
             return False
 
 # Singleton instance
