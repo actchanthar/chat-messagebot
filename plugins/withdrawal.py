@@ -308,6 +308,8 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     logger.info(f"Notified user {user_id} of pending withdrawal request")
     return ConversationHandler.END
 
+# ... (previous code remains the same until handle_admin_action)
+
 async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -377,7 +379,7 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             name = telegram_user.first_name or telegram_user.last_name or user_id
             if payment_method == "Phone Bill":
                 group_message = (
-                    f"{name} သည် PHONE Bill {amount} ထည့်ခဲ့သည်။\n"
+                    f"{name} သည် PHONE Bill {amount} {CURRENCY} ထည့်ခဲ့သည်။\n"
                     f"လက်ရှိလက်ကျန်ငွေ {int(new_balance)} {CURRENCY}။"
                 )
             else:
@@ -427,6 +429,8 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         logger.error(f"Error in admin action for {data}: {e}")
         await query.message.reply_text("တောင်းဆိုမှု လုပ်ဆောင်ရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။")
+
+# ... (rest of the code remains the same)
 
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fetch all users from the database
