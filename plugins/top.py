@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import GROUP_CHAT_IDS, CURRENCY  # Add CURRENCY import
+from config import GROUP_CHAT_IDS, CURRENCY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,9 +22,8 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.warning(f"User {user_id} attempted /top in unapproved chat {chat_id}")
         return
 
-    # Get top users by group_messages
-    target_group = "-1002061898677"  # Adjust this to your target group ID
-    top_users = await db.get_top_users(limit=10, sort_by="messages")  # Use messages as a fallback
+    # Get top users by messages
+    top_users = await db.get_top_users(limit=10, sort_by="messages")
     if not top_users:
         await context.bot.send_message(
             chat_id=chat_id,
@@ -35,7 +34,24 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     message = "🏆 Top 10 Users (by messages):\n\n"
     for i, user in enumerate(top_users, 1):
-        name = f"{user.get('first_name', 'Unknown')} {user.get('last_name', '')}".strip() or str(user["user_id"])
+        user_id_from_db = user["user_id"]
+        # Fetch user info from Telegram if name is missing
+        try:
+            telegram_user = await context.bot.get_chat(user_id_from_db)
+            first_name = user.get("first_name") or telegram_user.first_name or "Unknown"
+            last_name = user.get("last_name") or telegram_user.last_name or ""
+            # Update the database with the user's name if missing
+            if not user.get("first_name") or not user.get("last_name"):
+                await db.update_user(user_id_from_db, {
+                    "first_name": telegram_user.first_name,
+                    "last_name": telegram_user.last_name
+                })
+        except Exception as e:
+            logger.error(f"Failed to fetch user info for {user_id_from_db}: {e}")
+            first_name = user.get("first_name", "Unknown")
+            last_name = user.get("last_name", "")
+
+        name = f"{first_name} {last_name}".strip() or str(user_id_from_db)
         messages = user.get("messages", 0)
         balance = user.get("balance", 0)
         message += f"{i}. {name} ({user['user_id']}): {messages} msg, {int(balance)} {CURRENCY}\n"
