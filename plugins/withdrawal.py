@@ -348,20 +348,21 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
                 updated_withdrawals.append(w)
 
             # Deduct balance and ensure it doesn't go below 0
-            new_balance = max(0, balance - amount)
-            withdrawn_today = user.get("withdrawn_today", 0)
-            current_time = datetime.now(timezone.utc)
-            if user.get("last_withdrawal") and user["last_withdrawal"].date() == current_time.date():
-                withdrawn_today += amount
-            else:
-                withdrawn_today = amount
+            # Deduct balance and ensure it doesn't go below 0
+new_balance = max(0, balance - amount)
+withdrawn_today = user.get("withdrawn_today", 0)
+current_time = datetime.now(timezone.utc)
+if user.get("last_withdrawal") and user["last_withdrawal"].date() == current_time.date():
+    withdrawn_today += amount
+else:
+    withdrawn_today = amount
 
-            await db.update_user(user_id, {
-                "balance": new_balance,
-                "last_withdrawal": current_time,
-                "withdrawn_today": withdrawn_today,
-                "pending_withdrawals": updated_withdrawals
-            })
+await db.update_user(user_id, {
+    "balance": new_balance,
+    "last_withdrawal": current_time,
+    "withdrawn_today": withdrawn_today,
+    "pending_withdrawals": updated_withdrawals
+})
             logger.info(f"Approved withdrawal of {amount} {CURRENCY} for user {user_id}, new balance: {new_balance}")
 
             # Edit the message to remove buttons and update status
