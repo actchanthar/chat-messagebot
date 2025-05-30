@@ -282,7 +282,8 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "message_id": log_msg.message_id
             }],
             "first_name": telegram_user.first_name,
-            "last_name": telegram_user.last_name
+            "last_name": telegram_user.last_name,
+            "id": user_id  # Ensure the ID is stored correctly
         })
         logger.info(f"Withdrawal request submitted to log channel for user {user_id}")
 
@@ -314,6 +315,13 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await query.message.reply_text("အမှား: အသုံးပြုသူ မတွေ့ပါ။")
                 return
 
+            # Check if balance is sufficient before approving
+            balance = user.get("balance", 0)
+            if balance < amount:
+                logger.info(f"Insufficient balance for user {user_id}: {int(balance)} < {amount}")
+                await query.message.reply_text(f"အသုံးပြုသူ {user_id} တွင် လက်ကျန်ငွေ မလုံလောက်ပါ။ လက်ကျန်ငွေ: {int(balance)} {CURRENCY}")
+                return
+
             # Update status to APPROVED and deduct balance
             pending_withdrawals = user.get("pending_withdrawals", [])
             updated_withdrawals = []
@@ -324,8 +332,8 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
                     payment_method = w["payment_method"]
                 updated_withdrawals.append(w)
 
-            balance = user.get("balance", 0)
-            new_balance = balance - amount
+            # Deduct balance and ensure it doesn't go below 0
+            new_balance = max(0, balance - amount)
             withdrawn_today = user.get("withdrawn_today", 0)
             current_time = datetime.now(timezone.utc)
             if user.get("last_withdrawal") and user["last_withdrawal"].date() == current_time.date():
@@ -418,9 +426,12 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = "ထိပ်တန်းအသုံးပြုသူ ၁၀ ယောက်၏ လက်ကျန်ငွေ:\n"
     
     for user in sorted_users:
-        user_id = str(user.get("id"))
+        # Ensure user has an ID
+        user_id = user.get("id")
         if not user_id:
-            continue  # Skip if user_id is not present
+            logger.warning(f"User with no ID found in database: {user}")
+            continue  # Skip users without an ID
+
         try:
             # Fetch user info from Telegram to get first_name/last_name
             telegram_user = await context.bot.get_chat(user_id)
@@ -432,7 +443,8 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Update the database with the user's name if not already present
             await db.update_user(user_id, {
                 "first_name": telegram_user.first_name,
-                "last_name": telegram_user.last_name
+                "last_name": telegram_user.last_name,
+                "id": user_id
             })
         except Exception as e:
             logger.error(f"Failed to fetch user info for {user_id}: {e}")
@@ -451,10 +463,19 @@ async def check_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("အသုံးပြုသူ မတွေ့ပါ။")
         return
 
-    telegram_user = await context.bot.get_chat(user_id)
-    name = telegram_user.first_name or telegram_user.last_name or user_id
-    balance = user.get("balance", 0)
-    await update.message.reply_text(f"{name} ရှိ လက်ကျန်ငွေ: {int(balance)} {CURRENCY}")
+    try:
+        telegram_user = await context.bot.get_chat(user_id)
+        name = telegram_user.first_name or telegram_user.last_name or user_id
+        balance = user.get("balance", 0)
+        message_count = user.get("message_count", 0)
+        await update.message.reply_text(
+            f"{name} {user_id} ရှိ အချက်အလက်:\n"
+            f"လက်ကျန်ငွေ: {int(balance)} {CURRENCY}\n"
+            f"မက်ဆေ့ချ်အရေအတွက်: {message_count}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch user info for {user_id}: {e}")
+        await update.message.reply_text("အသုံးပြုသူ အချက်အလက် ရယူရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။")
 
 def register_handlers(application: Application):
     logger.info("Registering withdrawal handlers")
