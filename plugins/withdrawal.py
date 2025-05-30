@@ -416,63 +416,76 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.message.reply_text("တောင်းဆိုမှု လုပ်ဆောင်ရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။")
 
 async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Fetch all users from the database
     users = await db.get_all_users()
     if not users:
-        await update.message.reply_text("အသုံးပြုသူများ မတွေ့ပါ။")
+        await update.message.reply_text("အသုံးပြုသူများ မတွေ့ပါ။ ဒေတာဘေ့စ်ထဲတွင် အသုံးပြုသူ မရှိသေးပါ။")
+        logger.warning("No users found in the database for /check command")
         return
 
     # Sort users by balance in descending order and take top 10
     sorted_users = sorted(users, key=lambda x: x.get("balance", 0), reverse=True)[:10]
+    if not sorted_users:
+        await update.message.reply_text("ထိပ်တန်းအသုံးပြုသူများ မရှိပါ။")
+        logger.warning("No users with balance found for /check command")
+        return
+
     message = "ထိပ်တန်းအသုံးပြုသူ ၁၀ ယောက်၏ လက်ကျန်ငွေ:\n"
-    
     for user in sorted_users:
-        # Ensure user has an ID
-        user_id = user.get("id")
+        user_id = user.get("user_id")
         if not user_id:
-            logger.warning(f"User with no ID found in database: {user}")
-            continue  # Skip users without an ID
+            logger.warning(f"User with no user_id found in database: {user}")
+            continue  # Skip users without a user_id
 
         try:
-            # Fetch user info from Telegram to get first_name/last_name
+            # Fetch user info from Telegram to get first_name/last_name if not in DB
             telegram_user = await context.bot.get_chat(user_id)
-            name = telegram_user.first_name or telegram_user.last_name or user_id
+            first_name = user.get("first_name") or telegram_user.first_name or "Unknown"
+            last_name = user.get("last_name") or telegram_user.last_name or ""
+            name = f"{first_name} {last_name}".strip() or user_id
             balance = user.get("balance", 0)
-            message_count = user.get("message_count", 0)  # Assuming message_count is stored in the database
-            message += f"{name} {user_id}: {int(balance)} {CURRENCY}\nmessages {message_count}\n"
-            
+            message_count = user.get("messages", 0)  # Use 'messages' field as message_count
+            message += f"{name} ({user_id}): {int(balance)} {CURRENCY}\nမက်ဆေ့ချ်အရေအတွက်: {message_count}\n"
+
             # Update the database with the user's name if not already present
-            await db.update_user(user_id, {
-                "first_name": telegram_user.first_name,
-                "last_name": telegram_user.last_name,
-                "id": user_id
-            })
+            if not user.get("first_name") or not user.get("last_name"):
+                await db.update_user(user_id, {
+                    "first_name": telegram_user.first_name,
+                    "last_name": telegram_user.last_name
+                })
         except Exception as e:
             logger.error(f"Failed to fetch user info for {user_id}: {e}")
-            message += f"Unknown {user_id}: {int(user.get('balance', 0))} {CURRENCY}\nmessages {user.get('message_count', 0)}\n"
+            message += f"Unknown ({user_id}): {int(user.get('balance', 0))} {CURRENCY}\nမက်ဆေ့ချ်အရေအတွက်: {user.get('messages', 0)}\n"
 
     await update.message.reply_text(message)
+    logger.info("Successfully executed /check command")
 
 async def check_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) != 1:
         await update.message.reply_text("ကျေးဇူးပြု၍ User ID တစ်ခု ထည့်ပါ (ဥပမာ: /check_id 123456789)")
+        logger.warning("Invalid arguments for /check_id command")
         return
 
     user_id = str(context.args[0])
     user = await db.get_user(user_id)
     if not user:
-        await update.message.reply_text("အသုံးပြုသူ မတွေ့ပါ။")
+        await update.message.reply_text(f"User ID {user_id} နှင့် ကိုက်ညီသော အသုံးပြုသူ မတွေ့ပါ။")
+        logger.warning(f"User {user_id} not found for /check_id command")
         return
 
     try:
         telegram_user = await context.bot.get_chat(user_id)
-        name = telegram_user.first_name or telegram_user.last_name or user_id
+        first_name = user.get("first_name") or telegram_user.first_name or "Unknown"
+        last_name = user.get("last_name") or telegram_user.last_name or ""
+        name = f"{first_name} {last_name}".strip() or user_id
         balance = user.get("balance", 0)
-        message_count = user.get("message_count", 0)
+        message_count = user.get("messages", 0)
         await update.message.reply_text(
-            f"{name} {user_id} ရှိ အချက်အလက်:\n"
+            f"{name} ({user_id}) ရှိ အချက်အလက်:\n"
             f"လက်ကျန်ငွေ: {int(balance)} {CURRENCY}\n"
             f"မက်ဆေ့ချ်အရေအတွက်: {message_count}"
         )
+        logger.info(f"Successfully executed /check_id for user {user_id}")
     except Exception as e:
         logger.error(f"Failed to fetch user info for {user_id}: {e}")
         await update.message.reply_text("အသုံးပြုသူ အချက်အလက် ရယူရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။")
