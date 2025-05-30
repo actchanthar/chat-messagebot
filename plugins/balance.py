@@ -18,7 +18,9 @@ async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     balance = user.get("balance", 0)
-    balance_rounded = int(balance)  # Round to whole number
+    # Ensure displayed balance is not negative
+    displayed_balance = max(0, balance)
+    balance_rounded = int(displayed_balance)  # Round to whole number
     reply_text = (
         f"Your current balance is {balance_rounded} kyat.\n"
         f"သင့်လက်ကျန်ငွေသည် {balance_rounded} ကျပ်ဖြစ်ပါသည်။"
