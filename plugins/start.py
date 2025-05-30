@@ -109,29 +109,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     top_message += f"{i}. {user.get('first_name', 'Unknown')} {user.get('last_name', '')} - {group_messages} msg, {balance_rounded} kyat\n"
             welcome_message += top_message
 
-    # ... (previous code remains the same until the keyboard part)
+    welcome_message += (
+        f"\nCurrent earning rate: {message_rate} messages = 1 kyat\n"
+        "Use the buttons below to interact with the bot.\n"
+        "အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
+    )
 
-welcome_message += (
-    f"\nCurrent earning rate: {message_rate} messages = 1 kyat\n"
-    "Use the buttons below to interact with the bot.\n"
-    "အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
-)
+    keyboard = [
+        [
+            InlineKeyboardButton("Check Balance", callback_data="balance"),
+            InlineKeyboardButton("Withdrawal", callback_data="withdraw")
+        ],
+        [
+            InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
+            InlineKeyboardButton("Updates Channel", url="https://t.me/ITAnimeAI")
+        ],
+        [InlineKeyboardButton("Join Earnings Group", url="https://t.me/stranger77777777777")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-keyboard = [
-    [
-        InlineKeyboardButton("Check Balance", callback_data="balance"),
-        InlineKeyboardButton("Withdrawal", callback_data="withdraw")
-    ],
-    [
-        InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
-        InlineKeyboardButton("Updates Channel", url="https://t.me/ITAnimeAI")
-    ],
-    [InlineKeyboardButton("Join Earnings Group", url="https://t.me/stranger77777777777")]
-]
-reply_markup = InlineKeyboardMarkup(keyboard)
-
-await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
-logger.info(f"Sent welcome message to user {user_id} in chat {chat_id}")
+    await update.message.reply_text(welcome_message, reply_markup=reply_markup, parse_mode="HTML")
+    logger.info(f"Sent welcome message to user {user_id} in chat {chat_id}")
 
 def register_handlers(application: Application):
     logger.info("Registering start handlers")
