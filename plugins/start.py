@@ -7,21 +7,24 @@ from config import GROUP_CHAT_IDS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> bool:
+async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> tuple[bool, list]:
     channels = await db.get_channels()
     if not channels:
         logger.info("No channels found for subscription check")
-        return True  # No channels to check
+        return True, []  # No channels to check
+
+    not_subscribed_channels = []
     for channel in channels:
         try:
             member = await context.bot.get_chat_member(channel["channel_id"], user_id)
             if member.status not in ["member", "administrator", "creator"]:
                 logger.info(f"User {user_id} not subscribed to channel {channel['channel_id']}")
-                return False
+                not_subscribed_channels.append(channel)
         except Exception as e:
             logger.error(f"Error checking subscription for user {user_id} in channel {channel['channel_id']}: {e}")
-            return False
-    return True
+            not_subscribed_channels.append(channel)  # Treat as not subscribed if error occurs
+
+    return len(not_subscribed_channels) == 0, not_subscribed_channels
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
@@ -29,22 +32,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Start command initiated by user {user_id} in chat {chat_id}")
 
     # Check force subscription
-    channels = await db.get_channels()
-    if not await check_subscription(context, int(user_id), chat_id):
-        keyboard = [[InlineKeyboardButton(channel["channel_name"], url=f"https://t.me/{channel['channel_name'][1:]}")] for channel in channels]
+    subscribed, not_subscribed_channels = await check_subscription(context, int(user_id), chat_id)
+    if not subscribed:
+        # Prepare 2-column keyboard for not subscribed channels
+        keyboard = []
+        for i in range(0, len(not_subscribed_channels), 2):
+            row = []
+            # First channel in the row
+            channel_1 = not_subscribed_channels[i]
+            row.append(InlineKeyboardButton(
+                channel_1["channel_name"],
+                url=f"https://t.me/{channel_1['channel_name'][1:]}"
+            ))
+            # Second channel in the row, if exists
+            if i + 1 < len(not_subscribed_channels):
+                channel_2 = not_subscribed_channels[i + 1]
+                row.append(InlineKeyboardButton(
+                    channel_2["channel_name"],
+                    url=f"https://t.me/{channel_2['channel_name'][1:]}"
+                ))
+            keyboard.append(row)
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "Please join the following channels to use the bot:\n"
             "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ဝင်ရောက်ပါ။",
             reply_markup=reply_markup
         )
-        logger.info(f"User {user_id} not subscribed to required channels")
+        logger.info(f"User {user_id} not subscribed to required channels: {[ch['channel_name'] for ch in not_subscribed_channels]}")
         return
 
     user = await db.get_user(user_id)
     if not user:
-        user = await db.create_user(user_id, update.effective_user.full_name)
-        if not user:  # Check if user creation failed
+        user = await db.create_user(user_id, {
+            "first_name": update.effective_user.first_name,
+            "last_name": update.effective_user.last_name
+        })
+        if not user:
             logger.error(f"Failed to create user {user_id}")
             await update.message.reply_text("Error creating user. Please try again later.")
             return
@@ -52,7 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     welcome_message = (
         "စာပို့ရင်း ငွေရှာမယ်:\n"
-        f"Welcome to the Chat Bot, {update.effective_user.full_name}! 🎉\n\n"
+        f"Welcome to the Chat Bot, {update.effective_user.first_name}! 🎉\n\n"
         "Earn money by sending messages in the group!\n"
         "အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
         "Dev: @When_the_night_falls_my_soul_se\n"
@@ -78,11 +102,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             for i, user in enumerate(sorted_users, 1):
                 group_messages = user.get("group_messages", {}).get(target_group, 0)
                 balance = user.get("balance", 0)
-                balance_rounded = int(balance)  # Round to whole number
+                balance_rounded = int(balance)
                 if i <= 3:
-                    top_message += f"{i}. <b>{user['name']}</b> - {group_messages} msg, {balance_rounded} kyat\n"
+                    top_message += f"{i}. <b>{user.get('first_name', 'Unknown')} {user.get('last_name', '')}</b> - {group_messages} msg, {balance_rounded} kyat\n"
                 else:
-                    top_message += f"{i}. {user['name']} - {group_messages} msg, {balance_rounded} kyat\n"
+                    top_message += f"{i}. {user.get('first_name', 'Unknown')} {user.get('last_name', '')} - {group_messages} msg, {balance_rounded} kyat\n"
             welcome_message += top_message
 
     welcome_message += (
@@ -100,7 +124,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
             InlineKeyboardButton("Updates Channel", url="https://t.me/ITAnimeAI")
         ],
-        [InlineKeyboardButton("Join Earnings Group", url=f"https://t.me/stranger77777777777")]
+        [InlineKeyboardButton("Join Earnings Group", url="https://t.me/stranger77777777777")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
