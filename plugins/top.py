@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
 import logging
-from config import GROUP_CHAT_IDS
+from config import GROUP_CHAT_IDS, CURRENCY  # Add CURRENCY import
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
