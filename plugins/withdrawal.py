@@ -137,6 +137,10 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         amount = int(message.text.strip())
         logger.info(f"Parsed amount for user {user_id}: {amount}")
 
+        if payment_method == "Phone Bill" and amount != 1000:
+            await message.reply_text("Phone Bill ဖြင့် ငွေထုတ်မှုသည် ၁၀၀၀ ကျပ်သာ လုပ်ဆောင်နိုင်ပါသည်။ ကျေးဇူးပြု၍ ၁၀၀၀ ထည့်ပါ။")
+            return STEP_AMOUNT
+
         if amount < WITHDRAWAL_THRESHOLD:
             await message.reply_text(
                 f"အနည်းဆုံး ငွေထုတ်ပမာဏသည် {WITHDRAWAL_THRESHOLD} {CURRENCY} ဖြစ်ပါသည်။ ကျေးဇူးပြု၍ ပြန်ကြိုးစားပါ။"
@@ -238,7 +242,14 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Fetch user info from Telegram to get first_name/last_name
     telegram_user = await context.bot.get_chat(user_id)
-    name = telegram_user.first_name or telegram_user.last_name or user_id
+    name = (telegram_user.first_name or "") + (" " + telegram_user.last_name if telegram_user.last_name else "")
+
+    if user.get("balance", 0) < amount:
+        logger.info(f"Insufficient balance for user {user_id}: {int(user.get('balance', 0))} < {amount}")
+        await update.message.reply_text(
+            f"လက်ကျန်ငွေ မလုံလောက်ပါ။ သင့်လက်ကျန်ငွေသည် {int(user.get('balance', 0))} {CURRENCY} ဖြစ်ပါသည်။ /balance ဖြင့် စစ်ဆေးပါ။"
+        )
+        return ConversationHandler.END
 
     keyboard = [
         [InlineKeyboardButton("အတည်ပြုမည် ✅", callback_data=f"approve_{user_id}_{amount}"),
@@ -257,7 +268,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
     try:
-        # Send to admin log channel only
+        # Send to admin log channel
         log_msg = await context.bot.send_message(
             chat_id=LOG_CHANNEL_ID,
             text=log_message,
@@ -272,7 +283,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
         await context.bot.pin_chat_message(chat_id=LOG_CHANNEL_ID, message_id=log_msg.message_id)
 
-        # Store withdrawal request without deducting balance yet
+        # Store withdrawal request
         await db.update_user(user_id, {
             "pending_withdrawals": user.get("pending_withdrawals", []) + [{
                 "amount": amount,
@@ -282,8 +293,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "message_id": log_msg.message_id
             }],
             "first_name": telegram_user.first_name,
-            "last_name": telegram_user.last_name,
-            "id": user_id  # Ensure the ID is stored correctly
+            "last_name": telegram_user.last_name
         })
         logger.info(f"Withdrawal request submitted to log channel for user {user_id}")
 
@@ -319,6 +329,9 @@ async def handle_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE
             balance = user.get("balance", 0)
             if balance < amount:
                 logger.info(f"Insufficient balance for user {user_id}: {int(balance)} < {amount}")
+                await query.message.edit_text(
+                    query.message.text.replace("အခြေအနေ: ဆိုင်းငံ့ထားသည် ⏳", "အခြေအနေ: ငွေမလုံလောက်ပါ ❌")
+                )
                 await query.message.reply_text(f"အသုံးပြုသူ {user_id} တွင် လက်ကျန်ငွေ မလုံလောက်ပါ။ လက်ကျန်ငွေ: {int(balance)} {CURRENCY}")
                 return
 
@@ -419,14 +432,14 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Fetch all users from the database
     users = await db.get_all_users()
     if not users:
-        await update.message.reply_text("အသုံးပြုသူများ မတွေ့ပါ။ ဒေတာဘေ့စ်ထဲတွင် အသုံးပြုသူ မရှိသေးပါ။")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="အသုံးပြုသူများ မတွေ့ပါ။ ဒေတာဘေ့စ်ထဲတွင် အသုံးပြုသူ မရှိသေးပါ။")
         logger.warning("No users found in the database for /check command")
         return
 
     # Sort users by balance in descending order and take top 10
     sorted_users = sorted(users, key=lambda x: x.get("balance", 0), reverse=True)[:10]
     if not sorted_users:
-        await update.message.reply_text("ထိပ်တန်းအသုံးပြုသူများ မရှိပါ။")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="ထိပ်တန်း အသုံးပြုသူများ မရှိပါ။")
         logger.warning("No users with balance found for /check command")
         return
 
@@ -435,7 +448,7 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = user.get("user_id")
         if not user_id:
             logger.warning(f"User with no user_id found in database: {user}")
-            continue  # Skip users without a user_id
+            continue
 
         try:
             # Fetch user info from Telegram to get first_name/last_name if not in DB
@@ -444,7 +457,7 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_name = user.get("last_name") or telegram_user.last_name or ""
             name = f"{first_name} {last_name}".strip() or user_id
             balance = user.get("balance", 0)
-            message_count = user.get("messages", 0)  # Use 'messages' field as message_count
+            message_count = user.get("messages", 0)
             message += f"{name} ({user_id}): {int(balance)} {CURRENCY}\nမက်ဆေ့ချ်အရေအတွက်: {message_count}\n"
 
             # Update the database with the user's name if not already present
@@ -457,19 +470,19 @@ async def check(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Failed to fetch user info for {user_id}: {e}")
             message += f"Unknown ({user_id}): {int(user.get('balance', 0))} {CURRENCY}\nမက်ဆေ့ချ်အရေအတွက်: {user.get('messages', 0)}\n"
 
-    await update.message.reply_text(message)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=message)
     logger.info("Successfully executed /check command")
 
 async def check_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or len(context.args) != 1:
-        await update.message.reply_text("ကျေးဇူးပြု၍ User ID တစ်ခု ထည့်ပါ (ဥပမာ: /check_id 123456789)")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="ကျေးဇူးပြု၍ User ID တစ်ခု ထည့်ပါ (ဥပမာ: /check_id 123456789)")
         logger.warning("Invalid arguments for /check_id command")
         return
 
     user_id = str(context.args[0])
     user = await db.get_user(user_id)
     if not user:
-        await update.message.reply_text(f"User ID {user_id} နှင့် ကိုက်ညီသော အသုံးပြုသူ မတွေ့ပါ။")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"User ID {user_id} နှင့် ကိုက်ညီသော အသုံးပြုသူ မတွေ့ပါ။")
         logger.warning(f"User {user_id} not found for /check_id command")
         return
 
@@ -480,15 +493,16 @@ async def check_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = f"{first_name} {last_name}".strip() or user_id
         balance = user.get("balance", 0)
         message_count = user.get("messages", 0)
-        await update.message.reply_text(
-            f"{name} ({user_id}) ရှိ အချက်အလက်:\n"
-            f"လက်ကျန်ငွေ: {int(balance)} {CURRENCY}\n"
-            f"မက်ဆေ့ချ်အရေအတွက်: {message_count}"
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"{name} ({user_id}) ရှိ အချက်အလက်:\n"
+                 f"လက်ကျန်ငွေ: {int(balance)} {CURRENCY}\n"
+                 f"မက်ဆေ့ချ်အရေအတွက်: {message_count}"
         )
         logger.info(f"Successfully executed /check_id for user {user_id}")
     except Exception as e:
         logger.error(f"Failed to fetch user info for {user_id}: {e}")
-        await update.message.reply_text("အသုံးပြုသူ အချက်အလက် ရယူရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="အသုံးပြုသူ အချက်အလက် ရယူရာတွင် အမှားဖြစ်ပွားခဲ့ပါသည်။")
 
 def register_handlers(application: Application):
     logger.info("Registering withdrawal handlers")
