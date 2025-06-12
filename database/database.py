@@ -1,10 +1,10 @@
-# /root/V4/database/database.py (unchanged from previous)
 import logging
 from datetime import datetime
 from collections import deque
 from motor.motor_asyncio import AsyncIOMotorClient
-from config import MONGODB_URL, MONGODB_NAME, GROUP_CHAT_IDS
+from config import MONGODB_URL, MONGODB_NAME, GROUP_CHAT_IDS, CHANNEL_IDS
 
+# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -146,6 +146,19 @@ class Database:
         except Exception as e:
             logger.error(f"Error setting message rate: {e}")
             return False
+
+    async def get_channels(self) -> list:
+        """Retrieve the list of channel IDs from the settings collection or config."""
+        try:
+            settings = await self.settings.find_one({"type": "channels"})
+            if settings and "channels" in settings:
+                logger.info("Retrieved channels from database")
+                return settings["channels"]
+            logger.info("No channels in database, returning CHANNEL_IDS from config")
+            return CHANNEL_IDS
+        except Exception as e:
+            logger.error(f"Error getting channels: {e}")
+            return CHANNEL_IDS  # Fallback to CHANNEL_IDS from config
 
 # Instantiate the Database class to create the 'db' object
 try:
