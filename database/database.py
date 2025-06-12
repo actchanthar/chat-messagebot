@@ -1,10 +1,10 @@
+# /root/V4/database/database.py (unchanged from previous)
 import logging
 from datetime import datetime
 from collections import deque
 from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME, GROUP_CHAT_IDS
 
-# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -96,7 +96,7 @@ class Database:
             await self.users.update_one(
                 {"user_id": str(user_id)},
                 {"$inc": {"balance": amount}},
-                upsert=True  # Ensure user exists
+                upsert=True
             )
             logger.info(f"Updated balance for user {user_id} by {amount}")
             return True
