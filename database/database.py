@@ -4,7 +4,6 @@ from collections import deque
 from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME, GROUP_CHAT_IDS, CHANNEL_IDS
 
-# Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -42,7 +41,7 @@ class Database:
                 "banned": False,
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
-                "message_timestamps": [],  # Store as list instead of deque
+                "message_timestamps": deque(maxlen=5),
                 "invites": 0,
                 "pending_withdrawals": []
             }
@@ -56,9 +55,6 @@ class Database:
     async def get_user(self, user_id: str) -> dict | None:
         try:
             user = await self.users.find_one({"user_id": str(user_id)})
-            if user and "message_timestamps" in user:
-                # Convert list back to deque when retrieving
-                user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             return user
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}")
@@ -66,9 +62,6 @@ class Database:
 
     async def update_user(self, user_id: str, updates: dict) -> bool:
         try:
-            # Convert deque to list if message_timestamps is in updates
-            if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
-                updates["message_timestamps"] = list(updates["message_timestamps"])
             result = await self.users.update_one(
                 {"user_id": str(user_id)},
                 {"$set": updates}
@@ -120,7 +113,7 @@ class Database:
             current_time = datetime.utcnow()
             timestamps = deque(user.get("message_timestamps", []), maxlen=5)
             timestamps.append(current_time)
-            await self.update_user(user_id, {"message_timestamps": timestamps})  # deque will be converted to list in update_user
+            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
 
             if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
                 logger.warning(f"Rate limit exceeded for user {user_id}")
@@ -154,7 +147,6 @@ class Database:
             return False
 
     async def get_channels(self) -> list:
-        """Retrieve the list of channel IDs from the settings collection or config."""
         try:
             settings = await self.settings.find_one({"type": "channels"})
             if settings and "channels" in settings:
@@ -166,7 +158,6 @@ class Database:
             logger.error(f"Error getting channels: {e}")
             return CHANNEL_IDS
 
-# Instantiate the Database class to create the 'db' object
 try:
     db = Database()
     logger.info("Database instance created")
