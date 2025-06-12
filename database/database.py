@@ -1,9 +1,8 @@
 import logging
 from datetime import datetime
 from collections import deque
-from motor.motor_asyncio import AsyncIOMotorClient
-from AsyncIOMotor import AsyncIOMotorDatabase
-from config import Config,MONGODB_URL, MONGODB_NAME, GROUP_CHAT_IDS
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase  # Fixed import
+from config import MONGODB_URL, MONGODB_NAME, GROUP_CHAT_IDS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -130,4 +129,4 @@ class Database:
             logger.error(f"Error setting message rate: {e}")
             return False
 
-    # Add other methods as needed (e.g., get_channels, award_weekly_rewards)
+    # Add other methods as needed
