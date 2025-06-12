@@ -1,85 +1,86 @@
+import logging
+from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from database.database import db
-import logging
-from config import GROUP_CHAT_IDS
+from config import GROUP_CHAT_IDS, CURRENCY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.effective_user.id)
-    chat_id = str(update.effective_chat.id)
-    message_text = update.message.text if update.message.text else ""
+    message = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
 
-    # Check if message is in an approved group
-    approved_groups = await db.get_approved_groups()
-    if chat_id not in approved_groups:
-        logger.info(f"Message from user {user_id} ignored in unapproved chat {chat_id}")
+    if not user or not chat or chat.type not in ["group", "supergroup"]:
         return
 
-    user = await db.get_user(user_id)
-    if not user:
-        # Create user if not found
-        user = await db.create_user(user_id, {
-            "first_name": update.effective_user.first_name,
-            "last_name": update.effective_user.last_name
-        })
-        if not user:
-            logger.error(f"Failed to create user {user_id} in handle_message")
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="An error occurred. Please try again later or contact support."
-            )
+    user_id = str(user.id)
+    chat_id = str(chat.id)
+
+    if chat_id not in GROUP_CHAT_IDS:
+        logger.debug(f"Message in non-approved group {chat_id} by user {user_id}")
+        return
+
+    try:
+        # Check if user exists, create if not
+        db_user = await db.get_user(user_id)
+        if not db_user:
+            await db.create_user(user_id, {
+                "first_name": user.first_name or "",
+                "last_name": user.last_name or "",
+                "username": user.username or ""
+            })
+            db_user = await db.get_user(user_id)
+
+        # Initialize group_messages if missing
+        if chat_id not in db_user.get("group_messages", {}):
+            await db.update_user(user_id, {f"group_messages.{chat_id}": 0})
+
+        # Check rate limit (5 messages per minute)
+        if await db.check_rate_limit(user_id):
+            await message.reply_text("You are sending messages too quickly. Please wait a minute.")
             return
-        logger.info(f"Created new user {user_id} during message handling")
 
-    # Check if user is banned
-    if user.get("banned", False):
-        logger.info(f"Banned user {user_id} attempted to send a message in chat {chat_id}")
-        return
+        # Increment message count
+        await db.increment_messages(user_id, chat_id)
+        logger.info(f"Incremented message count for user {user_id} in group {chat_id}")
 
-    # Check rate limit
-    rate_limited = await db.check_rate_limit(user_id, message_text)
-    if rate_limited:
-        logger.info(f"User {user_id} is rate limited in chat {chat_id}")
-        return
+        # Check if user earned a kyat
+        messages_per_kyat = await db.get_message_rate() or 3
+        user = await db.get_user(user_id)
+        group_messages = user["group_messages"].get(chat_id, 0)
 
-    # Increment message count
-    new_messages = user.get("messages", 0) + 1
-    group_messages = user.get("group_messages", {})
-    group_messages[chat_id] = group_messages.get(chat_id, 0) + 1
+        if group_messages > 0 and group_messages % messages_per_kyat == 0:
+            earned = 1
+            await db.update_balance(user_id, earned)
+            user = await db.get_user(user_id)
+            balance = user["balance"]
+            await message.reply_text(
+                f"🎉 You earned {earned} {CURRENCY}!\n"
+                f"Your new balance: {balance} {CURRENCY}"
+            )
+            logger.info(f"User {user_id} earned {earned} {CURRENCY} in group {chat_id}")
 
-    # Update user with new message count
-    await db.update_user(user_id, {
-        "messages": new_messages,
-        "group_messages": group_messages,
-        "last_activity": update.message.date
-    })
-
-    # Check if user should earn kyat
-    message_rate = await db.get_message_rate()
-    if new_messages % message_rate == 0:
-        current_balance = user.get("balance", 0)
-        new_balance = current_balance + 1
-        await db.update_user(user_id, {"balance": new_balance})
-        logger.info(f"User {user_id} earned 1 kyat, new balance: {new_balance}")
-
-        # Notify user at 10 kyat milestone
-        if new_balance == 10 and not user.get("notified_10kyat", False):
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="🎉 ဂုဏ်ယူပါတယ်! သင့်လက်ကျန်ငွေ ၁၀ ကျပ် ရှိပြီဖြစ်ပါတယ်။ /withdraw ဖြင့် ငွေထုတ်နိုင်ပါပြီ။"
+        # Notify at 10 kyat
+        if user["balance"] >= 10 and not user.get("notified_10kyat", False):
+            await message.reply_text(
+                f"🎉 Your balance is {user['balance']} {CURRENCY}! "
+                f"You can now withdraw using /withdraw."
             )
             await db.update_user(user_id, {"notified_10kyat": True})
-            logger.info(f"Notified user {user_id} of 10 kyat milestone")
+
+    except Exception as e:
+        logger.error(f"Error processing message for user {user_id} in group {chat_id}: {str(e)}")
+        await message.reply_text("An error occurred while processing your message. Please try again.")
 
 def register_handlers(application: Application):
-    logger.info("Registering message handlers")
+    logger.info("Registering message handler")
     application.add_handler(
         MessageHandler(
-            filters.Chat(chat_id=[int(gid) for gid in GROUP_CHAT_IDS]) & filters.TEXT & ~filters.COMMAND,
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
             handle_message
         ),
-        group=0
+        group=2
     )
