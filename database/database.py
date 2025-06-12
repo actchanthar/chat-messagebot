@@ -42,7 +42,7 @@ class Database:
                 "banned": False,
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
-                "message_timestamps": deque(maxlen=5),
+                "message_timestamps": [],  # Store as list instead of deque
                 "invites": 0,
                 "pending_withdrawals": []
             }
@@ -56,6 +56,9 @@ class Database:
     async def get_user(self, user_id: str) -> dict | None:
         try:
             user = await self.users.find_one({"user_id": str(user_id)})
+            if user and "message_timestamps" in user:
+                # Convert list back to deque when retrieving
+                user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             return user
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}")
@@ -63,6 +66,9 @@ class Database:
 
     async def update_user(self, user_id: str, updates: dict) -> bool:
         try:
+            # Convert deque to list if message_timestamps is in updates
+            if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
+                updates["message_timestamps"] = list(updates["message_timestamps"])
             result = await self.users.update_one(
                 {"user_id": str(user_id)},
                 {"$set": updates}
@@ -114,7 +120,7 @@ class Database:
             current_time = datetime.utcnow()
             timestamps = deque(user.get("message_timestamps", []), maxlen=5)
             timestamps.append(current_time)
-            await self.update_user(user_id, {"message_timestamps": list(timestamps)})
+            await self.update_user(user_id, {"message_timestamps": timestamps})  # deque will be converted to list in update_user
 
             if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
                 logger.warning(f"Rate limit exceeded for user {user_id}")
@@ -158,7 +164,7 @@ class Database:
             return CHANNEL_IDS
         except Exception as e:
             logger.error(f"Error getting channels: {e}")
-            return CHANNEL_IDS  # Fallback to CHANNEL_IDS from config
+            return CHANNEL_IDS
 
 # Instantiate the Database class to create the 'db' object
 try:
