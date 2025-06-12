@@ -1,8 +1,8 @@
+import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from database.database import db
-from config import ADMIN_IDS, GROUP_CHAT_IDS
-import logging
+from config import ADMIN_IDS, LOG_CHANNEL_ID, CURRENCY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -10,91 +10,87 @@ logger = logging.getLogger(__name__)
 async def add_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("You are not authorized to use this command.")
+        await update.message.reply_text("You are not authorized.")
         return
 
-    args = context.args
-    if len(args) != 2:
+    if len(context.args) != 2 or not context.args[0].isdigit() or not context.args[1].replace(".", "").isdigit():
         await update.message.reply_text("Usage: /add_bonus <user_id> <amount>")
         return
 
-    target_user_id, amount = args[0], args[1]
+    target_user_id = context.args[0]
     try:
-        amount = float(amount)
-        success = await db.add_bonus(target_user_id, amount)
-        if success:
-            user = await db.get_user(target_user_id)
-            await update.message.reply_text(f"Added {amount} kyat to user {target_user_id}. New balance: {user.get('balance', 0)} kyat.")
-            logger.info(f"Admin {user_id} added bonus {amount} to user {target_user_id}")
-        else:
-            await update.message.reply_text("User not found or error adding bonus.")
+        amount = float(context.args[1])
     except ValueError:
-        await update.message.reply_text("Invalid amount. Please provide a number.")
+        await update.message.reply_text("Amount must be a number.")
+        return
+
+    try:
+        target_user = await db.get_user(target_user_id)
+        if not target_user:
+            await update.message.reply_text("Target user not found.")
+            return
+
+        await db.update_balance(target_user_id, amount)
+        await update.message.reply_text(f"Added {amount} {CURRENCY} to user {target_user_id}.")
+        try:
+            await context.bot.send_message(
+                LOG_CHANNEL_ID,
+                f"Admin {user_id} added {amount} {CURRENCY} to user {target_user_id}."
+            )
+            await context.bot.send_message(
+                target_user_id,
+                f"You received a bonus of {amount} {CURRENCY}! Your new balance: {target_user['balance'] + amount} {CURRENCY}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to notify user {target_user_id} or log channel: {e}")
     except Exception as e:
-        logger.error(f"Error adding bonus for user {target_user_id}: {e}")
-        await update.message.reply_text("Error adding bonus. Please try again.")
+        logger.error(f"Error in add_bonus for user {target_user_id}: {e}")
+        await update.message.reply_text("Failed to add bonus.")
 
 async def set_invite(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("You are not authorized to use this command.")
+        await update.message.reply_text("You are not authorized.")
         return
 
-    args = context.args
-    if len(args) != 2:
+    if len(context.args) != 2 or not context.args[0].isdigit() or not context.args[1].isdigit():
         await update.message.reply_text("Usage: /setinvite <user_id> <count>")
         return
 
-    target_user_id, count = args[0], args[1]
+    target_user_id = context.args[0]
+    count = int(context.args[1])
     try:
-        count = int(count)
-        user = await db.get_user(target_user_id)
-        if not user:
-            await update.message.reply_text("User not found.")
+        target_user = await db.get_user(target_user_id)
+        if not target_user:
+            await update.message.reply_text("Target user not found.")
             return
 
         await db.update_user(target_user_id, {"invites": count})
-        await update.message.reply_text(f"Set invite count to {count} for user {target_user_id}.")
-        logger.info(f"Admin {user_id} set invite count to {count} for user {target_user_id}")
-    except ValueError:
-        await update.message.reply_text("Invalid count. Please provide a number.")
+        await update.message.reply_text(f"Set invites to {count} for user {target_user_id}.")
     except Exception as e:
-        logger.error(f"Error setting invite count for user {target_user_id}: {e}")
-        await update.message.reply_text("Error setting invite count. Please try again.")
+        logger.error(f"Error in set_invite for user {target_user_id}: {e}")
+        await update.message.reply_text("Failed to set invites.")
 
 async def set_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
     if user_id not in ADMIN_IDS:
-        await update.message.reply_text("You are not authorized to use this command.")
+        await update.message.reply_text("You are not authorized.")
         return
 
-    args = context.args
-    if len(args) != 2:
-        await update.message.reply_text("Usage: /setmessage <user_id> <count>")
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text("Usage: /setmessage <number>")
         return
 
-    target_user_id, count = args[0], args[1]
+    messages_per_kyat = int(context.args[0])
     try:
-        count = int(count)
-        user = await db.get_user(target_user_id)
-        if not user:
-            await update.message.reply_text("User not found.")
-            return
-
-        target_group = GROUP_CHAT_IDS[0]
-        group_messages = user.get("group_messages", {})
-        group_messages[target_group] = count
-        await db.update_user(target_user_id, {"group_messages": group_messages, "messages": count})
-        await update.message.reply_text(f"Set message count to {count} for user {target_user_id} in group {target_group}.")
-        logger.info(f"Admin {user_id} set message count to {count} for user {target_user_id}")
-    except ValueError:
-        await update.message.reply_text("Invalid count. Please provide a number.")
+        await db.set_message_rate(messages_per_kyat)
+        await update.message.reply_text(f"Messages per kyat set to {messages_per_kyat}.")
     except Exception as e:
-        logger.error(f"Error setting message count for user {target_user_id}: {e}")
-        await update.message.reply_text("Error setting message count. Please try again.")
+        logger.error(f"Error setting messages_per_kyat: {e}")
+        await update.message.reply_text("Failed to set messages per kyat.")
 
 def register_handlers(application: Application):
     logger.info("Registering admin handlers")
-    application.add_handler(CommandHandler("add_bonus", add_bonus))  # Updated to lowercase
+    application.add_handler(CommandHandler("add_bonus", add_bonus))
     application.add_handler(CommandHandler("setinvite", set_invite))
     application.add_handler(CommandHandler("setmessage", set_message))
