@@ -1,5 +1,6 @@
 import logging
 import traceback
+import asyncio
 from telegram import Update, BotCommand
 from telegram.ext import Application, ContextTypes
 from config import BOT_TOKEN
@@ -20,7 +21,7 @@ from plugins import (
     users,
     withdrawal,
     rmamount,
-    setamount  # New plugin for referral reward
+    setamount
 )
 
 # Configure logging with file handler
@@ -52,7 +53,7 @@ async def post_init(application: Application) -> None:
         BotCommand("setamount", "Set referral reward amount (admin only)")
     ]
     try:
-        await application.bot.set_my_commandscommands)
+        await application.bot.set_my_commands(commands)
         logger.info("Bot commands set successfully")
     except Exception as e:
         logger.error(f"Failed to set bot commands: {e}")
@@ -70,6 +71,12 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def post_shutdown(application: Application) -> None:
     logger.info("Bot is shutting down...")
+    try:
+        await application.stop()
+        await application.shutdown()
+        logger.info("Application shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
 
 def main() -> None:
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
@@ -92,12 +99,16 @@ def main() -> None:
     users.register_handlers(application)
     withdrawal.register_handlers(application)
     rmamount.register_handlers(application)
-    setamount.register_handlers(application)  # Register new plugin
+    setamount.register_handlers(application)
     message_handler.register_handlers(application)
 
     logger.info("Starting bot")
     try:
         application.run_polling(allowed_updates=["message", "callback_query"])
+    except KeyboardInterrupt:
+        logger.info("Received shutdown signal")
+        asyncio.run(application.stop())
+        asyncio.run(application.shutdown())
     except Exception as e:
         logger.error(f"Bot crashed: {e}\n{traceback.format_exc()}")
     finally:
