@@ -2,7 +2,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from config import MONGODB_URL, MONGODB_NAME
 import logging
 from datetime import datetime, timedelta
-from collections import deque
 
 # Configure logging
 logging.basicConfig(
@@ -29,9 +28,10 @@ class Database:
     async def get_user(self, user_id):
         try:
             user = await self.users.find_one({"user_id": user_id})
-            if user and "message_timestamps" in user:
-                user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
-            logger.info(f"Retrieved user {user_id} from database")
+            if user:
+                # Ensure message_timestamps is a list
+                user["message_timestamps"] = user.get("message_timestamps", [])[:5]
+                logger.info(f"Retrieved user {user_id} from database")
             return user
         except Exception as e:
             logger.error(f"Error retrieving user {user_id}: {e}")
@@ -51,14 +51,13 @@ class Database:
                 "banned": False,
                 "notified_10kyat": False,
                 "last_activity": datetime.utcnow(),
-                "message_timestamps": [],
+                "message_timestamps": [],  # Use list instead of deque
                 "invites": 0,
                 "pending_withdrawals": [],
-                "referred_by": referred_by  # Store referrer ID
+                "referred_by": referred_by
             }
             result = await self.users.insert_one(user)
             logger.info(f"Created new user {user_id} with name {name}, referred by {referred_by}")
-            user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
             return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
@@ -66,8 +65,9 @@ class Database:
 
     async def update_user(self, user_id, updates):
         try:
-            if "message_timestamps" in updates and isinstance(updates["message_timestamps"], deque):
-                updates["message_timestamps"] = list(updates["message_timestamps"])
+            # Ensure message_timestamps is truncated to 5 items
+            if "message_timestamps" in updates:
+                updates["message_timestamps"] = updates["message_timestamps"][:5]
             result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
             if result.modified_count > 0:
                 updates_log = {k: v for k, v in updates.items()}
@@ -85,8 +85,7 @@ class Database:
         try:
             users = await self.users.find().to_list(length=None)
             for user in users:
-                if "message_timestamps" in user:
-                    user["message_timestamps"] = deque(user["message_timestamps"], maxlen=5)
+                user["message_timestamps"] = user.get("message_timestamps", [])[:5]
             logger.info(f"Retrieved all users: {len(users)} users")
             return users
         except Exception as e:
@@ -348,10 +347,11 @@ class Database:
 
             current_time = datetime.utcnow()
             if user_id not in self.message_history:
-                self.message_history[user_id] = deque(maxlen=5)
+                self.message_history[user_id] = []
 
-            timestamps = user.get("message_timestamps", deque(maxlen=5))
+            timestamps = user.get("message_timestamps", [])
             timestamps.append(current_time)
+            timestamps = timestamps[-5:]  # Keep last 5 timestamps
             await self.update_user(user_id, {"message_timestamps": timestamps})
             if len(timestamps) == 5 and (current_time - timestamps[0]).total_seconds() < 60:
                 logger.warning(f"Rate limit exceeded for user {user_id}")
@@ -362,6 +362,7 @@ class Database:
                     logger.warning(f"Duplicate message detected for user {user_id}")
                     return True
                 self.message_history[user_id].append(message_text)
+                self.message_history[user_id] = self.message_history[user_id][-5:]  # Keep last 5 messages
 
             return False
         except Exception as e:
