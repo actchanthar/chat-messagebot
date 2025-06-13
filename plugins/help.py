@@ -2,7 +2,14 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 import logging
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler("bot.log", mode='a'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -30,14 +37,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/listchnl - List all force subscription channels\n"
         "/broadcast <message> - Send a message to all users\n"
         "/pbroadcast <message> - Send a pinned message to all users\n"
-        "/rest - Reset message counts\n"
+        "/restwithdraw <user_id or ALL> - Reset pending withdrawals\n"
         "/add_bonus <user_id> <amount> - Add bonus to a user\n"
         "/setmessage <number> - Set messages per kyat\n"
-        "/restwithdraw <user_id or ALL> - Reset pending withdrawals\n"
-        "/setinvite <number> - Set required invites for withdrawal"
+        "/setamount <number> - Set referral reward amount\n"
+        "/setinvite <number> - Set required invites for withdrawal\n"
+        "/check - View top 10 users by balance\n"
+        "/check_id <user_id> - Check user details by ID"
     )
-    await reply_func(commands)
-    logger.info(f"Sent help response to user {user_id} in chat {chat_id}")
+    try:
+        await reply_func(commands)
+        logger.info(f"Sent help response to user {user_id} in chat {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to send help response to user {user_id}: {e}")
+        await reply_func("An error occurred while displaying the help message. Please try again.")
 
 def register_handlers(application):
     logger.info("Registering help handlers")
