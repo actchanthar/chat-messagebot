@@ -2,30 +2,35 @@ import logging
 import traceback
 from telegram import Update, BotCommand
 from telegram.ext import Application, ContextTypes
-from config import BOT_TOKEN, LOG_CHANNEL_ID
+from config import BOT_TOKEN
 from plugins import (
-    admin,        # Handles /add_bonus, /setinvite, /setmessage
-    addgroup,     # /addgroup
-    balance,      # /balance
-    broadcast,    # /broadcast, /pbroadcast
-    channel,      # /addchnl, /delchnl, /listchnl
-    checkgroup,   # /checkgroup
-    couple,       # /couple
-    help,         # /help
-    message_handler,  # Group message counting
-    setphonebill, # /setphonebill
-    start,        # /start
-    top,          # /top
-    transfer,     # /transfer
-    users,        # /users
-    withdrawal,   # /withdraw
-    rmamount,     # /rmamount
-    restwithdraw  # /restwithdraw
+    addgroup,
+    admin,
+    balance,
+    broadcast,
+    channel,
+    checkgroup,
+    couple,
+    help,
+    message_handler,
+    setphonebill,
+    start,
+    top,
+    transfer,
+    users,
+    withdrawal,
+    rmamount,
+    setamount  # New plugin for referral reward
 )
 
+# Configure logging with file handler
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler("bot.log", mode='a'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -39,53 +44,56 @@ async def post_init(application: Application) -> None:
         BotCommand("couple", "Find a random couple match"),
         BotCommand("transfer", "Transfer balance to another user"),
         BotCommand("help", "Show help message"),
-        BotCommand("rmamount", "Deduct amount from user balance (admin only)"),
+        BotCommand("rmamount", "Reset daily withdrawal amount (admin only)"),
         BotCommand("addgroup", "Add a group for message counting (admin only)"),
         BotCommand("add_bonus", "Add bonus to a user (admin only)"),
         BotCommand("setinvite", "Set invite count for a user (admin only)"),
-        BotCommand("setmessage", "Set messages per kyat (admin only)")
+        BotCommand("setmessage", "Set message count for a user (admin only)"),
+        BotCommand("setamount", "Set referral reward amount (admin only)")
     ]
-    await application.bot.set_my_commands(commands)
-    logger.info("Bot commands set successfully")
+    try:
+        await application.bot.set_my_commandscommands)
+        logger.info("Bot commands set successfully")
+    except Exception as e:
+        logger.error(f"Failed to set bot commands: {e}")
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     error_message = f"Update {update} caused error: {context.error}\n{traceback.format_exc()}"
     logger.error(error_message)
-    if update and update.effective_message:
-        await update.effective_message.reply_text("An error occurred. Please try again or contact support.")
-    try:
-        await context.bot.send_message(
-            chat_id=LOG_CHANNEL_ID,
-            text=f"Bot Error:\n{error_message[:4000]}"
-        )
-    except Exception as e:
-        logger.error(f"Failed to send error to log channel: {e}")
+    if update and (update.message or update.callback_query):
+        try:
+            await (update.message or update.callback_query.message).reply_text(
+                "An error occurred. Please try again later or contact support."
+            )
+        except Exception as e:
+            logger.error(f"Failed to send error message: {e}")
 
 async def post_shutdown(application: Application) -> None:
     logger.info("Bot is shutting down...")
 
 def main() -> None:
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).post_shutdown(post_shutdown).build()
+
     application.add_error_handler(error_handler)
+
     logger.info("Registering plugin handlers")
-    
-    admin.register_handlers(application)        # Group 0
-    addgroup.register_handlers(application)     # Group 0
-    balance.register_handlers(application)      # Group 0
-    broadcast.register_handlers(application)    # Group 0
-    channel.register_handlers(application)      # Group 0
-    checkgroup.register_handlers(application)   # Group 0
-    couple.register_handlers(application)       # Group 0
-    help.register_handlers(application)         # Group 0
-    setphonebill.register_handlers(application) # Group 0
-    start.register_handlers(application)        # Group 0
-    top.register_handlers(application)          # Group 0
-    transfer.register_handlers(application)     # Group 0
-    users.register_handlers(application)        # Group 0
-    withdrawal.register_handlers(application)   # Group 1
-    rmamount.register_handlers(application)     # Group 1
-    restwithdraw.register_handlers(application) # Group 1
-    message_handler.register_handlers(application) # Group 2
+    addgroup.register_handlers(application)
+    admin.register_handlers(application)
+    balance.register_handlers(application)
+    broadcast.register_handlers(application)
+    channel.register_handlers(application)
+    checkgroup.register_handlers(application)
+    couple.register_handlers(application)
+    help.register_handlers(application)
+    setphonebill.register_handlers(application)
+    start.register_handlers(application)
+    top.register_handlers(application)
+    transfer.register_handlers(application)
+    users.register_handlers(application)
+    withdrawal.register_handlers(application)
+    rmamount.register_handlers(application)
+    setamount.register_handlers(application)  # Register new plugin
+    message_handler.register_handlers(application)
 
     logger.info("Starting bot")
     try:
