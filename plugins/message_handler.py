@@ -1,129 +1,87 @@
-import logging
-from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from database.database import db
-from config import GROUP_CHAT_IDS, CURRENCY, LOG_CHANNEL_ID
+import logging
+from config import GROUP_CHAT_IDS, CURRENCY
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler("bot.log", mode='a'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    message = update.effective_message
-    user = update.effective_user
-    chat = update.effective_chat
+    user_id = str(update.effective_user.id)
+    chat_id = str(update.effective_chat.id)
+    message_text = update.message.text if update.message.text else ""
 
-    if not user or not chat or chat.type not in ["group", "supergroup"]:
-        logger.debug(f"Ignoring message: user={user}, chat_type={chat.type if chat else None}")
-        return
-
-    user_id = str(user.id)
-    chat_id = str(chat.id)
-
-    if chat_id not in GROUP_CHAT_IDS:
-        logger.debug(f"Message in non-approved group {chat_id} by user {user_id}")
+    # Only process messages from approved group
+    if chat_id != "-1002061898677":
+        logger.debug(f"Message from user {user_id} ignored in unapproved chat {chat_id}")
         return
 
     try:
-        # Check if user exists, create if not
-        db_user = await db.get_user(user_id)
-        if not db_user:
-            await db.create_user(user_id, {
-                "first_name": user.first_name or "",
-                "last_name": user.last_name or "",
-                "username": user.username or ""
-            })
-            db_user = await db.get_user(user_id)
-            if not db_user:
-                logger.error(f"Failed to create or retrieve user {user_id}")
-                await message.reply_text("Error processing your account. Please try again later.")
-                return
-
-        # Initialize group_messages if missing
-        if chat_id not in db_user.get("group_messages", {}):
-            await db.update_user(user_id, {f"group_messages.{chat_id}": 0})
-
-        # Check rate limit (5 messages per minute)
-        if await db.check_rate_limit(user_id):
-            await message.reply_text("You are sending messages too quickly. Please wait a minute.")
-            try:
-                await context.bot.send_message(
-                    chat_id=LOG_CHANNEL_ID,
-                    text=f"User {user_id} hit rate limit in group {chat_id}"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to notify log channel {LOG_CHANNEL_ID}: {e}")
-            return
-
-        # Increment message count
-        if not await db.increment_messages(user_id, chat_id):
-            logger.error(f"Failed to increment messages for user {user_id} in group {chat_id}")
-            await message.reply_text("Error counting your message. Please try again.")
-            return
-        logger.info(f"Incremented message count for user {user_id} in group {chat_id}")
-
-        # Check if user earned currency
-        messages_per_kyat = await db.get_message_rate() or 3
         user = await db.get_user(user_id)
         if not user:
-            logger.error(f"User {user_id} not found after increment")
-            await message.reply_text("Error retrieving your account. Please try again.")
+            user = await db.create_user(user_id, {
+                "first_name": update.effective_user.first_name,
+                "last_name": update.effective_user.last_name
+            })
+            if not user:
+                logger.error(f"Failed to create user {user_id} in handle_message")
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="An error occurred. Please try again later or contact support."
+                )
+                return
+            logger.info(f"Created new user {user_id} during message handling")
+
+        if user.get("banned", False):
+            logger.info(f"Banned user {user_id} attempted to send a message in chat {chat_id}")
             return
 
-        group_messages = user["group_messages"].get(chat_id, 0)
-        if group_messages > 0 and group_messages % messages_per_kyat == 0:
-            earned = 1.0
-            if not await db.update_balance(user_id, earned):
-                logger.error(f"Failed to update balance for user {user_id}")
-                await message.reply_text("Error updating your balance. Please try again.")
-                return
-            user = await db.get_user(user_id)
-            balance = user["balance"]
-            await message.reply_text(
-                f"🎉 You earned {earned} {CURRENCY}!\n"
-                f"Your new balance: {balance} {CURRENCY}"
-            )
-            try:
-                await context.bot.send_message(
-                    chat_id=LOG_CHANNEL_ID,
-                    text=f"User {user_id} earned {earned} {CURRENCY} in group {chat_id}. New balance: {balance}"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to notify log channel {LOG_CHANNEL_ID}: {e}")
-            logger.info(f"User {user_id} earned {earned} {CURRENCY} in group {chat_id}")
+        rate_limited = await db.check_rate_limit(user_id, message_text)
+        if rate_limited:
+            logger.info(f"User {user_id} is rate limited in chat {chat_id}")
+            return
 
-        # Notify at 10 kyat
-        if user["balance"] >= 10 and not user.get("notified_10kyat", False):
-            await message.reply_text(
-                f"🎉 Your balance is {user['balance']} {CURRENCY}! "
-                f"You can now withdraw using /withdraw."
-            )
-            if not await db.update_user(user_id, {"notified_10kyat": True}):
-                logger.warning(f"Failed to set notified_10kyat for user {user_id}")
-            try:
-                await context.bot.send_message(
-                    chat_id=LOG_CHANNEL_ID,
-                    text=f"User {user_id} notified of 10 {CURRENCY} balance in group {chat_id}"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to notify log channel {LOG_CHANNEL_ID}: {e}")
+        await db.increment_message_count(user_id)
+
+        message_rate = await db.get_message_rate()
+        new_messages = user.get("messages", 0) + 1
+        if new_messages % message_rate == 0:
+            current_balance = user.get("balance", 0)
+            new_balance = current_balance + 1
+            await db.update_user(user_id, {"balance": new_balance})
+            logger.info(f"User {user_id} earned 1 {CURRENCY}, new balance: {new_balance}")
+
+            if new_balance == 10 and not user.get("notified_10kyat", False):
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"🎉 ဂုဏ်ယူပါတယ်! သင့်လက်ကျန်ငွေ ၁၀ {CURRENCY} ရှိပြီဖြစ်ပါတယ်။ /withdraw ဖြင့် ငွေထုတ်နိုင်ပါပြီ။"
+                    )
+                    await db.update_user(user_id, {"notified_10kyat": True})
+                    logger.info(f"Notified user {user_id} of 10 {CURRENCY} milestone")
+                except Exception as e:
+                    logger.error(f"Failed to notify user {user_id} of 10 {CURRENCY} milestone: {e}")
 
     except Exception as e:
-        logger.error(f"Error processing message for user {user_id} in group {chat_id}: {e}", exc_info=True)
-        await message.reply_text("An error occurred while processing your message. Please try again.")
-        try:
-            await context.bot.send_message(
-                chat_id=LOG_CHANNEL_ID,
-                text=f"Error processing message for user {user_id} in group {chat_id}: {e}"
-            )
-        except Exception as e:
-            logger.warning(f"Failed to notify log channel {LOG_CHANNEL_ID}: {e}")
+        logger.error(f"Error handling message for user {user_id} in chat {chat_id}: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="An error occurred. Please try again later or contact support."
+        )
 
 def register_handlers(application: Application):
-    logger.info("Registering message handler")
+    logger.info("Registering message handlers")
     application.add_handler(
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.ChatType.GROUPS,
+            filters.Chat(chat_id=[int(gid) for gid in GROUP_CHAT_IDS]) & filters.TEXT & ~filters.COMMAND,
             handle_message
         ),
         group=2
