@@ -4,7 +4,14 @@ from database.database import db
 import logging
 from config import LOG_CHANNEL_ID, ADMIN_IDS
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler("bot.log", mode='a'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 async def addgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -23,8 +30,8 @@ async def addgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     group_id = context.args[0]
-    if not group_id.startswith("-100"):
-        await update.message.reply_text("Invalid group ID. It should start with -100 (e.g., -1002061898677).")
+    if group_id != "-1002061898677":
+        await update.message.reply_text("Only group -1002061898677 can be added for message counting.")
         logger.info(f"Invalid group ID {group_id} provided by user {user_id}")
         return
 
