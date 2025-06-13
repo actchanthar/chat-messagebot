@@ -1,5 +1,5 @@
-import plugins.admin
 import plugins.addgroup
+import plugins.admin
 import plugins.balance
 import plugins.broadcast
 import plugins.channel
@@ -14,4 +14,4 @@ import plugins.transfer
 import plugins.users
 import plugins.withdrawal
 import plugins.rmamount
-import plugins.restwithdraw
+import plugins.setamount
