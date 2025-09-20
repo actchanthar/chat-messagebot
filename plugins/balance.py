@@ -1,31 +1,36 @@
 from telegram import Update
-from telegram.ext import CommandHandler, CallbackContext
-import config
-from database import db
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
+from database.database import db
+import logging
+from config import CURRENCY
 
-async def balance_command(update: Update, context: CallbackContext) -> None:
-    """Show user balance."""
-    user_id = str(update.effective_user.id)
-    user_name = update.effective_user.first_name
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+async def check_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = str(update.effective_user.id if not query else query.from_user.id)
     
-    # Get user data from database
     user = await db.get_user(user_id)
-    
     if not user:
-        # Create new user if not exists
-        user = await db.create_or_update_user(user_id, {
-            "user_id": user_id,
-            "name": user_name,
-            "messages": 0,
-            "balance": 0
-        })
+        await (query.message if query else update.message).reply_text("User not found. Please start with /start.")
+        return
+
+    balance = user.get("balance", 0)
+    displayed_balance = max(0, balance)
+    balance_rounded = int(displayed_balance)
     
-    await update.message.reply_text(
-        f"Hi {user['name']}!\n"
-        f"Your current balance: {user['balance']} {config.CURRENCY}\n"
-        f"Total messages: {user['messages']}"
+    reply_text = (
+        f"💰 Your current balance is {balance_rounded} {CURRENCY}.\n"
+        f"သင့်လက်ကျန်ငွေသည် {balance_rounded} ကျပ်ဖြစ်ပါသည်။"
+    )
+    
+    await (query.message if query else update.message).reply_text(
+        reply_text, 
+        reply_markup=query.message.reply_markup if query else None
     )
 
-def register_handlers(application):
-    """Register handlers for this plugin"""
-    application.add_handler(CommandHandler("balance", balance_command))
+def register_handlers(application: Application):
+    application.add_handler(CallbackQueryHandler(check_balance, pattern="^balance$"))
+    application.add_handler(CommandHandler("balance", check_balance))
+    

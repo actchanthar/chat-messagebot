@@ -1,32 +1,49 @@
 from telegram import Update
-from telegram.ext import CommandHandler, CallbackContext
-import config
-from database import db
+from telegram.ext import Application, CommandHandler, ContextTypes
+from database.database import db
+import logging
+from config import CURRENCY
 
-async def stats_command(update: Update, context: CallbackContext) -> None:
-    """Show chat statistics."""
-    # Get top users from database
-    top_users = await db.get_top_users(limit=10)
-    
-    if not top_users:
-        await update.message.reply_text("No statistics available yet.")
-        return
-    
-    # Get overall stats
-    all_stats = await db.get_all_stats()
-    
-    # Create message with top 10 users
-    message = "📊 Chat Activity Statistics 📊\n\n"
-    message += "Top Active Users:\n"
-    
-    for i, user in enumerate(top_users, 1):
-        message += f"{i}. {user['name']}: {user['messages']} messages, {user['balance']} {config.CURRENCY}\n"
-    
-    message += f"\nTotal group activity: {all_stats['total_messages']} messages"
-    message += f"\nTotal rewards distributed: {all_stats['total_balance']} {config.CURRENCY}"
-    
-    await update.message.reply_text(message)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def register_handlers(application):
-    """Register handlers for this plugin"""
-    application.add_handler(CommandHandler("stats", stats_command))
+async def user_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show comprehensive user statistics"""
+    user_id = str(update.effective_user.id)
+    
+    try:
+        user = await db.get_user(user_id)
+        if not user:
+            await update.message.reply_text("User not found. Please start with /start.")
+            return
+
+        balance = user.get('balance', 0)
+        messages = user.get('messages', 0)
+        total_withdrawn = user.get('total_withdrawn', 0)
+        referrals = user.get('successful_referrals', 0)
+        user_level = user.get('user_level', 1)
+        total_earnings = user.get('total_earnings', 0)
+        
+        stats_message = f"""
+📊 **Your Statistics**
+
+💰 **Balance:** {int(balance)} {CURRENCY}
+📝 **Messages:** {messages:,}
+🎯 **Level:** {user_level}
+💸 **Total Earned:** {int(total_earnings)} {CURRENCY}
+💵 **Total Withdrawn:** {int(total_withdrawn)} {CURRENCY}
+👥 **Referrals:** {referrals}
+📈 **Net Earnings:** {int(total_earnings - total_withdrawn)} {CURRENCY}
+
+🎉 Keep chatting to earn more!
+        """
+        
+        await update.message.reply_text(stats_message)
+        
+    except Exception as e:
+        logger.error(f"Error getting stats for user {user_id}: {e}")
+        await update.message.reply_text("Error retrieving statistics. Please try again.")
+
+def register_handlers(application: Application):
+    """Register stats handlers"""
+    application.add_handler(CommandHandler("stats", user_stats))
