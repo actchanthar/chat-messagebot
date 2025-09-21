@@ -37,12 +37,16 @@ async def show_daily_challenge(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text(message)
         return
 
-    # Get today's challenges - simplified without database dependency
+    # Get today's challenges
     today = datetime.utcnow().date()
     daily_challenges = await get_user_challenges(user_id, today)
     
+    # Add timestamp to make message unique for refresh
+    current_time = datetime.now().strftime("%H:%M:%S")
+    
     challenge_text = f"""
 🎯 **TODAY'S CHALLENGES** - {today.strftime('%B %d, %Y')}
+🕐 Last updated: {current_time}
 
 """
     
@@ -92,7 +96,14 @@ async def show_daily_challenge(update: Update, context: ContextTypes.DEFAULT_TYP
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if query:
-        await query.edit_message_text(challenge_text, reply_markup=reply_markup)
+        try:
+            await query.edit_message_text(challenge_text, reply_markup=reply_markup)
+        except Exception as e:
+            if "not modified" in str(e):
+                # Send new message if content is same
+                await query.message.reply_text(challenge_text, reply_markup=reply_markup)
+            else:
+                logger.error(f"Error editing challenge message: {e}")
     else:
         await update.message.reply_text(challenge_text, reply_markup=reply_markup)
 
@@ -127,7 +138,7 @@ async def get_user_challenges(user_id: str, date) -> list:
             'type': 'earnings',
             'target': 10 + user_level * 5,
             'reward': 30 + user_level * 5,
-            'progress': min(int(user.get('total_earnings', 0)) % 100, 10 + user_level * 5),  # Simplified
+            'progress': min(int(user.get('total_earnings', 0)) % 100, 10 + user_level * 5),
             'completed': False  # Would need daily tracking
         },
         {
@@ -144,14 +155,12 @@ async def get_user_challenges(user_id: str, date) -> list:
     return base_challenges
 
 async def handle_challenge_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle challenge callback queries - FIXED VERSION"""
+    """Handle challenge callback queries"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
     
-    # IMPORTANT: Answer the callback query first
     await query.answer()
-    
     logger.info(f"Processing challenge callback: {data} from user {user_id}")
     
     try:
@@ -159,6 +168,7 @@ async def handle_challenge_callbacks(update: Update, context: ContextTypes.DEFAU
             await show_daily_challenge(update, context)
         
         elif data == "challenge_history":
+            # Remove buttons when showing history
             history_text = """
 🏆 **CHALLENGE HISTORY**
 
@@ -173,11 +183,12 @@ async def handle_challenge_callbacks(update: Update, context: ContextTypes.DEFAU
 • Success Rate: 67.5%
 • Current Streak: 3 days
 
-🎯 **Keep up the great work!**
+🎯 Use /daily to return to today's challenges!
             """
-            await query.edit_message_text(history_text)
+            await query.edit_message_text(history_text)  # No buttons
         
         elif data == "weekly_challenges":
+            # Remove buttons when showing weekly
             weekly_text = f"""
 🎮 **WEEKLY MEGA CHALLENGES**
 
@@ -200,8 +211,9 @@ async def handle_challenge_callbacks(update: Update, context: ContextTypes.DEFAU
 🎁 Reward: 1500 {CURRENCY} + Special achievement
 
 🔥 Weekly challenges reset every Monday!
+🎯 Use /daily to return to today's challenges!
             """
-            await query.edit_message_text(weekly_text)
+            await query.edit_message_text(weekly_text)  # No buttons
         
         else:
             logger.warning(f"Unknown challenge callback: {data}")
@@ -220,7 +232,7 @@ def register_handlers(application: Application):
     application.add_handler(CommandHandler("challenges", challenges_command))
     application.add_handler(CommandHandler("daily", show_daily_challenge))
     
-    # IMPORTANT: Register callback handler with specific pattern
+    # Register callback handler with specific pattern
     application.add_handler(CallbackQueryHandler(
         handle_challenge_callbacks, 
         pattern="^(refresh_challenges|challenge_history|weekly_challenges)$"
