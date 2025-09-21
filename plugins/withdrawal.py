@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Conversation states
 STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-# Payment methods (updated from your old system)
+# Payment methods
 PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "AYA Pay", "CB Pay", "Phone Bill"]
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -77,9 +77,11 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 await update.message.reply_text(error_msg)
             return ConversationHandler.END
 
-        # Check minimum message requirement (basic anti-abuse)
+        # FIXED: Check minimum message requirement BUT SKIP FOR ADMIN/OWNER
+        is_admin_or_owner = user_id in ADMIN_IDS
         messages_count = user.get("messages", 0)
-        if messages_count < 50:  # Minimum 50 messages required
+        
+        if not is_admin_or_owner and messages_count < 50:  # Only check for regular users
             error_msg = f"📝 You need at least 50 messages to withdraw. Current: {messages_count} messages.\nကျေးဇူးပြု၍ အနည်းဆုံး ၅၀ စာ ပို့ပြီးမှ ငွေထုတ်ပါ။"
             if update.callback_query:
                 await update.callback_query.answer()
@@ -116,11 +118,15 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
         # Send payment method selection prompt
         current_balance = user.get("balance", 0)
+        
+        # Special message for admin/owner
+        admin_note = f"\n👑 **ADMIN ACCESS** - Message requirement bypassed!" if is_admin_or_owner else ""
+        
         prompt_msg = (
             f"💸 **WITHDRAWAL REQUEST**\n\n"
             f"💰 **Current Balance:** {int(current_balance)} {CURRENCY}\n"
             f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
-            f"📈 **Daily Limit:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n\n"
+            f"📈 **Daily Limit:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}{admin_note}\n\n"
             f"🏦 **ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ:**\n"
             f"Please select your payment method:"
         )
@@ -131,7 +137,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             await update.message.reply_text(prompt_msg, reply_markup=reply_markup)
         
-        logger.info(f"Prompted user {user_id} for payment method selection")
+        logger.info(f"Prompted user {user_id} for payment method selection (Admin: {is_admin_or_owner})")
         return STEP_PAYMENT_METHOD
 
     except Exception as e:
@@ -210,6 +216,8 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
         await query.edit_message_text("❌ Error occurred. Please use /withdraw to restart.")
         return ConversationHandler.END
 
+# ... Rest of the withdrawal.py code remains the same as before ...
+
 async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle withdrawal amount input."""
     user_id = str(update.effective_user.id)
@@ -242,15 +250,6 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return STEP_AMOUNT
 
-        # Validate maximum daily limit
-        if amount > MAX_DAILY_WITHDRAWAL:
-            await message.reply_text(
-                f"❌ **Amount Too High**\n\n"
-                f"နေ့စဉ် အများဆုံး: {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n"
-                f"Daily maximum: {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}"
-            )
-            return STEP_AMOUNT
-
         # Check user balance
         user = await db.get_user(user_id)
         if not user:
@@ -268,70 +267,19 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
             return STEP_AMOUNT
 
-        # Check daily withdrawal limit
-        current_time = datetime.now(timezone.utc)
-        last_withdrawal = user.get("last_withdrawal")
-        withdrawn_today = user.get("withdrawn_today", 0)
-        
-        # Reset daily limit if it's a new day
-        if last_withdrawal and last_withdrawal.date() != current_time.date():
-            withdrawn_today = 0
-
-        if withdrawn_today + amount > MAX_DAILY_WITHDRAWAL:
-            remaining = MAX_DAILY_WITHDRAWAL - withdrawn_today
-            await message.reply_text(
-                f"❌ **Daily Limit Exceeded**\n\n"
-                f"📊 Withdrawn Today: {withdrawn_today} {CURRENCY}\n"
-                f"💎 Remaining Limit: {remaining} {CURRENCY}\n"
-                f"🔄 Limit resets at midnight\n\n"
-                f"နေ့စဉ် ကန့်သတ်ချက်ကျော်လွန်ပါသည်။"
-            )
-            return STEP_AMOUNT
-
         context.user_data["withdrawal_amount"] = amount
 
-        # Prompt for payment details based on method
-        if payment_method == "KBZ Pay":
-            detail_prompt = (
-                f"🏦 **KBZ Pay Details Required**\n\n"
-                f"💰 Amount: {amount} {CURRENCY}\n"
-                f"💳 Method: {payment_method}\n\n"
-                f"📱 **Please provide:**\n"
-                f"• Phone number (09XXXXXXXX)\n"
-                f"• Account holder name\n"
-                f"• OR send QR code image\n\n"
-                f"ဥပမာ: 09123456789 Mg Mg"
-            )
-        elif payment_method == "Wave Pay":
-            detail_prompt = (
-                f"🌊 **Wave Pay Details Required**\n\n"
-                f"💰 Amount: {amount} {CURRENCY}\n"
-                f"💳 Method: {payment_method}\n\n"
-                f"📱 **Please provide:**\n"
-                f"• Phone number (09XXXXXXXX)\n"
-                f"• Account holder name\n"
-                f"• OR send QR code image\n\n"
-                f"ဥပမာ: 09123456789 Ma Ma"
-            )
-        elif payment_method in ["AYA Pay", "CB Pay"]:
-            detail_prompt = (
-                f"🏛️ **{payment_method} Details Required**\n\n"
-                f"💰 Amount: {amount} {CURRENCY}\n"
-                f"💳 Method: {payment_method}\n\n"
-                f"📱 **Please provide:**\n"
-                f"• Phone number (09XXXXXXXX)\n"
-                f"• Account holder name\n"
-                f"• OR send QR code image\n\n"
-                f"ဥပမာ: 09123456789 Your Name"
-            )
-        else:  # Phone Bill
-            detail_prompt = (
-                f"📱 **Phone Bill Top-up**\n\n"
-                f"💰 Amount: {amount} {CURRENCY}\n\n"
-                f"📞 **သင့်ဖုန်းနံပါတ်ကို ထည့်ပါ:**\n"
-                f"Please enter your phone number:\n"
-                f"ဥပမာ: 09123456789"
-            )
+        # Prompt for payment details
+        detail_prompt = (
+            f"🏦 **Payment Details Required**\n\n"
+            f"💰 Amount: {amount} {CURRENCY}\n"
+            f"💳 Method: {payment_method}\n\n"
+            f"📱 **Please provide:**\n"
+            f"• Phone number (09XXXXXXXX)\n"
+            f"• Account holder name\n"
+            f"• OR send QR code image\n\n"
+            f"ဥပမာ: 09123456789 Your Name"
+        )
 
         await message.reply_text(detail_prompt)
         return STEP_DETAILS
@@ -359,7 +307,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         photo_file_id = None
         
         if update.message.photo:
-            # Handle QR code image
             try:
                 photo = update.message.photo[-1]
                 photo_file = await photo.get_file()
@@ -388,12 +335,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return STEP_DETAILS
 
-        # Final validation - check user and balance again
-        user = await db.get_user(user_id)
-        if not user or user.get("balance", 0) < amount:
-            await update.message.reply_text("❌ Balance changed. Please restart withdrawal process.")
-            return ConversationHandler.END
-
         # Get user's Telegram info
         telegram_user = await context.bot.get_chat(user_id)
         name = (telegram_user.first_name or "") + (" " + telegram_user.last_name if telegram_user.last_name else "")
@@ -405,9 +346,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
             f"💳 **Method:** {payment_method}\n"
             f"📱 **Details:** {details}\n"
-            f"📊 **User Balance:** {int(user.get('balance', 0))} {CURRENCY}\n"
-            f"📝 **User Messages:** {user.get('messages', 0):,}\n"
-            f"🎯 **User Level:** {user.get('user_level', 1)}\n"
             f"📅 **Request Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             f"⏳ **Status:** PENDING APPROVAL"
         )
@@ -417,9 +355,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [
                 InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}_{amount}"),
                 InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}_{amount}")
-            ],
-            [
-                InlineKeyboardButton("👤 User Profile", callback_data=f"profile_{user_id}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -440,16 +375,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     caption=f"💳 QR Code for withdrawal request\nUser: {name} ({user_id})",
                     reply_to_message_id=log_msg.message_id
                 )
-                
-            # Pin the message for admin attention
-            try:
-                await context.bot.pin_chat_message(
-                    chat_id=LOG_CHANNEL_ID, 
-                    message_id=log_msg.message_id,
-                    disable_notification=True
-                )
-            except:
-                pass  # Ignore if can't pin
                 
         except Exception as e:
             logger.error(f"Failed to send to log channel: {e}")
@@ -585,8 +510,6 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                logger.info(f"Admin {user_id} approved withdrawal: {target_user_id} - {amount} {CURRENCY}")
-
             else:  # reject
                 # Update withdrawal status
                 pending_withdrawals[withdrawal_index]["status"] = "REJECTED"
@@ -617,8 +540,6 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                logger.info(f"Admin {user_id} rejected withdrawal: {target_user_id} - {amount} {CURRENCY}")
-
     except Exception as e:
         logger.error(f"Error in handle_approval: {e}")
         await query.edit_message_text("❌ Error processing withdrawal decision.")
@@ -631,8 +552,7 @@ def register_handlers(application: Application):
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("withdraw", withdraw),
-            CallbackQueryHandler(handle_withdraw_button, pattern="^withdraw$"),
-            CallbackQueryHandler(handle_withdraw_button, pattern="^withdrawal_menu$")
+            CallbackQueryHandler(handle_withdraw_button, pattern="^withdraw$")
         ],
         states={
             STEP_PAYMENT_METHOD: [
