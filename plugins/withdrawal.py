@@ -1,278 +1,661 @@
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+    ConversationHandler,
+    CallbackQueryHandler,
+)
+from telegram.error import TelegramError, BadRequest
+import logging
 import sys
 import os
+from datetime import datetime, timezone
+import traceback
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from config import (
+    MIN_WITHDRAWAL,
+    MAX_DAILY_WITHDRAWAL,
+    CURRENCY,
+    LOG_CHANNEL_ID,
+    ADMIN_IDS,
+    APPROVED_GROUPS
+)
 from database.database import db
-import logging
-import re
-from datetime import datetime
-from config import ADMIN_IDS, LOG_CHANNEL_ID, CURRENCY, MIN_WITHDRAWAL, MAX_DAILY_WITHDRAWAL
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-PAYMENT_PATTERNS = {
-    "kpay": r"^09\d{7,9}$",
-    "wavepay": r"^09\d{7,9}$",  
-    "ayapay": r"^09\d{7,9}$",
-    "cbpay": r"^09\d{7,9}$",
-}
+# Conversation states
+STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-PAYMENT_METHODS = {
-    "kpay": "KBZ Pay",
-    "wavepay": "Wave Pay", 
-    "ayapay": "AYA Pay",
-    "cbpay": "CB Pay"
-}
+# Payment methods (updated from your old system)
+PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "AYA Pay", "CB Pay", "Phone Bill"]
 
-async def request_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle withdrawal requests"""
+async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle the /withdraw command to initiate withdrawal process."""
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    
-    # Check if command is used in private chat
-    if chat_id != int(user_id):
-        await update.message.reply_text(
-            "⚠️ For security, withdrawal requests must be made in private chat.\n"
-            "Please message me directly."
-        )
-        return
-    
-    # Validate arguments
-    if not context.args or len(context.args) < 3:
-        usage_text = f"""
-💸 **Withdrawal Request Format:**
+    logger.info(f"Withdraw command initiated by user {user_id}")
 
-**Usage:** `/withdraw <amount> <method> <phone_number>`
-
-**Available Methods:**
-• `kpay` - KBZ Pay
-• `wavepay` - Wave Pay  
-• `ayapay` - AYA Pay
-• `cbpay` - CB Pay
-
-**Examples:**
-• `/withdraw 1000 kpay 09123456789`
-• `/withdraw 2000 wavepay 09987654321`
-
-**Requirements:**
-• Minimum: {MIN_WITHDRAWAL} {CURRENCY}
-• Maximum per day: {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}
-• Processing time: 24-48 hours
-        """
-        await update.message.reply_text(usage_text)
-        return
-    
     try:
-        # Parse arguments
-        amount_str = context.args[0]
-        method = context.args[1].lower()
-        phone_number = context.args[2]
-        
-        # Validate amount
-        try:
-            amount = int(float(amount_str))
-        except ValueError:
-            await update.message.reply_text("❌ Invalid amount. Please enter a whole number.")
-            return
-        
-        # Validate minimum amount
-        if amount < MIN_WITHDRAWAL:
-            await update.message.reply_text(f"❌ Minimum withdrawal amount is {MIN_WITHDRAWAL} {CURRENCY}")
-            return
-        
-        # Validate maximum amount  
-        if amount > MAX_DAILY_WITHDRAWAL:
-            await update.message.reply_text(f"❌ Maximum withdrawal amount is {MAX_DAILY_WITHDRAWAL:,} {CURRENCY} per day")
-            return
-        
-        # Validate payment method
-        if method not in PAYMENT_METHODS:
-            methods_list = ", ".join([f"`{k}`" for k in PAYMENT_METHODS.keys()])
-            await update.message.reply_text(f"❌ Invalid payment method. Available: {methods_list}")
-            return
-        
-        # Validate phone number format
-        if method in PAYMENT_PATTERNS:
-            if not re.match(PAYMENT_PATTERNS[method], phone_number):
-                await update.message.reply_text(
-                    f"❌ Invalid phone number format for {PAYMENT_METHODS[method]}.\n"
-                    f"Expected format: 09XXXXXXXX"
-                )
-                return
-        
-        # Get user data
+        # Check if command is used in private chat
+        if update.effective_chat.type != "private":
+            error_msg = "🔒 ကျေးဇူးပြု၍ /withdraw ကို သီးသန့်ချက်တွင်သာ အသုံးပြုပါ။\nFor security, please use withdrawal in private chat only."
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
+            logger.warning(f"User {user_id} attempted withdrawal in non-private chat")
+            return ConversationHandler.END
+
+        # Get user from database
         user = await db.get_user(user_id)
         if not user:
-            await update.message.reply_text("❌ User not found. Please start with /start")
-            return
-        
+            error_msg = "❌ အသုံးပြုသူ မတွေ့ပါ။ ကျေးဇူးပြု၍ /start ဖြင့် စတင်ပါ။\nUser not found. Please start with /start."
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
+            return ConversationHandler.END
+
         # Check if user is banned
         if user.get("banned", False):
-            await update.message.reply_text("❌ Your account is suspended.")
-            return
-        
-        # Validate user balance
-        current_balance = user.get("balance", 0)
-        if current_balance < amount:
-            await update.message.reply_text(
-                f"❌ Insufficient balance!\n"
-                f"💰 Your balance: {int(current_balance)} {CURRENCY}\n"
-                f"💸 Requested: {amount} {CURRENCY}"
+            error_msg = "🚫 သင်သည် ဤဘော့ကို အသုံးပြုခွင့် ပိတ်ပင်ထားပါသည်။\nYou are banned from using this bot."
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
+            return ConversationHandler.END
+
+        # Check minimum message requirement (basic anti-abuse)
+        messages_count = user.get("messages", 0)
+        if messages_count < 50:  # Minimum 50 messages required
+            error_msg = f"📝 You need at least 50 messages to withdraw. Current: {messages_count} messages.\nကျေးဇူးပြု၍ အနည်းဆုံး ၅၀ စာ ပို့ပြီးမှ ငွေထုတ်ပါ။"
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
+            return ConversationHandler.END
+
+        # Check for pending withdrawals
+        pending_withdrawals = user.get("pending_withdrawals", [])
+        pending_count = sum(1 for w in pending_withdrawals if w.get("status") == "PENDING")
+        if pending_count > 0:
+            error_msg = (
+                "⏳ သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်မှု ရှိနေပါသည်။\n"
+                "Admin မှ အတည်ပြုပြီးမှ နောက်ထပ် ငွေထုတ်နိုင်ပါသည်။\n\n"
+                "You have pending withdrawal requests. Please wait for admin approval."
             )
-            return
+            if update.callback_query:
+                await update.callback_query.answer()
+                await update.callback_query.message.reply_text(error_msg)
+            else:
+                await update.message.reply_text(error_msg)
+            return ConversationHandler.END
+
+        # Clear user data for fresh withdrawal
+        context.user_data.clear()
+
+        # Create payment method selection keyboard
+        keyboard = []
+        for method in PAYMENT_METHODS:
+            keyboard.append([InlineKeyboardButton(f"💳 {method}", callback_data=f"method_{method}")])
+        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Send payment method selection prompt
+        current_balance = user.get("balance", 0)
+        prompt_msg = (
+            f"💸 **WITHDRAWAL REQUEST**\n\n"
+            f"💰 **Current Balance:** {int(current_balance)} {CURRENCY}\n"
+            f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
+            f"📈 **Daily Limit:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n\n"
+            f"🏦 **ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ:**\n"
+            f"Please select your payment method:"
+        )
         
-        # Create withdrawal request confirmation
-        confirmation_text = f"""
-🔍 **Withdrawal Request Confirmation**
-
-💰 **Amount:** {amount:,} {CURRENCY}
-📱 **Method:** {PAYMENT_METHODS[method]}
-📞 **Phone:** {phone_number}
-💳 **Current Balance:** {int(current_balance)} {CURRENCY}
-💵 **After Withdrawal:** {int(current_balance - amount)} {CURRENCY}
-
-⏱️ **Processing Time:** 24-48 hours
-💼 **Status:** Pending Admin Approval
-
-❓ **Confirm this withdrawal request?**
-        """
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.edit_text(prompt_msg, reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(prompt_msg, reply_markup=reply_markup)
         
-        # Create confirmation keyboard
+        logger.info(f"Prompted user {user_id} for payment method selection")
+        return STEP_PAYMENT_METHOD
+
+    except Exception as e:
+        logger.error(f"Error in withdraw for user {user_id}: {e}")
+        error_msg = "❌ An unexpected error occurred. Please try again later."
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text(error_msg)
+        else:
+            await update.message.reply_text(error_msg)
+        return ConversationHandler.END
+
+async def handle_withdraw_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle withdrawal button callback from start menu."""
+    logger.info(f"Withdraw button clicked by user {update.callback_query.from_user.id}")
+    return await withdraw(update, context)
+
+async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle payment method selection."""
+    query = update.callback_query
+    user_id = str(query.from_user.id)
+    data = query.data
+    logger.info(f"Payment method selection for user {user_id}: {data}")
+
+    try:
+        await query.answer()
+
+        if data == "cancel":
+            await query.edit_message_text(
+                "❌ **Withdrawal Cancelled**\n\n"
+                "ငွေထုတ်မှု လုပ်ငန်းစဉ်ကို ပယ်ဖျက်လိုက်ပါပြီ။\n"
+                "Use /withdraw to start again anytime."
+            )
+            return ConversationHandler.END
+
+        if not data.startswith("method_"):
+            await query.edit_message_text("❌ Invalid selection. Please use /withdraw to restart.")
+            return ConversationHandler.END
+
+        method = data.replace("method_", "")
+        if method not in PAYMENT_METHODS:
+            await query.edit_message_text("❌ Invalid payment method. Please try again.")
+            return STEP_PAYMENT_METHOD
+
+        context.user_data["payment_method"] = method
+        logger.info(f"User {user_id} selected payment method: {method}")
+
+        # Special handling for Phone Bill (fixed amount)
+        if method == "Phone Bill":
+            context.user_data["withdrawal_amount"] = 1000
+            await query.edit_message_text(
+                f"📱 **Phone Bill Withdrawal**\n\n"
+                f"💰 **Fixed Amount:** 1000 {CURRENCY}\n\n"
+                f"📞 **သင့်ဖုန်းနံပါတ်ကို ထည့်ပါ:**\n"
+                f"Please enter your phone number (e.g., 09123456789):"
+            )
+            return STEP_DETAILS
+
+        # For other methods, ask for amount
+        user = await db.get_user(user_id)
+        current_balance = user.get("balance", 0) if user else 0
+        
+        await query.edit_message_text(
+            f"💰 **Enter Withdrawal Amount**\n\n"
+            f"🏦 **Payment Method:** {method}\n"
+            f"💳 **Your Balance:** {int(current_balance)} {CURRENCY}\n"
+            f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
+            f"📈 **Maximum Today:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n\n"
+            f"💸 **ငွေထုတ်ရန် ပမာဏကို ထည့်ပါ:**\n"
+            f"Please enter the amount to withdraw:"
+        )
+        return STEP_AMOUNT
+
+    except Exception as e:
+        logger.error(f"Error in handle_payment_method: {e}")
+        await query.edit_message_text("❌ Error occurred. Please use /withdraw to restart.")
+        return ConversationHandler.END
+
+async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle withdrawal amount input."""
+    user_id = str(update.effective_user.id)
+    message = update.message
+    logger.info(f"Amount input from user {user_id}: {message.text}")
+
+    try:
+        payment_method = context.user_data.get("payment_method")
+        if not payment_method:
+            await message.reply_text("❌ Session expired. Please restart with /withdraw")
+            return ConversationHandler.END
+
+        # Parse and validate amount
+        try:
+            amount = int(float(message.text.strip()))
+        except ValueError:
+            await message.reply_text(
+                "❌ **Invalid Amount**\n\n"
+                "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (e.g., 1000)\n"
+                "Please enter a valid number."
+            )
+            return STEP_AMOUNT
+
+        # Validate minimum amount
+        if amount < MIN_WITHDRAWAL:
+            await message.reply_text(
+                f"❌ **Amount Too Low**\n\n"
+                f"အနည်းဆုံး ငွေထုတ်ပမာဏ: {MIN_WITHDRAWAL} {CURRENCY}\n"
+                f"Minimum withdrawal: {MIN_WITHDRAWAL} {CURRENCY}"
+            )
+            return STEP_AMOUNT
+
+        # Validate maximum daily limit
+        if amount > MAX_DAILY_WITHDRAWAL:
+            await message.reply_text(
+                f"❌ **Amount Too High**\n\n"
+                f"နေ့စဉ် အများဆုံး: {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n"
+                f"Daily maximum: {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}"
+            )
+            return STEP_AMOUNT
+
+        # Check user balance
+        user = await db.get_user(user_id)
+        if not user:
+            await message.reply_text("❌ User not found. Please restart with /start")
+            return ConversationHandler.END
+
+        balance = user.get("balance", 0)
+        if balance < amount:
+            await message.reply_text(
+                f"❌ **Insufficient Balance**\n\n"
+                f"💰 Your Balance: {int(balance)} {CURRENCY}\n"
+                f"💸 Requested: {amount} {CURRENCY}\n"
+                f"💡 Need {amount - int(balance)} more {CURRENCY}\n\n"
+                f"လက်ကျန်ငွေ မလုံလောက်ပါ။"
+            )
+            return STEP_AMOUNT
+
+        # Check daily withdrawal limit
+        current_time = datetime.now(timezone.utc)
+        last_withdrawal = user.get("last_withdrawal")
+        withdrawn_today = user.get("withdrawn_today", 0)
+        
+        # Reset daily limit if it's a new day
+        if last_withdrawal and last_withdrawal.date() != current_time.date():
+            withdrawn_today = 0
+
+        if withdrawn_today + amount > MAX_DAILY_WITHDRAWAL:
+            remaining = MAX_DAILY_WITHDRAWAL - withdrawn_today
+            await message.reply_text(
+                f"❌ **Daily Limit Exceeded**\n\n"
+                f"📊 Withdrawn Today: {withdrawn_today} {CURRENCY}\n"
+                f"💎 Remaining Limit: {remaining} {CURRENCY}\n"
+                f"🔄 Limit resets at midnight\n\n"
+                f"နေ့စဉ် ကန့်သတ်ချက်ကျော်လွန်ပါသည်။"
+            )
+            return STEP_AMOUNT
+
+        context.user_data["withdrawal_amount"] = amount
+
+        # Prompt for payment details based on method
+        if payment_method == "KBZ Pay":
+            detail_prompt = (
+                f"🏦 **KBZ Pay Details Required**\n\n"
+                f"💰 Amount: {amount} {CURRENCY}\n"
+                f"💳 Method: {payment_method}\n\n"
+                f"📱 **Please provide:**\n"
+                f"• Phone number (09XXXXXXXX)\n"
+                f"• Account holder name\n"
+                f"• OR send QR code image\n\n"
+                f"ဥပမာ: 09123456789 Mg Mg"
+            )
+        elif payment_method == "Wave Pay":
+            detail_prompt = (
+                f"🌊 **Wave Pay Details Required**\n\n"
+                f"💰 Amount: {amount} {CURRENCY}\n"
+                f"💳 Method: {payment_method}\n\n"
+                f"📱 **Please provide:**\n"
+                f"• Phone number (09XXXXXXXX)\n"
+                f"• Account holder name\n"
+                f"• OR send QR code image\n\n"
+                f"ဥပမာ: 09123456789 Ma Ma"
+            )
+        elif payment_method in ["AYA Pay", "CB Pay"]:
+            detail_prompt = (
+                f"🏛️ **{payment_method} Details Required**\n\n"
+                f"💰 Amount: {amount} {CURRENCY}\n"
+                f"💳 Method: {payment_method}\n\n"
+                f"📱 **Please provide:**\n"
+                f"• Phone number (09XXXXXXXX)\n"
+                f"• Account holder name\n"
+                f"• OR send QR code image\n\n"
+                f"ဥပမာ: 09123456789 Your Name"
+            )
+        else:  # Phone Bill
+            detail_prompt = (
+                f"📱 **Phone Bill Top-up**\n\n"
+                f"💰 Amount: {amount} {CURRENCY}\n\n"
+                f"📞 **သင့်ဖုန်းနံပါတ်ကို ထည့်ပါ:**\n"
+                f"Please enter your phone number:\n"
+                f"ဥပမာ: 09123456789"
+            )
+
+        await message.reply_text(detail_prompt)
+        return STEP_DETAILS
+
+    except Exception as e:
+        logger.error(f"Error in handle_amount: {e}")
+        await message.reply_text("❌ Error occurred. Please restart with /withdraw")
+        return ConversationHandler.END
+
+async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle payment details input (text or QR image)."""
+    user_id = str(update.effective_user.id)
+    logger.info(f"Payment details from user {user_id}")
+
+    try:
+        amount = context.user_data.get("withdrawal_amount")
+        payment_method = context.user_data.get("payment_method")
+        
+        if not amount or not payment_method:
+            await update.message.reply_text("❌ Session expired. Please restart with /withdraw")
+            return ConversationHandler.END
+
+        # Process input (text or image)
+        details = None
+        photo_file_id = None
+        
+        if update.message.photo:
+            # Handle QR code image
+            try:
+                photo = update.message.photo[-1]
+                photo_file = await photo.get_file()
+                photo_file_id = photo.file_id
+                details = "QR Code Image Provided"
+                logger.info(f"User {user_id} provided QR code image")
+            except Exception as e:
+                logger.error(f"Error processing photo: {e}")
+                await update.message.reply_text("❌ Error processing image. Please try again.")
+                return STEP_DETAILS
+                
+        elif update.message.text:
+            details = update.message.text.strip()
+            if not details:
+                await update.message.reply_text(
+                    "❌ **Empty Details**\n\n"
+                    "ကျေးဇူးပြု၍ အချက်အလက်များ ထည့်ပါ။\n"
+                    "Please provide payment details or send QR image."
+                )
+                return STEP_DETAILS
+        else:
+            await update.message.reply_text(
+                "❌ **Invalid Input**\n\n"
+                "ကျေးဇူးပြု၍ စာသား သို့မဟုတ် QR ပုံ ပို့ပါ။\n"
+                "Please send text details or QR image."
+            )
+            return STEP_DETAILS
+
+        # Final validation - check user and balance again
+        user = await db.get_user(user_id)
+        if not user or user.get("balance", 0) < amount:
+            await update.message.reply_text("❌ Balance changed. Please restart withdrawal process.")
+            return ConversationHandler.END
+
+        # Get user's Telegram info
+        telegram_user = await context.bot.get_chat(user_id)
+        name = (telegram_user.first_name or "") + (" " + telegram_user.last_name if telegram_user.last_name else "")
+
+        # Create admin approval message
+        admin_message = (
+            f"🔔 **NEW WITHDRAWAL REQUEST**\n\n"
+            f"👤 **User:** {name} ({user_id})\n"
+            f"💰 **Amount:** {amount:,} {CURRENCY}\n"
+            f"💳 **Method:** {payment_method}\n"
+            f"📱 **Details:** {details}\n"
+            f"📊 **User Balance:** {int(user.get('balance', 0))} {CURRENCY}\n"
+            f"📝 **User Messages:** {user.get('messages', 0):,}\n"
+            f"🎯 **User Level:** {user.get('user_level', 1)}\n"
+            f"📅 **Request Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"⏳ **Status:** PENDING APPROVAL"
+        )
+
+        # Create admin keyboard
         keyboard = [
             [
-                InlineKeyboardButton("✅ Confirm", callback_data=f"confirm_withdraw:{amount}:{method}:{phone_number}"),
-                InlineKeyboardButton("❌ Cancel", callback_data="cancel_withdraw")
+                InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}_{amount}"),
+                InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}_{amount}")
+            ],
+            [
+                InlineKeyboardButton("👤 User Profile", callback_data=f"profile_{user_id}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(confirmation_text, reply_markup=reply_markup)
-        
-    except Exception as e:
-        logger.error(f"Error processing withdrawal request: {e}")
-        await update.message.reply_text("❌ An error occurred. Please try again.")
 
-async def handle_withdrawal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle withdrawal confirmation callbacks"""
+        # Send to admin log channel
+        try:
+            log_msg = await context.bot.send_message(
+                chat_id=LOG_CHANNEL_ID,
+                text=admin_message,
+                reply_markup=reply_markup
+            )
+            
+            # Send QR image if provided
+            if photo_file_id:
+                await context.bot.send_photo(
+                    chat_id=LOG_CHANNEL_ID,
+                    photo=photo_file_id,
+                    caption=f"💳 QR Code for withdrawal request\nUser: {name} ({user_id})",
+                    reply_to_message_id=log_msg.message_id
+                )
+                
+            # Pin the message for admin attention
+            try:
+                await context.bot.pin_chat_message(
+                    chat_id=LOG_CHANNEL_ID, 
+                    message_id=log_msg.message_id,
+                    disable_notification=True
+                )
+            except:
+                pass  # Ignore if can't pin
+                
+        except Exception as e:
+            logger.error(f"Failed to send to log channel: {e}")
+            await update.message.reply_text("❌ Failed to submit withdrawal request. Please try again.")
+            return ConversationHandler.END
+
+        # Update user with pending withdrawal
+        pending_withdrawal = {
+            "amount": amount,
+            "payment_method": payment_method,
+            "details": details,
+            "photo_file_id": photo_file_id,
+            "status": "PENDING",
+            "message_id": log_msg.message_id,
+            "request_time": datetime.now(timezone.utc).isoformat()
+        }
+        
+        current_pending = user.get("pending_withdrawals", [])
+        current_pending.append(pending_withdrawal)
+        
+        await db.update_user(user_id, {
+            "pending_withdrawals": current_pending,
+            "first_name": telegram_user.first_name,
+            "last_name": telegram_user.last_name
+        })
+
+        # Success message to user
+        success_message = (
+            f"✅ **WITHDRAWAL SUBMITTED SUCCESSFULLY!**\n\n"
+            f"🆔 **Request ID:** WD-{log_msg.message_id}\n"
+            f"💰 **Amount:** {amount:,} {CURRENCY}\n"
+            f"💳 **Method:** {payment_method}\n"
+            f"📱 **Details:** {details if not photo_file_id else 'QR Code Provided'}\n\n"
+            f"⏳ **Status:** Pending Admin Approval\n"
+            f"⏱️ **Processing Time:** Usually 2-24 hours\n\n"
+            f"🔔 **You will be notified when processed.**\n\n"
+            f"သင့်ငွေထုတ်မှုကို အောင်မြင်စွာ တင်ပြပါသည်။\n"
+            f"Admin ၏ အတည်ပြုချက်ကို စောင့်ပါ။"
+        )
+        
+        await update.message.reply_text(success_message)
+        logger.info(f"Withdrawal request submitted: User {user_id}, Amount {amount}, Method {payment_method}")
+
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Error in handle_details: {e}")
+        await update.message.reply_text("❌ Error occurred. Please restart with /withdraw")
+        return ConversationHandler.END
+
+async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle admin approval/rejection of withdrawal requests."""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
     
+    if user_id not in ADMIN_IDS:
+        await query.answer("❌ You are not authorized!", show_alert=True)
+        return
+
     await query.answer()
     
     try:
-        if data == "cancel_withdraw":
-            await query.edit_message_text("❌ Withdrawal request cancelled.")
-            return
-        
-        if data.startswith("confirm_withdraw:"):
-            # Parse callback data
-            _, amount_str, method, phone_number = data.split(":", 3)
-            amount = int(float(amount_str))
+        if data.startswith("approve_") or data.startswith("reject_"):
+            parts = data.split("_")
+            action = parts[0]
+            target_user_id = parts[1]
+            amount = int(parts[2])
             
-            # Create withdrawal request
-            result = await db.create_withdrawal_request(
-                user_id=user_id,
-                amount=amount,
-                payment_method=method,
-                payment_details=phone_number
-            )
+            # Process the withdrawal
+            user = await db.get_user(target_user_id)
+            if not user:
+                await query.edit_message_text("❌ User not found.")
+                return
+
+            # Find the pending withdrawal
+            pending_withdrawals = user.get("pending_withdrawals", [])
+            withdrawal = None
             
-            if result["success"]:
-                withdrawal_id = result["withdrawal_id"]
-                
-                success_text = f"""
-✅ **Withdrawal Request Submitted!**
+            for i, w in enumerate(pending_withdrawals):
+                if (w["amount"] == amount and 
+                    w["status"] == "PENDING" and 
+                    w.get("message_id") == query.message.message_id):
+                    withdrawal = w
+                    withdrawal_index = i
+                    break
 
-🆔 **Request ID:** `{withdrawal_id}`
-💰 **Amount:** {amount:,} {CURRENCY}
-📱 **Method:** {PAYMENT_METHODS[method]}
-📞 **Phone:** {phone_number}
+            if not withdrawal:
+                await query.edit_message_text("❌ Withdrawal request not found.")
+                return
 
-📋 **Status:** Pending Review
-⏱️ **Processing Time:** 24-48 hours
-🔔 **You will be notified when processed**
+            if action == "approve":
+                # Check balance again
+                if user.get("balance", 0) < amount:
+                    await query.edit_message_text("❌ User has insufficient balance!")
+                    return
 
-💡 **Note:** Your balance has been reserved for this withdrawal.
-                """
+                # Approve withdrawal - deduct balance
+                new_balance = user.get("balance", 0) - amount
+                withdrawn_today = user.get("withdrawn_today", 0) + amount
+                total_withdrawn = user.get("total_withdrawn", 0) + amount
                 
-                await query.edit_message_text(success_text)
+                # Update withdrawal status
+                pending_withdrawals[withdrawal_index]["status"] = "APPROVED"
+                pending_withdrawals[withdrawal_index]["approved_by"] = user_id
+                pending_withdrawals[withdrawal_index]["approved_at"] = datetime.now(timezone.utc).isoformat()
                 
-                # Notify admins
+                await db.update_user(target_user_id, {
+                    "balance": new_balance,
+                    "withdrawn_today": withdrawn_today,
+                    "total_withdrawn": total_withdrawn,
+                    "last_withdrawal": datetime.now(timezone.utc),
+                    "pending_withdrawals": pending_withdrawals
+                })
+
+                # Update admin message
+                updated_message = query.message.text + f"\n\n✅ **APPROVED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                await query.edit_message_text(updated_message)
+
+                # Notify user
                 try:
-                    admin_notification = f"""
-🔔 **New Withdrawal Request**
-
-👤 **User:** {query.from_user.first_name} ({user_id})
-🆔 **Request ID:** `{withdrawal_id}`
-💰 **Amount:** {amount:,} {CURRENCY}
-📱 **Method:** {PAYMENT_METHODS[method]}
-📞 **Phone:** {phone_number}
-📅 **Date:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}
-                    """
-                    
                     await context.bot.send_message(
-                        chat_id=LOG_CHANNEL_ID,
-                        text=admin_notification
+                        chat_id=target_user_id,
+                        text=(
+                            f"✅ **WITHDRAWAL APPROVED!**\n\n"
+                            f"💰 **Amount:** {amount:,} {CURRENCY}\n"
+                            f"💳 **Method:** {withdrawal['payment_method']}\n"
+                            f"💵 **New Balance:** {int(new_balance)} {CURRENCY}\n\n"
+                            f"🎉 Your withdrawal has been processed successfully!\n"
+                            f"သင့်ငွေထုတ်မှုကို အတည်ပြုပါသည်။"
+                        )
                     )
-                except:
-                    pass
-                
-            else:
-                error_reason = result.get("reason", "Unknown error")
-                await query.edit_message_text(f"❌ Withdrawal failed: {error_reason}")
-                
-    except Exception as e:
-        logger.error(f"Error handling withdrawal callback: {e}")
-        await query.edit_message_text("❌ An error occurred.")
+                except Exception as e:
+                    logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-async def withdrawal_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show user's withdrawal history"""
-    user_id = str(update.effective_user.id)
-    
-    try:
-        user = await db.get_user(user_id)
-        if not user:
-            await update.message.reply_text("❌ User not found.")
-            return
-        
-        # Get recent withdrawals (simplified)
-        pending_withdrawals = user.get("pending_withdrawals", [])
-        
-        if not pending_withdrawals:
-            await update.message.reply_text("📋 No withdrawal history found.")
-            return
-        
-        history_text = "💸 **Your Recent Withdrawals:**\n\n"
-        
-        for withdrawal in pending_withdrawals[-5:]:  # Show last 5
-            amount = withdrawal.get("amount", 0)
-            status = withdrawal.get("status", "pending").title()
-            
-            status_emoji = {
-                "Pending": "⏳",
-                "Approved": "✅", 
-                "Completed": "✅",
-                "Rejected": "❌"
-            }.get(status, "❓")
-            
-            history_text += f"{status_emoji} **{amount:,} {CURRENCY}** - {status}\n"
-        
-        await update.message.reply_text(history_text)
-        
+                logger.info(f"Admin {user_id} approved withdrawal: {target_user_id} - {amount} {CURRENCY}")
+
+            else:  # reject
+                # Update withdrawal status
+                pending_withdrawals[withdrawal_index]["status"] = "REJECTED"
+                pending_withdrawals[withdrawal_index]["rejected_by"] = user_id
+                pending_withdrawals[withdrawal_index]["rejected_at"] = datetime.now(timezone.utc).isoformat()
+                
+                await db.update_user(target_user_id, {
+                    "pending_withdrawals": pending_withdrawals
+                })
+
+                # Update admin message
+                updated_message = query.message.text + f"\n\n❌ **REJECTED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                await query.edit_message_text(updated_message)
+
+                # Notify user
+                try:
+                    await context.bot.send_message(
+                        chat_id=target_user_id,
+                        text=(
+                            f"❌ **WITHDRAWAL REJECTED**\n\n"
+                            f"💰 **Amount:** {amount:,} {CURRENCY}\n"
+                            f"💳 **Method:** {withdrawal['payment_method']}\n\n"
+                            f"📝 Your withdrawal request was not approved.\n"
+                            f"💡 Please contact support if you have questions.\n\n"
+                            f"သင့်ငွေထုတ်မှုကို ငြင်းပယ်ပါသည်။"
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to notify user {target_user_id}: {e}")
+
+                logger.info(f"Admin {user_id} rejected withdrawal: {target_user_id} - {amount} {CURRENCY}")
+
     except Exception as e:
-        logger.error(f"Error getting withdrawal history: {e}")
-        await update.message.reply_text("❌ Error retrieving history.")
+        logger.error(f"Error in handle_approval: {e}")
+        await query.edit_message_text("❌ Error processing withdrawal decision.")
 
 def register_handlers(application: Application):
-    """Register withdrawal handlers"""
-    application.add_handler(CommandHandler("withdraw", request_withdrawal))
-    application.add_handler(CommandHandler("withdrawals", withdrawal_history))
-    application.add_handler(CallbackQueryHandler(handle_withdrawal_callback, pattern="^(confirm_withdraw|cancel_withdraw)"))
+    """Register all withdrawal handlers."""
+    logger.info("Registering withdrawal conversation handlers")
+    
+    # Create conversation handler
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("withdraw", withdraw),
+            CallbackQueryHandler(handle_withdraw_button, pattern="^withdraw$"),
+            CallbackQueryHandler(handle_withdraw_button, pattern="^withdrawal_menu$")
+        ],
+        states={
+            STEP_PAYMENT_METHOD: [
+                CallbackQueryHandler(handle_payment_method)
+            ],
+            STEP_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)
+            ],
+            STEP_DETAILS: [
+                MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, handle_details)
+            ],
+        },
+        fallbacks=[
+            CommandHandler("withdraw", withdraw),
+            CallbackQueryHandler(handle_payment_method, pattern="^cancel$")
+        ],
+        allow_reentry=True,
+        name="withdrawal_conversation",
+        persistent=False
+    )
+    
+    # Register handlers
+    application.add_handler(conv_handler)
+    application.add_handler(CallbackQueryHandler(handle_approval, pattern="^(approve_|reject_)"))
+    
+    logger.info("✅ Withdrawal handlers registered successfully")
