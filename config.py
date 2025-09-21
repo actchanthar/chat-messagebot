@@ -38,13 +38,31 @@ SPAM_PATTERNS = [
     r'\b(?:\+?95|09)\d{8,9}\b.*(?:call|contact|whatsapp)',
 ]
 
-# NEW: Announcement and Receipt Settings
+# Receipt and Announcement Settings - FIXED
+RECEIPT_CHANNEL_ID = "-1002978328897"  # Your @actearnproof channel ID
+RECEIPT_CHANNEL_NAME = "@actearnproof"
+
+# Withdrawal receipts go ONLY to proof channel
 ANNOUNCEMENT_GROUPS = [
-    "-1002061898677",  # Your main earning group
+    "-1002978328897"  # Only send withdrawal proofs here
 ]
 
-RECEIPT_CHANNEL_ID = "-1002978328897"  # Use your log channel for now, or create new receipt channel
-RECEIPT_CHANNEL_NAME = "@actearnproof"  # Your receipt channel
+# Regular announcements (new users, milestones) can go to main group
+GENERAL_ANNOUNCEMENT_GROUPS = [
+    "-1002061898677"  # Your main earning group
+]
 
 # Enable auto announcements
 AUTO_ANNOUNCE_WITHDRAWALS = True
+AUTO_ANNOUNCE_NEW_USERS = True
+AUTO_ANNOUNCE_MILESTONES = True
+
+# Referral Settings
+DEFAULT_REFERRAL_REWARD = 50  # 50 kyat per referral as requested
+DEFAULT_MESSAGE_RATE = 3      # 3 messages = 1 kyat as requested
+
+# Welcome Settings
+WELCOME_BONUS = 100  # New users get 100 kyat welcome bonus
+
+# Phone Bill Reward for top users
+PHONE_BILL_REWARD = 1000
