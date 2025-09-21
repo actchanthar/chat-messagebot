@@ -258,7 +258,7 @@ async def handle_menu_balance(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.message.reply_text("❌ Error occurred. Please try /start again.")
 
 async def handle_menu_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle withdraw button from start menu - START CONVERSATION"""
+    """Handle withdraw button from start menu - FIXED - Send NEW message"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     
@@ -343,8 +343,12 @@ async def handle_menu_withdraw(update: Update, context: ContextTypes.DEFAULT_TYP
         # Clear any existing user data
         context.user_data.clear()
         
-        # Send withdrawal options
-        await query.edit_message_text(prompt_msg, reply_markup=reply_markup)
+        # FIXED: Send NEW message instead of editing photo caption
+        withdrawal_msg = await query.message.reply_text(prompt_msg, reply_markup=reply_markup)
+        
+        # Store the message ID for later editing
+        context.user_data["withdrawal_message_id"] = withdrawal_msg.message_id
+        
         logger.info(f"Start menu withdrawal initiated by user {user_id} (Admin: {is_admin_or_owner})")
         
         return START_WD_METHOD
