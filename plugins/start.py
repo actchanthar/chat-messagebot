@@ -191,7 +191,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error(f"Error generating leaderboard: {e}")
 
-    # Create custom keyboard - SIMPLE SOLUTION
+    # Add referral sharing link to welcome message
+    bot_username = context.bot.username or "ACTearnbot"
+    referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+    share_text = "💰%20Join%20this%20earning%20bot%20and%20make%20money%20by%20chatting!%20🚀"
+    share_url = f"https://telegram.me/share/url?url={referral_link}&text={share_text}"
+    
+    welcome_message += f"\nဒီလင့်ကိုပို့ပြီး ငွေရှာလိုက်ပါ\n{share_url}\n"
+
+    # Create custom keyboard with referral button
     keyboard = [
         [
             InlineKeyboardButton("Balance", callback_data="menu_balance"),
@@ -200,6 +208,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         [
             InlineKeyboardButton("ငွေထုတ်ချာနယ်", url="https://t.me/actearnproof"),
             InlineKeyboardButton("Join Group", url="https://t.me/+3Km76-24T3RjNzY1")
+        ],
+        [
+            InlineKeyboardButton("လူခေါ်ရင်းငွေရှာ", callback_data="menu_referral")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -255,6 +266,60 @@ async def handle_menu_balance(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.message.reply_text("❌ User not found. Please try /start")
     except Exception as e:
         logger.error(f"Error in handle_menu_balance: {e}")
+        await query.message.reply_text("❌ Error occurred. Please try /start again.")
+
+async def handle_menu_referral(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle referral button from start menu"""
+    query = update.callback_query
+    user_id = str(query.from_user.id)
+    
+    await query.answer()
+    logger.info(f"Referral button clicked by user {user_id}")
+    
+    try:
+        user = await db.get_user(user_id)
+        if user:
+            bot_username = context.bot.username
+            referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+            
+            # Easy share URL
+            share_text = "💰 Join this earning bot and make money by chatting! 🚀"
+            share_url = f"https://telegram.me/share/url?url={referral_link}&text={share_text}"
+            
+            successful_referrals = user.get("successful_referrals", 0)
+            total_invites = user.get("invites", 0)
+            
+            referral_reward = await db.get_referral_reward()
+            
+            referral_text = (
+                f"👥 **Invite Friends & Earn!**\n\n"
+                f"🔗 **Your Referral Link:**\n"
+                f"`{referral_link}`\n\n"
+                f"💰 **Earn {referral_reward} {CURRENCY} for each friend who:**\n"
+                f"• Clicks your link\n"
+                f"• Starts using the bot\n"
+                f"• Sends their first message\n\n"
+                f"📊 **Your Referral Stats:**\n"
+                f"• Successful Referrals: {successful_referrals}\n"
+                f"• Total Invites: {total_invites}\n\n"
+                f"💡 **Tips:**\n"
+                f"• Share in groups and social media\n"
+                f"• Explain how the bot works\n"
+                f"• Help friends get started\n\n"
+                f"Start sharing and earn more! 🚀"
+            )
+            
+            # Add easy share button
+            share_keyboard = [
+                [InlineKeyboardButton("📤 Easy Share", url=share_url)]
+            ]
+            share_markup = InlineKeyboardMarkup(share_keyboard)
+            
+            await query.message.reply_text(referral_text, reply_markup=share_markup)
+        else:
+            await query.message.reply_text("❌ User not found. Please try /start")
+    except Exception as e:
+        logger.error(f"Error in handle_menu_referral: {e}")
         await query.message.reply_text("❌ Error occurred. Please try /start again.")
 
 async def handle_menu_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -572,6 +637,12 @@ def register_handlers(application: Application):
     application.add_handler(CallbackQueryHandler(
         handle_menu_balance, 
         pattern="^menu_balance$"
+    ))
+    
+    # Register referral button handler
+    application.add_handler(CallbackQueryHandler(
+        handle_menu_referral, 
+        pattern="^menu_referral$"
     ))
     
     # Create SEPARATE conversation handler for start menu withdrawals
