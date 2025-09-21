@@ -456,6 +456,57 @@ class Database:
             logger.error(f"Error setting welcome bonus: {e}")
             return False
 
+    # Milestone checking with announcements
+    async def check_and_announce_milestones(self, user_id: str, context=None):
+        """Check if user reached any milestones and announce"""
+        try:
+            user = await self.get_user(user_id)
+            if not user:
+                return
+            
+            # Import here to avoid circular imports
+            try:
+                from plugins.announcements import announcement_system
+            except ImportError:
+                logger.warning("Announcement system not available")
+                return
+            
+            user_name = user.get('first_name', 'User')
+            total_earnings = int(user.get('total_earnings', 0))
+            total_referrals = user.get('successful_referrals', 0)
+            
+            # Check earning milestones
+            earning_milestones = [100000, 50000, 25000, 10000, 5000]
+            for milestone in earning_milestones:
+                if total_earnings >= milestone:
+                    # Check if this is a recent achievement (rough estimation)
+                    previous_earnings = total_earnings - 100  # Rough check
+                    if previous_earnings < milestone:
+                        await announcement_system.announce_milestone_reached(
+                            user_id=user_id,
+                            user_name=user_name,
+                            milestone_type="earnings",
+                            amount=milestone,
+                            context=context
+                        )
+                    break
+            
+            # Check referral milestones
+            referral_milestones = [50, 25, 10, 5]
+            for milestone in referral_milestones:
+                if total_referrals >= milestone:
+                    await announcement_system.announce_milestone_reached(
+                        user_id=user_id,
+                        user_name=user_name,
+                        milestone_type="referrals",
+                        amount=milestone,
+                        context=context
+                    )
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Error checking milestones: {e}")
+
     # Utility Methods
     async def ban_user(self, user_id: str, reason: str = None):
         """Ban a user"""
@@ -523,19 +574,6 @@ class Database:
         except Exception as e:
             logger.error(f"Error getting user statistics: {e}")
             return None
-
-    async def cleanup_old_data(self, days: int = 30):
-        """Clean up old data (optional maintenance function)"""
-        try:
-            cutoff_date = datetime.utcnow() - timedelta(days=days)
-            
-            # Could implement cleanup of old withdrawal requests, logs, etc.
-            # For now, just log the cleanup attempt
-            logger.info(f"Cleanup attempted for data older than {days} days")
-            return True
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
-            return False
 
     # Withdrawal related methods
     async def record_withdrawal(self, user_id: str, amount: float, method: str, details: str, status: str = "PENDING"):
