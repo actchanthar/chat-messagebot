@@ -188,11 +188,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error(f"Error generating leaderboard: {e}")
 
-    # Create custom keyboard as requested
+    # Create custom keyboard with FIXED callback data to avoid conflicts
     keyboard = [
         [
-            InlineKeyboardButton("Balance", callback_data="balance"),
-            InlineKeyboardButton("Withdraw", callback_data="withdraw")
+            InlineKeyboardButton("Balance", callback_data="start_balance"),
+            InlineKeyboardButton("Withdraw", callback_data="start_withdraw")
         ],
         [
             InlineKeyboardButton("ငွေထုတ်ချာနယ်", url="https://t.me/actearnproof"),
@@ -215,16 +215,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle start menu callbacks - FIXED for photo messages"""
+    """Handle start menu callbacks - FIXED to avoid withdrawal conflicts"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
     
     await query.answer()
-    logger.info(f"Processing callback: {data} from user {user_id}")
+    logger.info(f"Processing start callback: {data} from user {user_id}")
     
     try:
-        if data == "balance":
+        if data == "start_balance":
             user = await db.get_user(user_id)
             if user:
                 balance = user.get("balance", 0)
@@ -232,61 +232,87 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 total_withdrawn = user.get("total_withdrawn", 0)
                 messages = user.get("messages", 0)
                 
+                # Check for pending withdrawals
+                pending_withdrawals = user.get("pending_withdrawals", [])
+                pending_count = sum(1 for w in pending_withdrawals if w.get("status") == "PENDING")
+                
                 balance_text = (
                     f"💰 **Your Balance**\n\n"
                     f"💳 **Current Balance:** {int(balance)} {CURRENCY}\n"
                     f"📈 **Total Earned:** {int(total_earned)} {CURRENCY}\n"
                     f"💸 **Total Withdrawn:** {int(total_withdrawn)} {CURRENCY}\n"
-                    f"📝 **Total Messages:** {messages:,}\n\n"
+                    f"📝 **Total Messages:** {messages:,}\n"
+                    f"⏳ **Pending Withdrawals:** {pending_count}\n\n"
                     f"သင့်လက်ကျန်ငွေသည် {int(balance)} ကျပ်ဖြစ်ပါသည်။\n\n"
                     f"💡 Keep chatting in groups to earn more!\n"
-                    f"📊 Rate: 3 messages = 1 {CURRENCY}"
+                    f"📊 Rate: 3 messages = 1 {CURRENCY}\n"
+                    f"📋 Use `/pending` to check withdrawal history"
                 )
                 
-                # FIXED: Send new message instead of editing photo
+                # Send new message instead of editing photo
                 await query.message.reply_text(balance_text)
             else:
                 await query.message.reply_text("❌ User not found. Please try /start")
         
-        elif data == "withdraw":
+        elif data == "start_withdraw":
+            # Guide user to use /withdraw command for secure processing
             user = await db.get_user(user_id)
             if user:
                 balance = user.get("balance", 0)
-                withdraw_text = (
-                    f"💸 **Withdrawal System**\n\n"
-                    f"💳 **Your Balance:** {int(balance)} {CURRENCY}\n\n"
-                    f"Use the command: `/withdraw`\n\n"
-                    f"**Available methods:**\n"
-                    f"• KBZ Pay\n"
-                    f"• Wave Pay\n" 
-                    f"• Binance Pay\n"
-                    f"• Phone Bill\n\n"
-                    f"💎 **Minimum:** 200 {CURRENCY}\n"
-                    f"📈 **Daily Limit:** 10,000 {CURRENCY}\n"
-                    f"⏱️ **Processing:** 2-24 hours\n\n"
-                    f"📞 **For help:** @When_the_night_falls_my_soul_se"
-                )
+                
+                # Check for pending withdrawals
+                pending_withdrawals = user.get("pending_withdrawals", [])
+                pending_count = sum(1 for w in pending_withdrawals if w.get("status") == "PENDING")
+                
+                if pending_count > 0:
+                    withdraw_text = (
+                        f"⏳ **You have pending withdrawal requests**\n\n"
+                        f"📊 **Current Status:**\n"
+                        f"• Balance: {int(balance)} {CURRENCY}\n"
+                        f"• Pending Requests: {pending_count}\n\n"
+                        f"⏰ **Please wait for admin approval**\n"
+                        f"📋 **Check status:** `/pending`\n\n"
+                        f"သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်မှု ရှိနေပါသည်။"
+                    )
+                else:
+                    withdraw_text = (
+                        f"💸 **Start Withdrawal Process**\n\n"
+                        f"💰 **Your Balance:** {int(balance)} {CURRENCY}\n"
+                        f"💎 **Minimum:** 200 {CURRENCY}\n\n"
+                        f"🔐 **For secure withdrawal, use:**\n"
+                        f"**`/withdraw`**\n\n"
+                        f"✅ **Features:**\n"
+                        f"• Secure payment method selection\n"
+                        f"• Amount verification\n"
+                        f"• Admin approval system\n"
+                        f"• Balance protection\n\n"
+                        f"📋 **Check history:** `/pending`\n\n"
+                        f"ငွေထုတ်ရန် /withdraw ကိုအသုံးပြုပါ။"
+                    )
+                
+                await query.message.reply_text(withdraw_text)
             else:
-                withdraw_text = (
-                    f"💸 **Withdrawal System**\n\n"
-                    f"❌ **Error:** User not found\n"
-                    f"Please try /start first"
-                )
-            
-            # FIXED: Send new message instead of editing photo
-            await query.message.reply_text(withdraw_text)
+                await query.message.reply_text("❌ User not found. Please try /start first")
     
     except Exception as e:
-        logger.error(f"Error processing callback {data}: {e}")
-        # FIXED: Send new message instead of editing
+        logger.error(f"Error processing start callback {data}: {e}")
         await query.message.reply_text(
-            f"❌ Error occurred while processing {data}.\n"
-            f"Please try /start again or contact support."
+            f"❌ Error occurred.\n\n"
+            f"💡 **Try these commands:**\n"
+            f"• `/withdraw` - Start withdrawal\n"
+            f"• `/pending` - Check status\n"
+            f"• `/start` - Restart bot"
         )
 
 def register_handlers(application: Application):
-    """Register start command handlers"""
+    """Register start command handlers - FIXED callback patterns"""
     logger.info("Registering ENHANCED start handlers with IMAGE and CUSTOM DESIGN")
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(balance|withdraw)$"))
+    
+    # FIXED: Use specific patterns to avoid conflicts with withdrawal system
+    application.add_handler(CallbackQueryHandler(
+        handle_start_callbacks, 
+        pattern="^start_(balance|withdraw)$"  # Only handle start_ prefixed callbacks
+    ))
+    
     logger.info("✅ ENHANCED start handlers with IMAGE and CUSTOM DESIGN registered successfully")
