@@ -14,6 +14,7 @@ import sys
 import os
 from datetime import datetime, timezone
 import traceback
+import asyncio
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,7 +26,10 @@ from config import (
     CURRENCY,
     LOG_CHANNEL_ID,
     ADMIN_IDS,
-    APPROVED_GROUPS
+    APPROVED_GROUPS,
+    RECEIPT_CHANNEL_ID,
+    AUTO_ANNOUNCE_WITHDRAWALS,
+    GENERAL_ANNOUNCEMENT_GROUPS
 )
 from database.database import db
 
@@ -112,15 +116,15 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Create payment method selection keyboard (2 buttons per row as requested)
         keyboard = [
             [
-                InlineKeyboardButton("💳 KBZ Pay", callback_data="method_KBZ Pay"),
-                InlineKeyboardButton("🌊 Wave Pay", callback_data="method_Wave Pay")
+                InlineKeyboardButton("💳 KBZ Pay", callback_data="wd_method_KBZ Pay"),
+                InlineKeyboardButton("🌊 Wave Pay", callback_data="wd_method_Wave Pay")
             ],
             [
-                InlineKeyboardButton("₿ Binance Pay", callback_data="method_Binance Pay"),
-                InlineKeyboardButton("📱 Phone Bill", callback_data="method_Phone Bill")
+                InlineKeyboardButton("₿ Binance Pay", callback_data="wd_method_Binance Pay"),
+                InlineKeyboardButton("📱 Phone Bill", callback_data="wd_method_Phone Bill")
             ],
             [
-                InlineKeyboardButton("❌ Cancel", callback_data="cancel")
+                InlineKeyboardButton("❌ Cancel", callback_data="wd_cancel")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -161,11 +165,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await update.message.reply_text(error_msg)
         return ConversationHandler.END
 
-async def handle_withdraw_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle withdrawal button callback from start menu."""
-    logger.info(f"Withdraw button clicked by user {update.callback_query.from_user.id}")
-    return await withdraw(update, context)
-
 async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle payment method selection."""
     query = update.callback_query
@@ -176,7 +175,7 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         await query.answer()
 
-        if data == "cancel":
+        if data == "wd_cancel":
             await query.edit_message_text(
                 "❌ **Withdrawal Cancelled**\n\n"
                 "ငွေထုတ်မှု လုပ်ငန်းစဉ်ကို ပယ်ဖျက်လိုက်ပါပြီ။\n"
@@ -184,13 +183,12 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
 
-        # FIXED: Only handle method_ callbacks, ignore others
-        if not data.startswith("method_"):
-            # If it's not a withdrawal method, end the conversation
+        # FIXED: Handle withdrawal method callbacks specifically
+        if not data.startswith("wd_method_"):
             await query.edit_message_text("❌ Invalid selection. Please use /withdraw to restart.")
             return ConversationHandler.END
 
-        method = data.replace("method_", "")
+        method = data.replace("wd_method_", "")
         if method not in PAYMENT_METHODS:
             await query.edit_message_text("❌ Invalid payment method. Please try again.")
             return STEP_PAYMENT_METHOD
@@ -222,7 +220,7 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
             f"📈 **Maximum Today:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n\n"
             f"⚠️ **Important:** Amount will be deducted when you submit\n"
             f"🔄 **Refunded if admin rejects your request**\n\n"
-            f"💸 **ငွေထuတ်ရန် ပမာဏကို ထည့်ပါ:**\n"
+            f"💸 **ငွေထုတ်ရန် ပမာဏကို ထည့်ပါ:**\n"
             f"Please enter the amount to withdraw:"
         )
         return STEP_AMOUNT
@@ -639,7 +637,7 @@ async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("❌ Error loading profile!", show_alert=True)
 
 async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle admin approval/rejection of withdrawal requests - WITH REFUND SYSTEM"""
+    """Handle admin approval/rejection of withdrawal requests - WITH AUTO FORWARD"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -717,15 +715,13 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                # Auto announcements
+                # UPDATED: Send to proof channel THEN forward to groups
                 try:
-                    from config import ANNOUNCEMENT_GROUPS, AUTO_ANNOUNCE_WITHDRAWALS
-                    telegram_user = await context.bot.get_chat(target_user_id)
-                    display_name = telegram_user.first_name or "User"
-                    
                     if AUTO_ANNOUNCE_WITHDRAWALS:
-                        announcement_text = f"""
-💸 **WITHDRAWAL SUCCESSFUL!**
+                        telegram_user = await context.bot.get_chat(target_user_id)
+                        display_name = telegram_user.first_name or "User"
+                        
+                        announcement_text = f"""💸 **WITHDRAWAL SUCCESSFUL!**
 
 🎉 **{display_name} just received {amount:,} {CURRENCY}!**
 💳 **Method:** {withdrawal['payment_method']}
@@ -735,25 +731,40 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 💰 **Start earning too:**
 • Chat in groups = Earn {CURRENCY}
-• Minimum withdrawal: 200 {CURRENCY}
+• Minimum withdrawal: {MIN_WITHDRAWAL} {CURRENCY}
 • Fast processing: 2-24 hours
 
 🚀 **Join now:** t.me/{context.bot.username}
 
-#Withdrawal #Success #RealPayments
-                        """
+#Withdrawal #Success #RealPayments"""
                         
-                        for group_id in ANNOUNCEMENT_GROUPS:
-                            try:
-                                await context.bot.send_message(
-                                    chat_id=group_id,
-                                    text=announcement_text
-                                )
-                            except Exception as e:
-                                logger.error(f"Failed to announce to {group_id}: {e}")
+                        # Send to proof channel first
+                        receipt_msg = None
+                        try:
+                            receipt_msg = await context.bot.send_message(
+                                chat_id=RECEIPT_CHANNEL_ID,
+                                text=announcement_text
+                            )
+                            logger.info(f"✅ Withdrawal receipt sent to proof channel {RECEIPT_CHANNEL_ID}")
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send receipt to proof channel: {e}")
+                        
+                        # Forward from receipt channel to main groups
+                        if receipt_msg:
+                            for group_id in GENERAL_ANNOUNCEMENT_GROUPS:
+                                try:
+                                    await context.bot.forward_message(
+                                        chat_id=group_id,
+                                        from_chat_id=RECEIPT_CHANNEL_ID,
+                                        message_id=receipt_msg.message_id
+                                    )
+                                    logger.info(f"✅ Forwarded receipt to group {group_id}")
+                                    await asyncio.sleep(0.5)  # Small delay to avoid spam limits
+                                except Exception as e:
+                                    logger.error(f"❌ Failed to forward to group {group_id}: {e}")
                 
                 except Exception as e:
-                    logger.error(f"Error in auto announcements: {e}")
+                    logger.error(f"Error in withdrawal announcements: {e}")
 
                 logger.info(f"Admin {user_id} approved withdrawal: {target_user_id} - {amount} {CURRENCY}")
 
@@ -791,7 +802,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                             f"🔄 **Your balance has been fully restored**\n"
                             f"📝 Your withdrawal request was not approved.\n"
                             f"💡 Please contact support if you have questions.\n\n"
-                            f"သင့်ငွေထုတ်မှုကို ငြင်းပယ်ပြီး လက်ကျန်ငွေ ပြန်လည်ထည့်သွင်းပေးပါသည်။"
+                            f"သင့်ငွေထုတ်မှုကို ငြင်းပယ်ပြီး လက်ကျန်ငွေ ပြန်လည်ထည့်သွင်းပေးပါမည်။"
                         )
                     )
                 except Exception as e:
@@ -804,19 +815,17 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("❌ Error processing withdrawal decision.")
 
 def register_handlers(application: Application):
-    """Register all withdrawal handlers."""
+    """Register all withdrawal handlers - FIXED CALLBACK PATTERNS"""
     logger.info("Registering withdrawal conversation handlers")
     
-    # Create conversation handler
+    # Create conversation handler with SPECIFIC callback patterns
     conv_handler = ConversationHandler(
         entry_points=[
-            CommandHandler("withdraw", withdraw),
-            CallbackQueryHandler(handle_withdraw_button, pattern="^withdraw$"),
-            CallbackQueryHandler(handle_withdraw_button, pattern="^withdrawal_menu$")
+            CommandHandler("withdraw", withdraw)
         ],
         states={
             STEP_PAYMENT_METHOD: [
-                CallbackQueryHandler(handle_payment_method, pattern="^(method_|cancel)$")
+                CallbackQueryHandler(handle_payment_method, pattern="^(wd_method_|wd_cancel)$")
             ],
             STEP_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)
@@ -827,7 +836,7 @@ def register_handlers(application: Application):
         },
         fallbacks=[
             CommandHandler("withdraw", withdraw),
-            CallbackQueryHandler(handle_payment_method, pattern="^cancel$")
+            CallbackQueryHandler(handle_payment_method, pattern="^wd_cancel$")
         ],
         allow_reentry=True,
         name="withdrawal_conversation",
