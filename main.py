@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 import logging
+import sys
+import os
+
+# Add project root to Python path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+
 from telegram.ext import Application, CommandHandler
 from config import BOT_TOKEN
 from database.database import db
-
-# Fixed imports - import modules directly
-import plugins.message_handler as message_handler
-import plugins.balance as balance
-import plugins.admin as admin
-import plugins.broadcast as broadcast
-import plugins.withdrawal as withdrawal
-import plugins.stats as stats
-import plugins.help as help
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -64,14 +62,23 @@ def main():
     # Add start command
     application.add_handler(CommandHandler("start", start_command))
     
-    # Register all plugin handlers
-    message_handler.register_handlers(application)
-    balance.register_handlers(application)
-    admin.register_handlers(application)
-    broadcast.register_handlers(application)
-    withdrawal.register_handlers(application)
-    stats.register_handlers(application)
-    help.register_handlers(application)
+    # Import and register handlers directly (avoid circular imports)
+    from plugins.message_handler import register_handlers as register_message_handlers
+    from plugins.balance import register_handlers as register_balance_handlers
+    from plugins.admin import register_handlers as register_admin_handlers
+    from plugins.broadcast import register_handlers as register_broadcast_handlers
+    from plugins.withdrawal import register_handlers as register_withdrawal_handlers
+    from plugins.stats import register_handlers as register_stats_handlers
+    from plugins.help import register_handlers as register_help_handlers
+    
+    # Register all handlers
+    register_message_handlers(application)
+    register_balance_handlers(application)
+    register_admin_handlers(application)
+    register_broadcast_handlers(application)
+    register_withdrawal_handlers(application)
+    register_stats_handlers(application)
+    register_help_handlers(application)
     
     logger.info("Message Earning Bot started successfully!")
     application.run_polling(allowed_updates=["message", "callback_query"])
