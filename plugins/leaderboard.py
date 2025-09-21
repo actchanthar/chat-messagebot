@@ -19,20 +19,20 @@ def get_leaderboard_keyboard():
     """Get the persistent leaderboard keyboard"""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💰 Top Earners", callback_data="top_earners"),
-            InlineKeyboardButton("📝 Top Messages", callback_data="top_messages")
+            InlineKeyboardButton("💰 Top Earners", callback_data="lb_top_earners"),
+            InlineKeyboardButton("📝 Top Messages", callback_data="lb_top_messages")
         ],
         [
-            InlineKeyboardButton("👥 Top Referrers", callback_data="top_referrers"),
-            InlineKeyboardButton("🏆 Today's Leaders", callback_data="top_today")
+            InlineKeyboardButton("👥 Top Referrers", callback_data="lb_top_referrers"),
+            InlineKeyboardButton("🏆 Today's Leaders", callback_data="lb_top_today")
         ],
         [
-            InlineKeyboardButton("🎯 Weekly Champions", callback_data="top_weekly"),
-            InlineKeyboardButton("👑 VIP Members", callback_data="top_vip")
+            InlineKeyboardButton("🎯 Weekly Champions", callback_data="lb_top_weekly"),
+            InlineKeyboardButton("👑 VIP Members", callback_data="lb_top_vip")
         ],
         [
-            InlineKeyboardButton("📊 My Rank", callback_data="my_rank"),
-            InlineKeyboardButton("🎮 Join Competition", callback_data="join_competition")
+            InlineKeyboardButton("📊 My Rank", callback_data="lb_my_rank"),
+            InlineKeyboardButton("🎮 Join Competition", callback_data="lb_join_competition")
         ]
     ])
 
@@ -68,56 +68,78 @@ async def show_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if query:
         await query.answer()
     
-    # Get top users by different categories
-    top_earners = await db.get_top_users(5, "total_earnings")
-    top_messages = await db.get_top_users(5, "messages")
-    top_referrers = await db.get_top_users(5, "successful_referrals")
-    
-    leaderboard_text = """
+    try:
+        # Get top users by different categories
+        top_earners = await db.get_top_users(5, "total_earnings")
+        top_messages = await db.get_top_users(5, "messages")
+        top_referrers = await db.get_top_users(5, "successful_referrals")
+        
+        # Add timestamp to make message unique
+        current_time = datetime.now().strftime("%H:%M:%S")
+        
+        leaderboard_text = f"""
 🏆 **COMBINED LEADERBOARD**
+🕐 Last updated: {current_time}
 
 💰 **TOP EARNERS:**
 """
-    
-    for i, user in enumerate(top_earners, 1):
-        total_earnings = user.get('total_earnings', 0)
-        name = user.get('first_name', 'Unknown')[:15]
-        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-        leaderboard_text += f"{medal} {name} - {int(total_earnings)} {CURRENCY}\n"
-    
-    leaderboard_text += f"""
+        
+        for i, user in enumerate(top_earners, 1):
+            total_earnings = user.get('total_earnings', 0)
+            name = user.get('first_name', 'Unknown')[:15]
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            leaderboard_text += f"{medal} {name} - {int(total_earnings)} {CURRENCY}\n"
+        
+        leaderboard_text += f"""
 📝 **TOP MESSAGERS:**
 """
-    
-    for i, user in enumerate(top_messages, 1):
-        messages = user.get('messages', 0)
-        name = user.get('first_name', 'Unknown')[:15]
-        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-        leaderboard_text += f"{medal} {name} - {messages:,} msgs\n"
-    
-    leaderboard_text += f"""
+        
+        for i, user in enumerate(top_messages, 1):
+            messages = user.get('messages', 0)
+            name = user.get('first_name', 'Unknown')[:15]
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            leaderboard_text += f"{medal} {name} - {messages:,} msgs\n"
+        
+        leaderboard_text += f"""
 👥 **TOP REFERRERS:**
 """
-    
-    for i, user in enumerate(top_referrers, 1):
-        referrals = user.get('successful_referrals', 0)
-        name = user.get('first_name', 'Unknown')[:15]
-        medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-        leaderboard_text += f"{medal} {name} - {referrals} refs\n"
-    
-    leaderboard_text += f"""
+        
+        for i, user in enumerate(top_referrers, 1):
+            referrals = user.get('successful_referrals', 0)
+            name = user.get('first_name', 'Unknown')[:15]
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+            leaderboard_text += f"{medal} {name} - {referrals} refs\n"
+        
+        leaderboard_text += f"""
 🎯 **Select a specific category below:**
-    """
+        """
+        
+        reply_markup = get_leaderboard_keyboard()
+        
+        if query:
+            try:
+                await query.edit_message_text(leaderboard_text, reply_markup=reply_markup)
+            except Exception as e:
+                if "not modified" in str(e):
+                    # Send new message if content is same
+                    await query.message.reply_text(leaderboard_text, reply_markup=reply_markup)
+                else:
+                    raise e
+        else:
+            await update.message.reply_text(leaderboard_text, reply_markup=reply_markup)
     
-    reply_markup = get_leaderboard_keyboard()
-    
-    if query:
-        await query.edit_message_text(leaderboard_text, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(leaderboard_text, reply_markup=reply_markup)
+    except Exception as e:
+        logger.error(f"Error in show_leaderboard: {e}")
+        error_text = f"❌ Error loading leaderboard\n\n🏆 Select a category below:"
+        reply_markup = get_leaderboard_keyboard()
+        
+        if query:
+            await query.edit_message_text(error_text, reply_markup=reply_markup)
+        else:
+            await update.message.reply_text(error_text, reply_markup=reply_markup)
 
 async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle leaderboard callback queries - KEEP BUTTONS PERSISTENT"""
+    """Handle leaderboard callback queries - FIXED VERSION"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -129,15 +151,15 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
     reply_markup = get_leaderboard_keyboard()
     
     try:
-        if data == "leaderboard":
+        if data == "lb_leaderboard":
             await show_leaderboard(update, context)
         
-        elif data == "my_rank":
+        elif data == "lb_my_rank":
             user = await db.get_user(user_id)
             if user:
                 # Calculate user rankings
                 total_users = await db.get_total_users_count()
-                earning_rank = await db.get_user_rank(user_id, "total_earnings")
+                earning_rank = await db.get_user_rank_by_earnings(user_id)
                 message_rank = await db.get_user_rank(user_id, "messages")
                 
                 rank_text = f"""
@@ -161,12 +183,11 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
 
 🏆 **Select another category below:**
                 """
-                # KEEP BUTTONS
                 await query.edit_message_text(rank_text, reply_markup=reply_markup)
             else:
                 await query.edit_message_text("❌ User not found\n\n🏆 Select a category below:", reply_markup=reply_markup)
         
-        elif data == "join_competition":
+        elif data == "lb_join_competition":
             competition_text = f"""
 🎯 **ACTIVE COMPETITIONS**
 
@@ -192,12 +213,11 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
 
 🏆 **Select another category below:**
             """
-            # KEEP BUTTONS
             await query.edit_message_text(competition_text, reply_markup=reply_markup)
         
-        elif data.startswith("top_"):
+        elif data.startswith("lb_top_"):
             # Handle specific leaderboard types
-            category = data.replace("top_", "")
+            category = data.replace("lb_top_", "")
             
             if category == "earners":
                 top_users = await db.get_top_users(15, "total_earnings")
@@ -215,13 +235,11 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
                 field = "successful_referrals"
                 suffix = "refs"
             elif category == "today":
-                # Show today's top performers (simplified)
-                top_users = await db.get_top_users(10, "messages")  # Using messages as proxy for today
+                top_users = await db.get_top_users(10, "messages")
                 title = "🏆 **TODAY'S TOP PERFORMERS**"
                 field = "messages"
                 suffix = "msgs today"
             elif category == "weekly":
-                # Show weekly champions (simplified) 
                 top_users = await db.get_top_users(10, "total_earnings")
                 title = "🎯 **WEEKLY CHAMPIONS**"
                 field = "total_earnings"
@@ -262,8 +280,6 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
                     leaderboard_text += f"{medal} {name} - {value:,} {suffix}\n"
             
             leaderboard_text += f"\n🏆 **Select another category below:**"
-            
-            # KEEP BUTTONS for specific categories
             await query.edit_message_text(leaderboard_text, reply_markup=reply_markup)
         
         else:
@@ -276,13 +292,13 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
 def register_handlers(application: Application):
     """Register leaderboard handlers"""
     logger.info("Registering leaderboard handlers")
-    application.add_handler(CommandHandler("top", top_command))  # Shows MENU first
-    application.add_handler(CommandHandler("leaderboard", show_leaderboard))  # Shows combined view
+    application.add_handler(CommandHandler("top", top_command))
+    application.add_handler(CommandHandler("leaderboard", show_leaderboard))
     
-    # Register callback handler with ALL patterns
+    # Use unique callback patterns with "lb_" prefix to avoid conflicts
     application.add_handler(CallbackQueryHandler(
         handle_leaderboard_callbacks, 
-        pattern="^(leaderboard|my_rank|join_competition|top_)"
+        pattern="^lb_"  # Only handle callbacks starting with "lb_"
     ))
     
     logger.info("✅ Leaderboard handlers registered successfully")
