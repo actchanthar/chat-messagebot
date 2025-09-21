@@ -1,255 +1,280 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from config import MONGODB_URL, MONGODB_NAME
+from datetime import datetime, timezone, timedelta
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Any
+import sys
+import os
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[logging.StreamHandler()]
-)
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+
+from config import MONGODB_URL, MONGODB_NAME, CURRENCY
+
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self):
-        self.client = AsyncIOMotorClient(MONGODB_URL)
-        self.db = self.client[MONGODB_NAME]
-        self.users = self.db.users
-        self.groups = self.db.groups
-        self.rewards = self.db.rewards
-        self.settings = self.db.settings
-        self.withdrawals = self.db.withdrawals
-        self.transactions = self.db.transactions
-        self.challenges = self.db.challenges
-        self.channels = self.db.channels
+        self.client = None
+        self.db = None
+        self.users = None
+        self.channels = None
+        self.settings = None
+        self.withdrawals = None
 
+    async def connect(self):
+        """Connect to MongoDB"""
+        try:
+            self.client = AsyncIOMotorClient(MONGODB_URL)
+            self.db = self.client[MONGODB_NAME]
+            self.users = self.db.users
+            self.channels = self.db.channels
+            self.settings = self.db.settings
+            self.withdrawals = self.db.withdrawals
+            
+            # Test connection
+            await self.client.admin.command('ping')
+            logger.info("✅ Connected to MongoDB successfully")
+            
+            # Initialize default settings
+            await self.init_default_settings()
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to MongoDB: {e}")
+            raise
+
+    async def init_default_settings(self):
+        """Initialize default bot settings"""
+        try:
+            # Check if settings exist
+            settings = await self.settings.find_one({"_id": "bot_settings"})
+            
+            if not settings:
+                default_settings = {
+                    "_id": "bot_settings",
+                    "message_rate": 3,  # 3 messages = 1 kyat
+                    "referral_reward": 25,  # 25 kyat per referral
+                    "phone_bill_reward": 1000,  # 1000 kyat for top users
+                    "min_withdrawal": 200,
+                    "max_daily_withdrawal": 10000,
+                    "welcome_bonus": 100,
+                    "created_at": datetime.utcnow()
+                }
+                await self.settings.insert_one(default_settings)
+                logger.info("✅ Default settings initialized")
+                
+        except Exception as e:
+            logger.error(f"Error initializing settings: {e}")
+
+    async def close_connection(self):
+        """Close database connection"""
+        if self.client:
+            self.client.close()
+            logger.info("MongoDB connection closed")
+
+    # User Management
     async def get_user(self, user_id: str):
+        """Get user by ID"""
         try:
             user = await self.users.find_one({"user_id": user_id})
-            if user:
-                user["message_timestamps"] = user.get("message_timestamps", [])[-10:]
             return user
         except Exception as e:
-            logger.error(f"Error retrieving user {user_id}: {e}")
+            logger.error(f"Error getting user {user_id}: {e}")
             return None
 
-    async def create_user(self, user_id: str, name: Dict[str, str], referred_by: Optional[str] = None):
+    async def create_user(self, user_id: str, user_data: dict, referred_by: str = None):
+        """Create new user"""
         try:
-            user = {
+            user_doc = {
                 "user_id": user_id,
-                "first_name": name.get("first_name", ""),
-                "last_name": name.get("last_name", ""),
-                "balance": 0.0,
+                "first_name": user_data.get("first_name", ""),
+                "last_name": user_data.get("last_name", ""),
+                "balance": 0,
+                "total_earnings": 0,
+                "total_withdrawn": 0,
+                "withdrawn_today": 0,
                 "messages": 0,
-                "group_messages": {},
-                "withdrawn_today": 0.0,
-                "total_withdrawn": 0.0,
-                "last_withdrawal": None,
-                "banned": False,
-                "spam_count": 0,
-                "last_activity": datetime.utcnow(),
-                "message_timestamps": [],
-                "invites": 0,
-                "successful_referrals": 0,
-                "pending_withdrawals": [],
-                "referred_by": referred_by,
-                "created_at": datetime.utcnow(),
                 "user_level": 1,
-                "total_earnings": 0.0,
-                "achievements": [],
-                "last_daily_login": None,
+                "successful_referrals": 0,
+                "invites": 0,
+                "referred_by": referred_by,
                 "is_premium": False,
-                "premium_expires": None,
-                "used_free_trial": False,
-                "last_premium_daily_claim": None,
-                "premium_earnings_today": 0
+                "banned": False,
+                "created_at": datetime.utcnow(),
+                "last_activity": datetime.utcnow(),
+                "last_withdrawal": None,
+                "pending_withdrawals": [],
+                "group_messages": {}
             }
             
-            await self.users.insert_one(user)
+            result = await self.users.insert_one(user_doc)
+            if result.inserted_id:
+                logger.info(f"Created new user {user_id}")
+                return user_doc
+            return None
             
-            # Process referral bonus
-            if referred_by:
-                await self._process_referral_bonus(referred_by, user_id)
-                
-            logger.info(f"Created new user {user_id}")
-            return user
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
             return None
 
-    async def update_user(self, user_id: str, updates: Dict[str, Any]):
+    async def update_user(self, user_id: str, update_data: dict):
+        """Update user data"""
         try:
-            result = await self.users.update_one({"user_id": user_id}, {"$set": updates})
+            update_data["last_activity"] = datetime.utcnow()
+            result = await self.users.update_one(
+                {"user_id": user_id},
+                {"$set": update_data}
+            )
             return result.modified_count > 0
         except Exception as e:
             logger.error(f"Error updating user {user_id}: {e}")
             return False
 
-    async def get_all_users(self):
+    async def add_balance(self, user_id: str, amount: float):
+        """Add balance to user"""
         try:
-            users = await self.users.find().to_list(length=None)
-            return users
+            result = await self.users.update_one(
+                {"user_id": user_id},
+                {
+                    "$inc": {
+                        "balance": amount,
+                        "total_earnings": amount
+                    },
+                    "$set": {"last_activity": datetime.utcnow()}
+                }
+            )
+            return result.modified_count > 0
         except Exception as e:
-            logger.error(f"Error retrieving all users: {e}")
-            return []
+            logger.error(f"Error adding balance to user {user_id}: {e}")
+            return False
 
     async def add_bonus(self, user_id: str, amount: float):
+        """Add bonus to user (separate from regular earnings)"""
         try:
-            user = await self.get_user(user_id)
-            if not user:
-                return False
-            new_balance = user.get("balance", 0) + amount
-            new_total_earnings = user.get("total_earnings", 0) + amount
-            return await self.update_user(user_id, {
-                "balance": new_balance, 
-                "total_earnings": new_total_earnings
-            })
+            result = await self.users.update_one(
+                {"user_id": user_id},
+                {
+                    "$inc": {"balance": amount},
+                    "$set": {"last_activity": datetime.utcnow()}
+                }
+            )
+            return result.modified_count > 0
         except Exception as e:
             logger.error(f"Error adding bonus to user {user_id}: {e}")
             return False
 
-    # NEW METHODS - Missing from original database
-    async def get_top_users(self, limit: int, sort_field: str):
-        """Get top users sorted by a specific field"""
+    async def increment_user_messages(self, user_id: str, group_id: str = None):
+        """Increment user message count"""
         try:
-            users = await self.users.find({}).sort(sort_field, -1).limit(limit).to_list(length=limit)
-            return users
-        except Exception as e:
-            logger.error(f"Error getting top users: {e}")
-            return []
-
-    async def get_daily_challenges(self, user_id: str, date):
-        """Get daily challenges for a user"""
-        try:
-            challenges = await self.challenges.find_one({
-                "user_id": user_id, 
-                "date": date.isoformat()
-            })
-            return challenges.get("challenges", []) if challenges else []
-        except Exception as e:
-            logger.error(f"Error getting daily challenges: {e}")
-            return []
-
-    async def save_daily_challenges(self, user_id: str, date, challenges: list):
-        """Save daily challenges for a user"""
-        try:
-            await self.challenges.update_one(
-                {"user_id": user_id, "date": date.isoformat()},
-                {"$set": {"challenges": challenges, "updated_at": datetime.utcnow()}},
-                upsert=True
+            update_query = {
+                "$inc": {"messages": 1},
+                "$set": {"last_activity": datetime.utcnow()}
+            }
+            
+            if group_id:
+                update_query["$inc"][f"group_messages.{group_id}"] = 1
+            
+            result = await self.users.update_one(
+                {"user_id": user_id},
+                update_query
             )
-            return True
+            return result.modified_count > 0
         except Exception as e:
-            logger.error(f"Error saving daily challenges: {e}")
+            logger.error(f"Error incrementing messages for user {user_id}: {e}")
             return False
 
-    async def get_challenge_history(self, user_id: str, limit: int = 10):
-        """Get challenge history for a user"""
+    # Statistics and Rankings
+    async def get_all_users(self):
+        """Get all users"""
         try:
-            history = await self.challenges.find({"user_id": user_id}).sort("date", -1).limit(limit).to_list(length=limit)
-            processed_history = []
-            for record in history:
-                challenges = record.get("challenges", [])
-                total_challenges = len(challenges)
-                completed_challenges = len([c for c in challenges if c.get("completed", False)])
-                total_rewards = sum(c.get("reward", 0) for c in challenges if c.get("completed", False))
-                
-                processed_history.append({
-                    "date": datetime.fromisoformat(record["date"]),
-                    "total_challenges": total_challenges,
-                    "completed_challenges": completed_challenges,
-                    "total_rewards": total_rewards
-                })
-            return processed_history
+            cursor = self.users.find({})
+            users = await cursor.to_list(length=None)
+            return users
         except Exception as e:
-            logger.error(f"Error getting challenge history: {e}")
+            logger.error(f"Error getting all users: {e}")
             return []
-
-    async def get_user_rank_by_earnings(self, user_id: str):
-        """Get user's rank by total earnings"""
-        try:
-            user = await self.get_user(user_id)
-            if not user:
-                return 0
-            
-            user_earnings = user.get("total_earnings", 0)
-            higher_users = await self.users.count_documents({"total_earnings": {"$gt": user_earnings}})
-            return higher_users + 1
-        except Exception as e:
-            logger.error(f"Error getting user rank: {e}")
-            return 0
-
-    async def get_user_messages_today(self, user_id: str):
-        """Get user's message count for today"""
-        try:
-            user = await self.get_user(user_id)
-            if not user:
-                return 0
-            
-            # For simplicity, return a calculated value based on recent activity
-            last_activity = user.get("last_activity")
-            if last_activity and last_activity.date() == datetime.utcnow().date():
-                # Estimate based on total messages (this is simplified)
-                return min(user.get("messages", 0) % 100, 50)  # Max 50 per day estimate
-            return 0
-        except Exception as e:
-            logger.error(f"Error getting messages today: {e}")
-            return 0
-
-    async def get_user_rank(self, user_id: str, field: str):
-        """Get user's rank in a specific field"""
-        try:
-            user = await self.get_user(user_id)
-            if not user:
-                return 0
-            
-            user_value = user.get(field, 0)
-            higher_users = await self.users.count_documents({field: {"$gt": user_value}})
-            return higher_users + 1
-        except Exception as e:
-            logger.error(f"Error getting user rank: {e}")
-            return 0
 
     async def get_total_users_count(self):
         """Get total number of users"""
         try:
-            return await self.users.count_documents({})
+            count = await self.users.count_documents({})
+            return count
         except Exception as e:
-            logger.error(f"Error getting total users count: {e}")
+            logger.error(f"Error getting user count: {e}")
             return 0
 
     async def get_active_users_count(self, hours: int):
-        """Get count of active users in the last X hours"""
+        """Get count of users active in last X hours"""
         try:
-            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
-            return await self.users.count_documents({
-                "last_activity": {"$gte": cutoff_time}
+            since = datetime.utcnow() - timedelta(hours=hours)
+            count = await self.users.count_documents({
+                "last_activity": {"$gte": since}
             })
+            return count
         except Exception as e:
             logger.error(f"Error getting active users count: {e}")
             return 0
 
+    async def get_new_users_count(self, days: int):
+        """Get count of new users in last X days"""
+        try:
+            since = datetime.utcnow() - timedelta(days=days)
+            count = await self.users.count_documents({
+                "created_at": {"$gte": since}
+            })
+            return count
+        except Exception as e:
+            logger.error(f"Error getting new users count: {e}")
+            return 0
+
+    async def get_premium_users_count(self):
+        """Get count of premium users"""
+        try:
+            count = await self.users.count_documents({"is_premium": True})
+            return count
+        except Exception as e:
+            logger.error(f"Error getting premium users count: {e}")
+            return 0
+
+    async def get_banned_users_count(self):
+        """Get count of banned users"""
+        try:
+            count = await self.users.count_documents({"banned": True})
+            return count
+        except Exception as e:
+            logger.error(f"Error getting banned users count: {e}")
+            return 0
+
     async def get_total_messages_count(self):
-        """Get total messages count across all users"""
+        """Get total messages sent by all users"""
         try:
             pipeline = [
-                {"$group": {"_id": None, "total_messages": {"$sum": "$messages"}}}
+                {"$group": {"_id": None, "total": {"$sum": "$messages"}}}
             ]
             result = await self.users.aggregate(pipeline).to_list(length=1)
-            return result[0]["total_messages"] if result else 0
+            return result[0]["total"] if result else 0
         except Exception as e:
-            logger.error(f"Error getting total messages count: {e}")
+            logger.error(f"Error getting total messages: {e}")
+            return 0
+
+    async def get_messages_today_count(self):
+        """Get total messages sent today"""
+        try:
+            # Simplified - return estimated daily messages
+            total_messages = await self.get_total_messages_count()
+            return total_messages // 30  # Rough estimate of daily messages
+        except Exception as e:
+            logger.error(f"Error getting messages today count: {e}")
             return 0
 
     async def get_total_earnings(self):
         """Get total earnings across all users"""
         try:
             pipeline = [
-                {"$group": {"_id": None, "total_earnings": {"$sum": "$total_earnings"}}}
+                {"$group": {"_id": None, "total": {"$sum": "$total_earnings"}}}
             ]
             result = await self.users.aggregate(pipeline).to_list(length=1)
-            return result[0]["total_earnings"] if result else 0
+            return result[0]["total"] if result else 0
         except Exception as e:
             logger.error(f"Error getting total earnings: {e}")
             return 0
@@ -258,218 +283,299 @@ class Database:
         """Get total withdrawals across all users"""
         try:
             pipeline = [
-                {"$group": {"_id": None, "total_withdrawn": {"$sum": "$total_withdrawn"}}}
+                {"$group": {"_id": None, "total": {"$sum": "$total_withdrawn"}}}
             ]
             result = await self.users.aggregate(pipeline).to_list(length=1)
-            return result[0]["total_withdrawn"] if result else 0
+            return result[0]["total"] if result else 0
         except Exception as e:
             logger.error(f"Error getting total withdrawals: {e}")
             return 0
 
-    async def get_premium_users_count(self):
-        """Get count of premium users"""
+    async def get_top_users(self, limit: int, sort_field: str):
+        """Get top users by specified field"""
         try:
-            current_time = datetime.utcnow()
-            return await self.users.count_documents({
-                "is_premium": True,
-                "premium_expires": {"$gt": current_time}
-            })
+            cursor = self.users.find({}).sort(sort_field, -1).limit(limit)
+            users = await cursor.to_list(length=limit)
+            return users
         except Exception as e:
-            logger.error(f"Error getting premium users count: {e}")
+            logger.error(f"Error getting top users: {e}")
+            return []
+
+    async def get_user_rank(self, user_id: str, field: str):
+        """Get user's rank in specified field"""
+        try:
+            user = await self.get_user(user_id)
+            if not user:
+                return 0
+            
+            user_value = user.get(field, 0)
+            rank = await self.users.count_documents({field: {"$gt": user_value}}) + 1
+            return rank
+        except Exception as e:
+            logger.error(f"Error getting user rank: {e}")
             return 0
 
-    async def get_banned_users_count(self):
-        """Get count of banned users"""
+    async def get_user_rank_by_earnings(self, user_id: str):
+        """Get user's rank by total earnings"""
+        return await self.get_user_rank(user_id, "total_earnings")
+
+    async def get_user_messages_today(self, user_id: str):
+        """Get user's messages sent today (simplified)"""
         try:
-            return await self.users.count_documents({"banned": True})
+            user = await self.get_user(user_id)
+            if not user:
+                return 0
+            
+            # Simplified - could implement proper daily tracking
+            total_messages = user.get("messages", 0)
+            return min(total_messages, 50)  # Cap at 50 for daily estimate
         except Exception as e:
-            logger.error(f"Error getting banned users count: {e}")
+            logger.error(f"Error getting user messages today: {e}")
             return 0
 
-    async def get_new_users_count(self, days: int):
-        """Get count of new users in the last X days"""
-        try:
-            cutoff_time = datetime.utcnow() - timedelta(days=days)
-            return await self.users.count_documents({
-                "created_at": {"$gte": cutoff_time}
-            })
-        except Exception as e:
-            logger.error(f"Error getting new users count: {e}")
-            return 0
-
-    async def get_messages_today_count(self):
-        """Get total messages sent today"""
-        try:
-            # This is simplified - in a real implementation, you'd track daily message counts
-            today = datetime.utcnow().date()
-            active_today = await self.get_active_users_count(24)
-            return active_today * 10  # Estimate: 10 messages per active user
-        except Exception as e:
-            logger.error(f"Error getting messages today count: {e}")
-            return 0
-
-    async def get_phone_bill_reward(self):
-        """Get phone bill reward amount"""
-        try:
-            setting = await self.settings.find_one({"type": "phone_bill_reward"})
-            return setting["value"] if setting else 1000
-        except Exception as e:
-            logger.error(f"Error getting phone bill reward: {e}")
-            return 1000
-
-    async def get_referral_reward(self):
-        """Get referral reward amount"""
-        try:
-            setting = await self.settings.find_one({"type": "referral_reward"})
-            return setting["value"] if setting else 25
-        except Exception as e:
-            logger.error(f"Error getting referral reward: {e}")
-            return 25
-
-    async def get_message_rate(self):
-        """Get message rate (messages per kyat)"""
-        try:
-            setting = await self.settings.find_one({"type": "message_rate"})
-            return setting["value"] if setting else 3
-        except Exception as e:
-            logger.error(f"Error retrieving message rate: {e}")
-            return 3
-
-    async def set_message_rate(self, messages_per_kyat: int):
-        """Set message rate"""
-        try:
-            await self.settings.update_one(
-                {"type": "message_rate"},
-                {"$set": {"value": messages_per_kyat}},
-                upsert=True
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Error setting message rate: {e}")
-            return False
-
-    async def get_group_message_count(self, group_id: str):
-        """Get total message count for a group"""
-        try:
-            pipeline = [
-                {"$match": {f"group_messages.{group_id}": {"$exists": True}}},
-                {"$group": {"_id": None, "total_messages": {"$sum": f"$group_messages.{group_id}"}}}
-            ]
-            result = await self.users.aggregate(pipeline).to_list(length=None)
-            return result[0]["total_messages"] if result else 0
-        except Exception as e:
-            logger.error(f"Error retrieving message count: {e}")
-            return 0
-
+    # Channel Management
     async def get_channels(self):
-        """Get all channels for subscription check"""
+        """Get all mandatory channels"""
         try:
-            channels = await self.channels.find({}).to_list(length=None)
+            cursor = self.channels.find({})
+            channels = await cursor.to_list(length=None)
             return channels
         except Exception as e:
             logger.error(f"Error getting channels: {e}")
             return []
 
-    async def process_message_earning(self, user_id: str, group_id: str):
-        """Process message earning for a user"""
+    async def add_channel(self, channel_id: str, channel_name: str):
+        """Add mandatory channel"""
         try:
-            user = await self.get_user(user_id)
-            if not user or user.get("banned", False):
-                return {"success": False, "reason": "User not found or banned"}
-            
-            message_rate = await self.get_message_rate()
-            new_message_count = user.get("messages", 0) + 1
-            
-            # Calculate earning
-            earning = 1.0 / message_rate if new_message_count % message_rate == 0 else 0
-            
-            # Check if user is premium (double earnings)
-            if user.get("is_premium", False) and user.get("premium_expires") and user.get("premium_expires") > datetime.utcnow():
-                earning *= 2  # Double earnings for premium users
-            
-            new_balance = user.get("balance", 0) + earning
-            new_total_earnings = user.get("total_earnings", 0) + earning
-            
-            # Update group messages
-            group_messages = user.get("group_messages", {})
-            group_messages[group_id] = group_messages.get(group_id, 0) + 1
-            
-            # Update user level
-            new_level = min(10, (new_message_count // 1000) + 1)
-            
-            updates = {
-                "messages": new_message_count,
-                "group_messages": group_messages,
-                "balance": new_balance,
-                "total_earnings": new_total_earnings,
-                "user_level": new_level,
-                "last_activity": datetime.utcnow()
+            channel_doc = {
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "added_at": datetime.utcnow()
             }
-            
-            success = await self.update_user(user_id, updates)
-            
-            return {
-                "success": success,
-                "earning": earning,
-                "new_balance": new_balance,
-                "message_count": new_message_count,
-                "level_up": new_level > user.get("user_level", 1)
-            }
-            
+            result = await self.channels.insert_one(channel_doc)
+            return result.inserted_id is not None
         except Exception as e:
-            logger.error(f"Error processing message earning: {e}")
-            return {"success": False, "reason": "Processing error"}
+            logger.error(f"Error adding channel: {e}")
+            return False
 
-    async def create_withdrawal_request(self, user_id: str, amount: float, payment_method: str, payment_details: str):
-        """Create a withdrawal request"""
+    async def remove_channel(self, channel_id: str):
+        """Remove mandatory channel"""
+        try:
+            result = await self.channels.delete_one({"channel_id": channel_id})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error removing channel: {e}")
+            return False
+
+    # Settings Management
+    async def get_message_rate(self):
+        """Get current message rate (messages per kyat)"""
+        try:
+            settings = await self.settings.find_one({"_id": "bot_settings"})
+            return settings.get("message_rate", 3) if settings else 3
+        except Exception as e:
+            logger.error(f"Error getting message rate: {e}")
+            return 3
+
+    async def set_message_rate(self, rate: int):
+        """Set message rate"""
+        try:
+            result = await self.settings.update_one(
+                {"_id": "bot_settings"},
+                {"$set": {"message_rate": rate}},
+                upsert=True
+            )
+            return result.modified_count > 0 or result.upserted_id is not None
+        except Exception as e:
+            logger.error(f"Error setting message rate: {e}")
+            return False
+
+    async def get_referral_reward(self):
+        """Get referral reward amount"""
+        try:
+            settings = await self.settings.find_one({"_id": "bot_settings"})
+            return settings.get("referral_reward", 25) if settings else 25
+        except Exception as e:
+            logger.error(f"Error getting referral reward: {e}")
+            return 25
+
+    async def set_referral_reward(self, amount: float):
+        """Set referral reward amount"""
+        try:
+            result = await self.settings.update_one(
+                {"_id": "bot_settings"},
+                {"$set": {"referral_reward": amount}},
+                upsert=True
+            )
+            return result.modified_count > 0 or result.upserted_id is not None
+        except Exception as e:
+            logger.error(f"Error setting referral reward: {e}")
+            return False
+
+    async def get_phone_bill_reward(self):
+        """Get phone bill reward for top users"""
+        try:
+            settings = await self.settings.find_one({"_id": "bot_settings"})
+            return settings.get("phone_bill_reward", 1000) if settings else 1000
+        except Exception as e:
+            logger.error(f"Error getting phone bill reward: {e}")
+            return 1000
+
+    async def set_phone_bill_reward(self, amount: float):
+        """Set phone bill reward amount"""
+        try:
+            result = await self.settings.update_one(
+                {"_id": "bot_settings"},
+                {"$set": {"phone_bill_reward": amount}},
+                upsert=True
+            )
+            return result.modified_count > 0 or result.upserted_id is not None
+        except Exception as e:
+            logger.error(f"Error setting phone bill reward: {e}")
+            return False
+
+    async def get_welcome_bonus(self):
+        """Get welcome bonus amount"""
+        try:
+            settings = await self.settings.find_one({"_id": "bot_settings"})
+            return settings.get("welcome_bonus", 100) if settings else 100
+        except Exception as e:
+            logger.error(f"Error getting welcome bonus: {e}")
+            return 100
+
+    async def set_welcome_bonus(self, amount: float):
+        """Set welcome bonus amount"""
+        try:
+            result = await self.settings.update_one(
+                {"_id": "bot_settings"},
+                {"$set": {"welcome_bonus": amount}},
+                upsert=True
+            )
+            return result.modified_count > 0 or result.upserted_id is not None
+        except Exception as e:
+            logger.error(f"Error setting welcome bonus: {e}")
+            return False
+
+    # Utility Methods
+    async def ban_user(self, user_id: str, reason: str = None):
+        """Ban a user"""
+        try:
+            update_data = {
+                "banned": True,
+                "banned_at": datetime.utcnow()
+            }
+            if reason:
+                update_data["ban_reason"] = reason
+            
+            result = await self.users.update_one(
+                {"user_id": user_id},
+                {"$set": update_data}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error banning user {user_id}: {e}")
+            return False
+
+    async def unban_user(self, user_id: str):
+        """Unban a user"""
+        try:
+            result = await self.users.update_one(
+                {"user_id": user_id},
+                {
+                    "$set": {"banned": False},
+                    "$unset": {"ban_reason": "", "banned_at": ""}
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error unbanning user {user_id}: {e}")
+            return False
+
+    async def is_user_banned(self, user_id: str):
+        """Check if user is banned"""
         try:
             user = await self.get_user(user_id)
-            if not user or user.get("balance", 0) < amount:
-                return {"success": False, "reason": "Insufficient balance"}
+            return user.get("banned", False) if user else False
+        except Exception as e:
+            logger.error(f"Error checking if user banned: {e}")
+            return False
+
+    async def get_user_statistics(self, user_id: str):
+        """Get detailed user statistics"""
+        try:
+            user = await self.get_user(user_id)
+            if not user:
+                return None
             
-            # Create withdrawal request
-            withdrawal_request = {
+            total_users = await self.get_total_users_count()
+            earning_rank = await self.get_user_rank_by_earnings(user_id)
+            message_rank = await self.get_user_rank(user_id, "messages")
+            
+            stats = {
+                "user_data": user,
+                "total_users": total_users,
+                "earning_rank": earning_rank,
+                "message_rank": message_rank,
+                "messages_today": await self.get_user_messages_today(user_id)
+            }
+            
+            return stats
+        except Exception as e:
+            logger.error(f"Error getting user statistics: {e}")
+            return None
+
+    async def cleanup_old_data(self, days: int = 30):
+        """Clean up old data (optional maintenance function)"""
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            
+            # Could implement cleanup of old withdrawal requests, logs, etc.
+            # For now, just log the cleanup attempt
+            logger.info(f"Cleanup attempted for data older than {days} days")
+            return True
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+            return False
+
+    # Withdrawal related methods
+    async def record_withdrawal(self, user_id: str, amount: float, method: str, details: str, status: str = "PENDING"):
+        """Record a withdrawal request"""
+        try:
+            withdrawal_doc = {
                 "user_id": user_id,
                 "amount": amount,
-                "payment_method": payment_method,
-                "payment_details": payment_details,
-                "status": "pending",
-                "created_at": datetime.utcnow()
+                "method": method,
+                "details": details,
+                "status": status,
+                "requested_at": datetime.utcnow(),
+                "processed_at": None,
+                "processed_by": None
             }
             
-            result = await self.withdrawals.insert_one(withdrawal_request)
-            withdrawal_id = str(result.inserted_id)
-            
-            # Reserve balance (don't deduct yet, wait for approval)
-            # new_balance = user.get("balance", 0) - amount
-            # await self.update_user(user_id, {"balance": new_balance})
-            
-            return {"success": True, "withdrawal_id": withdrawal_id}
-            
+            result = await self.withdrawals.insert_one(withdrawal_doc)
+            return result.inserted_id is not None
         except Exception as e:
-            logger.error(f"Error creating withdrawal request: {e}")
-            return {"success": False, "reason": "Processing error"}
+            logger.error(f"Error recording withdrawal: {e}")
+            return False
 
-    async def _process_referral_bonus(self, referrer_id: str, new_user_id: str):
-        """Process referral bonus"""
+    async def get_pending_withdrawals(self):
+        """Get all pending withdrawal requests"""
         try:
-            referral_bonus = await self.get_referral_reward()
-            referrer = await self.get_user(referrer_id)
-            
-            if referrer and not referrer.get("banned", False):
-                new_balance = referrer.get("balance", 0) + referral_bonus
-                new_referrals = referrer.get("successful_referrals", 0) + 1
-                new_total_earnings = referrer.get("total_earnings", 0) + referral_bonus
-                
-                await self.update_user(referrer_id, {
-                    "balance": new_balance,
-                    "successful_referrals": new_referrals,
-                    "total_earnings": new_total_earnings
-                })
-                
-                logger.info(f"Referral bonus {referral_bonus} awarded to {referrer_id}")
+            cursor = self.withdrawals.find({"status": "PENDING"})
+            withdrawals = await cursor.to_list(length=None)
+            return withdrawals
         except Exception as e:
-            logger.error(f"Error processing referral bonus: {e}")
+            logger.error(f"Error getting pending withdrawals: {e}")
+            return []
 
-# Singleton instance
+# Create global database instance
 db = Database()
+
+# Connection management
+async def init_database():
+    """Initialize database connection"""
+    await db.connect()
+
+async def close_database():
+    """Close database connection"""
+    await db.close_connection()
