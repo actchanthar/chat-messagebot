@@ -103,22 +103,27 @@ async def show_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(leaderboard_text, reply_markup=reply_markup)
 
 async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle leaderboard callback queries"""
+    """Handle leaderboard callback queries - FIXED VERSION"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
     
     await query.answer()
+    logger.info(f"Processing leaderboard callback: {data} from user {user_id}")
     
-    if data == "my_rank":
-        user = await db.get_user(user_id)
-        if user:
-            # Calculate user rankings
-            total_users = await db.get_total_users_count()
-            earning_rank = await db.get_user_rank(user_id, "total_earnings")
-            message_rank = await db.get_user_rank(user_id, "messages")
-            
-            rank_text = f"""
+    try:
+        if data == "leaderboard":
+            await show_leaderboard(update, context)
+        
+        elif data == "my_rank":
+            user = await db.get_user(user_id)
+            if user:
+                # Calculate user rankings
+                total_users = await db.get_total_users_count()
+                earning_rank = await db.get_user_rank(user_id, "total_earnings")
+                message_rank = await db.get_user_rank(user_id, "messages")
+                
+                rank_text = f"""
 📊 **YOUR RANKINGS**
 
 💰 **Earning Rank:** #{earning_rank} out of {total_users}
@@ -126,12 +131,15 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
 🎯 **Level:** {user.get('user_level', 1)}
 📈 **Progress:** {user.get('total_earnings', 0)} {CURRENCY} earned
 
-🚀 **Keep going to climb higher!**
-            """
-            await query.edit_message_text(rank_text)
-    
-    elif data == "join_competition":
-        competition_text = """
+🚀 Keep going to climb higher!
+🎯 Use /top for leaderboard menu
+                """
+                await query.edit_message_text(rank_text)  # No buttons
+            else:
+                await query.edit_message_text("❌ User not found")
+        
+        elif data == "join_competition":
+            competition_text = f"""
 🎯 **ACTIVE COMPETITIONS**
 
 🏆 **Weekly Earning Challenge**
@@ -148,11 +156,68 @@ async def handle_leaderboard_callbacks(update: Update, context: ContextTypes.DEF
 • Send 100 messages today
 • Earn 2x multiplier bonus!
 
-Join now and start competing!
-        """
-        await query.edit_message_text(competition_text)
+🔥 Join now and start competing!
+🎯 Use /top for leaderboard menu
+            """
+            await query.edit_message_text(competition_text)  # No buttons
+        
+        elif data.startswith("top_"):
+            # Handle specific leaderboard types
+            category = data.replace("top_", "")
+            
+            if category == "earners":
+                top_users = await db.get_top_users(15, "total_earnings")
+                title = "💰 **TOP EARNERS LEADERBOARD**"
+                field = "total_earnings"
+                suffix = CURRENCY
+            elif category == "messages":
+                top_users = await db.get_top_users(15, "messages")
+                title = "📝 **TOP MESSAGERS LEADERBOARD**"
+                field = "messages"
+                suffix = "msgs"
+            elif category == "referrers":
+                top_users = await db.get_top_users(15, "successful_referrals")
+                title = "👥 **TOP REFERRERS LEADERBOARD**"
+                field = "successful_referrals"
+                suffix = "refs"
+            else:
+                await query.edit_message_text(f"🏆 **{category.title()} Leaderboard**\n\nComing soon!\n\n🎯 Use /top for menu")
+                return
+            
+            leaderboard_text = f"{title}\n\n"
+            
+            for i, user in enumerate(top_users, 1):
+                name = user.get('first_name', 'Unknown')[:15]
+                value = user.get(field, 0)
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                
+                if field == "total_earnings":
+                    leaderboard_text += f"{medal} {name} - {int(value)} {suffix}\n"
+                else:
+                    leaderboard_text += f"{medal} {name} - {value:,} {suffix}\n"
+            
+            leaderboard_text += f"\n🎯 Use /top for menu"
+            
+            # No buttons for specific categories
+            await query.edit_message_text(leaderboard_text)
+        
+        else:
+            await query.edit_message_text(f"❌ Unknown leaderboard action\n\n🎯 Use /top for menu")
+    
+    except Exception as e:
+        logger.error(f"Error processing leaderboard callback {data}: {e}")
+        await query.edit_message_text("❌ Error loading leaderboard\n\n🎯 Use /top to try again")
 
 def register_handlers(application: Application):
+    """Register leaderboard handlers"""
+    logger.info("Registering leaderboard handlers")
     application.add_handler(CommandHandler("top", top_command))
     application.add_handler(CommandHandler("leaderboard", show_leaderboard))
-    application.add_handler(CallbackQueryHandler(handle_leaderboard_callbacks, pattern="^(leaderboard|my_rank|join_competition|top_)"))
+    
+    # IMPORTANT: Register callback handler with ALL patterns
+    application.add_handler(CallbackQueryHandler(
+        handle_leaderboard_callbacks, 
+        pattern="^(leaderboard|my_rank|join_competition|top_)"
+    ))
+    
+    logger.info("✅ Leaderboard handlers registered successfully")
