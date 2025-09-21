@@ -86,9 +86,9 @@ def main():
         
         application.add_handler(CommandHandler("start", basic_start))
     
-    # Add database initialization as a job
-    async def init_db_job(context):
-        """Initialize database connection"""
+    # Initialize database connection manually before starting
+    async def post_init(application):
+        """Initialize database after app starts"""
         logger.info("🔗 Connecting to database...")
         try:
             await init_database()
@@ -96,8 +96,8 @@ def main():
         except Exception as e:
             logger.error(f"❌ Database connection failed: {e}")
     
-    # Schedule database initialization to run immediately
-    application.job_queue.run_once(init_db_job, when=1)
+    # Use post_init callback
+    application.post_init = post_init
     
     # Start the bot
     logger.info("🤖 Bot started successfully!")
