@@ -15,15 +15,9 @@ from config import CURRENCY, ADMIN_IDS
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show bot analytics (Admin only)"""
-    user_id = str(update.effective_user.id)
-    
-    if user_id not in ADMIN_IDS:
-        await update.message.reply_text("❌ This command is for administrators only.")
-        return
-    
-    keyboard = [
+def get_analytics_keyboard():
+    """Get the persistent analytics keyboard"""
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📊 Overview", callback_data="analytics_overview"),
             InlineKeyboardButton("👥 Users", callback_data="analytics_users")
@@ -36,13 +30,22 @@ async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             InlineKeyboardButton("🎮 Engagement", callback_data="analytics_engagement"),
             InlineKeyboardButton("🏆 Performance", callback_data="analytics_performance")
         ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    ])
+
+async def analytics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show bot analytics (Admin only)"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ This command is for administrators only.")
+        return
+    
+    reply_markup = get_analytics_keyboard()
     
     await update.message.reply_text("📊 **Bot Analytics Dashboard**\n\nChoose a category:", reply_markup=reply_markup)
 
 async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle analytics callback queries"""
+    """Handle analytics callback queries - KEEP BUTTONS PERSISTENT"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -53,6 +56,9 @@ async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAU
     
     await query.answer()
     logger.info(f"Processing analytics callback: {data}")
+    
+    # Get persistent keyboard
+    reply_markup = get_analytics_keyboard()
     
     try:
         if data == "analytics_overview":
@@ -91,14 +97,14 @@ async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAU
 • Weekly Active Rate: {(active_users_7d / max(total_users, 1) * 100):.1f}%
 • Premium Conversion: {(premium_users / max(total_users, 1) * 100):.1f}%
 
-🎯 Use /analytics for new dashboard
+📊 Choose another category below:
             """
             
-            # NO BUTTONS - Remove them after click
-            await query.edit_message_text(overview_text)
+            # KEEP BUTTONS - Don't remove them
+            await query.edit_message_text(overview_text, reply_markup=reply_markup)
         
         elif data == "analytics_users":
-            # User analytics without buttons
+            # User analytics WITH BUTTONS
             new_users_today = await db.get_new_users_count(1)
             new_users_week = await db.get_new_users_count(7)
             new_users_month = await db.get_new_users_count(30)
@@ -133,13 +139,13 @@ async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAU
                 referrals = user.get('successful_referrals', 0)
                 users_text += f"{i}. {name}: {referrals} referrals\n"
             
-            users_text += f"\n🎯 Use /analytics for new dashboard"
+            users_text += f"\n📊 Choose another category below:"
             
-            # NO BUTTONS
-            await query.edit_message_text(users_text)
+            # KEEP BUTTONS
+            await query.edit_message_text(users_text, reply_markup=reply_markup)
         
         elif data == "analytics_economy":
-            # Economy analytics without buttons
+            # Economy analytics WITH BUTTONS
             try:
                 total_earnings = await db.get_total_earnings()
                 total_withdrawals = await db.get_total_withdrawals()
@@ -165,22 +171,73 @@ async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAU
 • Withdrawal rate is controlled
 • Economy is sustainable
 
-🎯 Use /analytics for new dashboard
+📊 Choose another category below:
                 """
                 
-                # NO BUTTONS
-                await query.edit_message_text(economy_text)
+                # KEEP BUTTONS
+                await query.edit_message_text(economy_text, reply_markup=reply_markup)
             except Exception as e:
                 logger.error(f"Error in economy analytics: {e}")
-                await query.edit_message_text("❌ Error loading economy data.")
+                await query.edit_message_text("❌ Error loading economy data.", reply_markup=reply_markup)
+        
+        elif data == "analytics_growth":
+            growth_text = f"""
+📈 **Growth Analytics**
+
+🚀 **Coming soon with advanced metrics!**
+
+📊 **Will include:**
+• User acquisition trends
+• Retention rates
+• Growth forecasting
+• Channel performance
+• Referral analysis
+
+📊 Choose another category below:
+            """
+            await query.edit_message_text(growth_text, reply_markup=reply_markup)
+        
+        elif data == "analytics_engagement":
+            engagement_text = f"""
+🎮 **Engagement Analytics**
+
+💬 **Coming soon with detailed engagement data!**
+
+📊 **Will include:**
+• Message frequency analysis
+• User activity patterns
+• Peak usage times
+• Feature usage statistics
+• Retention metrics
+
+📊 Choose another category below:
+            """
+            await query.edit_message_text(engagement_text, reply_markup=reply_markup)
+            
+        elif data == "analytics_performance":
+            performance_text = f"""
+🏆 **Performance Analytics**
+
+⚡ **Coming soon with performance insights!**
+
+📊 **Will include:**
+• Bot response times
+• Error rates
+• Success metrics
+• User satisfaction
+• System performance
+
+📊 Choose another category below:
+            """
+            await query.edit_message_text(performance_text, reply_markup=reply_markup)
         
         else:
-            # For other categories, show placeholder without buttons
-            await query.edit_message_text(f"📊 **{data.replace('analytics_', '').title()} Analytics**\n\nComing soon!\n\n🎯 Use /analytics for dashboard")
+            # Unknown category
+            await query.edit_message_text(f"📊 **Unknown Analytics Section**\n\nPlease choose a valid category below:", reply_markup=reply_markup)
     
     except Exception as e:
         logger.error(f"Error in analytics callback {data}: {e}")
-        await query.edit_message_text("❌ Error loading analytics data.\n\n🎯 Use /analytics to try again")
+        await query.edit_message_text("❌ Error loading analytics data.\n\n📊 Choose a category below:", reply_markup=reply_markup)
 
 def register_handlers(application: Application):
     """Register analytics handlers"""
