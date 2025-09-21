@@ -4,11 +4,10 @@ import logging
 import sys
 import os
 
-# Add the project root to Python path
+# Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-# Now import what we need
 from database.database import db
 from utils.spam_detector import spam_detector
 from config import APPROVED_GROUPS, LOG_CHANNEL_ID
