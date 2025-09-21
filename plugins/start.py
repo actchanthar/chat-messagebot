@@ -10,7 +10,7 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
 from database.database import db
-from config import CURRENCY, ADMIN_IDS
+from config import CURRENCY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,13 +35,13 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
         return len(not_subscribed_channels) == 0, not_subscribed_channels
     except Exception as e:
         logger.error(f"Error in check_subscription: {e}")
-        return True, []  # Allow access on error
+        return True, []
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ADVANCED START COMMAND - Will show buttons"""
+    """Enhanced start command with buttons"""
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"ADVANCED start command by user {user_id}")
+    logger.info(f"Start command by user {user_id}")
 
     # Check for referral
     referred_by = None
@@ -52,43 +52,29 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 referred_by = ref_code[4:]
             else:
                 referred_by = ref_code
-            logger.info(f"User {user_id} referred by {referred_by}")
         except Exception as e:
             logger.error(f"Error parsing referral: {e}")
 
-    # Check subscription (if channels exist)
+    # Check subscription
     subscribed, not_subscribed_channels = await check_subscription(context, int(user_id), chat_id)
     if not subscribed and not_subscribed_channels:
         keyboard = []
-        for i in range(0, len(not_subscribed_channels), 2):
-            row = []
-            channel_1 = not_subscribed_channels[i]
-            channel_name = channel_1["channel_name"]
+        for channel in not_subscribed_channels:
+            channel_name = channel["channel_name"]
             if channel_name.startswith("@"):
                 channel_name = channel_name[1:]
             
-            row.append(InlineKeyboardButton(
-                f"📢 {channel_1['channel_name']}",
+            keyboard.append([InlineKeyboardButton(
+                f"📢 {channel['channel_name']}",
                 url=f"https://t.me/{channel_name}"
-            ))
-            
-            if i + 1 < len(not_subscribed_channels):
-                channel_2 = not_subscribed_channels[i + 1]
-                channel_name_2 = channel_2["channel_name"]
-                if channel_name_2.startswith("@"):
-                    channel_name_2 = channel_name_2[1:]
-                row.append(InlineKeyboardButton(
-                    f"📢 {channel_2['channel_name']}",
-                    url=f"https://t.me/{channel_name_2}"
-                ))
-            keyboard.append(row)
+            )])
 
-        keyboard.append([InlineKeyboardButton("✅ I've Joined All Channels", callback_data="check_subscription")])
+        keyboard.append([InlineKeyboardButton("✅ I've Joined All", callback_data="check_subscription")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
             "🔐 **Subscription Required**\n\n"
-            "Please join ALL channels below:\n"
+            "Please join all channels below:\n"
             "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ဝင်ရောက်ပါ။",
             reply_markup=reply_markup
         )
@@ -106,28 +92,27 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         }, referred_by)
         
         if not user:
-            await update.message.reply_text("❌ Error creating account. Please try again.")
+            await update.message.reply_text("❌ Error creating account.")
             return
 
         # Award new user bonus
         welcome_bonus = 100
         await db.add_bonus(user_id, welcome_bonus)
-        logger.info(f"New user {user_id} created with {welcome_bonus} {CURRENCY} bonus")
 
-    # Get user stats for dashboard
+    # Get user stats
     current_balance = user.get("balance", 0)
     total_messages = user.get("messages", 0) 
     user_level = user.get("user_level", 1)
     total_earnings = user.get("total_earnings", 0)
     successful_referrals = user.get("successful_referrals", 0)
 
-    # Create welcome message with stats
+    # Create welcome message
     if is_new_user:
         welcome_message = (
             f"စာပို့ရင်း ငွေရှာမယ်:\n"
             f"Welcome to the Chat Bot, {update.effective_user.first_name}! 🎉\n\n"
             f"🎁 Welcome Bonus: +100 {CURRENCY} added!\n\n"
-            f"Earn money by sending messages in the group!\n"
+            f"Earn money by sending messages in groups!\n"
             f"အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
             f"Invite friends using your referral link!\n"
             f"Each invite earns you 25 {CURRENCY}!\n\n"
@@ -143,13 +128,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"👥 Referrals: {successful_referrals}\n\n"
         )
 
-    # Add leaderboard section
+    # Add leaderboard
     try:
         users = await db.get_all_users()
         if users and len(users) >= 3:
             top_users = await db.get_top_users(10, "total_earnings")
             
-            if top_users and len(top_users) > 0:
+            if top_users:
                 phone_bill_reward = await db.get_phone_bill_reward()
                 message_rate = await db.get_message_rate()
                 
@@ -175,7 +160,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Error generating leaderboard: {e}")
 
-    # Add current earning rate info
+    # Add earning rate and instructions
     try:
         message_rate = await db.get_message_rate()
         welcome_message += (
@@ -190,7 +175,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
         )
 
-    # IMPORTANT: Create the keyboard with buttons
+    # Create keyboard with buttons
     keyboard = [
         [
             InlineKeyboardButton("Check Balance", callback_data="balance"),
@@ -211,80 +196,69 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
-        # Send message with buttons
         await update.message.reply_text(
             welcome_message, 
             reply_markup=reply_markup, 
             parse_mode="HTML"
         )
-        logger.info(f"Advanced welcome with buttons sent to user {user_id}")
+        logger.info(f"Welcome message with buttons sent to user {user_id}")
     except Exception as e:
         logger.error(f"Failed to send welcome message: {e}")
-        # Fallback without HTML parsing
         await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle start menu callback queries"""
+    """Handle start menu callbacks"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
     
     await query.answer()
     
-    try:
-        if data == "check_subscription":
-            subscribed, not_subscribed = await check_subscription(context, int(user_id), query.message.chat_id)
-            if subscribed:
-                await query.edit_message_text("✅ **Subscription Verified!**\n\nWelcome! Use /start to begin.")
-            else:
-                await query.answer("❌ Please join ALL channels first!", show_alert=True)
-        
-        elif data == "balance":
-            user = await db.get_user(user_id)
-            if user:
-                balance = user.get("balance", 0)
-                total_earned = user.get("total_earnings", 0)
-                await query.edit_message_text(
-                    f"💰 Your current balance is {int(balance)} {CURRENCY}.\n"
-                    f"သင့်လက်ကျန်ငွေသည် {int(balance)} ကျပ်ဖြစ်ပါသည်။\n\n"
-                    f"📈 Total Earned: {int(total_earned)} {CURRENCY}\n\n"
-                    f"💡 Keep chatting in groups to earn more!"
-                )
-        
-        elif data == "withdraw":
-            # Start withdrawal process
-            try:
-                from plugins.withdrawal import withdraw
-                context.user_data.clear()
-                # Call withdraw function directly
-                await withdraw(update, context)
-            except Exception as e:
-                logger.error(f"Error starting withdrawal: {e}")
-                await query.edit_message_text(
-                    "💸 **Withdrawal System**\n\n"
-                    "Use the command: `/withdraw`\n"
-                    "Available methods: KBZ Pay, Wave Pay, AYA Pay, CB Pay\n\n"
-                    "Minimum: 200 kyat\n"
-                    "Processing: 24-48 hours"
-                )
-        
-        elif data == "detailed_stats":
-            user = await db.get_user(user_id)
-            if user:
-                try:
-                    rank = await db.get_user_rank_by_earnings(user_id)
-                    messages_today = await db.get_user_messages_today(user_id)
-                except:
-                    rank = 0
-                    messages_today = 0
-                
-                stats_text = f"""
+    if data == "check_subscription":
+        subscribed, not_subscribed = await check_subscription(context, int(user_id), query.message.chat_id)
+        if subscribed:
+            await query.edit_message_text("✅ Subscription Verified!\n\nWelcome! Use /start to begin.")
+        else:
+            await query.answer("❌ Please join ALL channels first!", show_alert=True)
+    
+    elif data == "balance":
+        user = await db.get_user(user_id)
+        if user:
+            balance = user.get("balance", 0)
+            total_earned = user.get("total_earnings", 0)
+            await query.edit_message_text(
+                f"💰 Your current balance is {int(balance)} {CURRENCY}.\n"
+                f"သင့်လက်ကျန်ငွေသည် {int(balance)} ကျပ်ဖြစ်ပါသည်။\n\n"
+                f"📈 Total Earned: {int(total_earned)} {CURRENCY}\n\n"
+                f"💡 Keep chatting in groups to earn more!"
+            )
+    
+    elif data == "withdraw":
+        await query.edit_message_text(
+            "💸 **Withdrawal System**\n\n"
+            "Use the command: `/withdraw`\n\n"
+            "Available methods:\n"
+            "• KBZ Pay\n"
+            "• Wave Pay\n" 
+            "• AYA Pay\n"
+            "• CB Pay\n"
+            "• Phone Bill\n\n"
+            "Minimum: 200 kyat\n"
+            "Processing: 24-48 hours"
+        )
+    
+    elif data == "detailed_stats":
+        user = await db.get_user(user_id)
+        if user:
+            rank = await db.get_user_rank_by_earnings(user_id)
+            
+            stats_text = f"""
 📊 **YOUR STATISTICS**
 
 👤 **Profile:**
 • Name: {user.get('first_name', 'Unknown')} {user.get('last_name', '')}
 • Level: {user.get('user_level', 1)}
-• Rank: #{rank if rank > 0 else 'N/A'}
+• Rank: #{rank}
 
 💰 **Financial:**
 • Balance: {int(user.get('balance', 0))} {CURRENCY}
@@ -293,54 +267,42 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
 
 📝 **Activity:**
 • Total Messages: {user.get('messages', 0):,}
-• Messages Today: {messages_today}
 • Last Active: {user.get('last_activity', datetime.utcnow()).strftime('%Y-%m-%d')}
 
 👥 **Referrals:**
 • Successful Referrals: {user.get('successful_referrals', 0)}
-• Total Invites: {user.get('invites', 0)}
-                """
-                await query.edit_message_text(stats_text)
-        
-        elif data == "show_leaderboard":
-            try:
-                top_users = await db.get_top_users(10, "total_earnings")
-                if not top_users:
-                    await query.edit_message_text("🏆 **Leaderboard**\n\nNo users found yet! Start earning to be first!")
-                    return
-                
-                leaderboard_text = "🏆 **TOP EARNERS LEADERBOARD**\n\n"
-                
-                for i, user in enumerate(top_users[:10], 1):
-                    name = user.get('first_name', 'Unknown')[:15]
-                    earnings = user.get('total_earnings', 0)
-                    level = user.get('user_level', 1)
-                    medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                    leaderboard_text += f"{medal} {name} - {int(earnings)} {CURRENCY} | Lv.{level}\n"
-                
-                leaderboard_text += "\n🎯 Keep earning to climb higher!"
-                await query.edit_message_text(leaderboard_text)
-            except Exception as e:
-                logger.error(f"Error showing leaderboard: {e}")
-                await query.edit_message_text("🏆 **Leaderboard**\n\nUse /top command for rankings!")
+            """
+            await query.edit_message_text(stats_text)
     
-    except Exception as e:
-        logger.error(f"Error in callback handler: {e}")
-        await query.edit_message_text("❌ Error occurred. Please try /start again.")
+    elif data == "show_leaderboard":
+        try:
+            top_users = await db.get_top_users(10, "total_earnings")
+            leaderboard_text = "🏆 **TOP EARNERS LEADERBOARD**\n\n"
+            
+            for i, user in enumerate(top_users[:10], 1):
+                name = user.get('first_name', 'Unknown')[:15]
+                earnings = user.get('total_earnings', 0)
+                level = user.get('user_level', 1)
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                leaderboard_text += f"{medal} {name} - {int(earnings)} {CURRENCY} | Lv.{level}\n"
+            
+            leaderboard_text += "\n🎯 Keep earning to climb higher!"
+            await query.edit_message_text(leaderboard_text)
+        except Exception as e:
+            logger.error(f"Error showing leaderboard: {e}")
+            await query.edit_message_text("🏆 Leaderboard\n\nUse /top for rankings!")
 
 def register_handlers(application: Application):
     """Register start command handlers"""
-    logger.info("Registering ADVANCED start command handlers")
+    logger.info("Registering start command handlers")
     
-    # Clear any existing start handlers
+    # Clear existing start handlers
     for handler_group in application.handlers.values():
         for handler in handler_group[:]:
             if hasattr(handler, 'command') and 'start' in getattr(handler, 'command', []):
                 handler_group.remove(handler)
-                logger.info("Removed existing start handler")
     
-    # Register our advanced start command
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CallbackQueryHandler(handle_start_callbacks))
     
-    logger.info("✅ ADVANCED start handlers registered successfully")
+    logger.info("✅ Start handlers registered successfully")
