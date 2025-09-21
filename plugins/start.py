@@ -10,14 +10,12 @@ sys.path.insert(0, project_root)
 
 from database.database import db
 from config import CURRENCY, MESSAGE_RATE, MIN_WITHDRAWAL
-from utils.achievement_system import achievement_system
-from utils.economy_manager import economy_manager
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Advanced start command with welcome interface"""
+async def advanced_start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Advanced start command with interactive interface"""
     user_id = str(update.effective_user.id)
     user_name = {
         "first_name": update.effective_user.first_name or "",
@@ -32,30 +30,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user = await db.get_user(user_id)
     
     if not user:
-        # Create new user with advanced features
+        # Create new user
         user = await db.create_user(user_id, user_name, referred_by)
         
-        # Award first-time bonus
-        await db.add_bonus(user_id, 50)  # 50 kyat welcome bonus
-        
-        # Check for achievements
-        await achievement_system.check_achievements(user_id, "first_start")
+        # Award welcome bonus
+        await db.add_bonus(user_id, 50)
         
         # Create welcome interface
         keyboard = [
             [
                 InlineKeyboardButton("💰 Check Balance", callback_data="balance"),
-                InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard")
-            ],
-            [
-                InlineKeyboardButton("🎯 Daily Challenge", callback_data="daily_challenge"),
-                InlineKeyboardButton("👑 Premium", callback_data="premium_info")
+                InlineKeyboardButton("🏆 Leaderboard", callback_data="show_leaderboard")
             ],
             [
                 InlineKeyboardButton("📊 My Stats", callback_data="user_stats"),
                 InlineKeyboardButton("🎁 Referral Link", callback_data="referral_link")
             ],
             [
+                InlineKeyboardButton("💸 How to Withdraw", callback_data="withdraw_info"),
                 InlineKeyboardButton("ℹ️ Help & Guide", callback_data="help_menu")
             ]
         ]
@@ -68,45 +60,39 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 💰 **How to Earn:**
 • Chat in approved groups: {MESSAGE_RATE} messages = 1 {CURRENCY}
-• Complete daily challenges for bonus rewards
-• Refer friends for massive bonuses
+• Refer friends for bonuses
+• Complete daily activities
 • Participate in competitions
-• Unlock achievements for special rewards
 
-🌟 **Advanced Features:**
-• Dynamic earning multipliers
-• VIP premium system
-• Real-time leaderboards
-• Anti-cheat protection
-• Multi-level referral system
+🌟 **Features:**
+• Real-time earnings tracking
+• Advanced leaderboards
+• Secure withdrawal system
+• Anti-spam protection
+• Referral rewards
 
 🚀 **Your Journey Starts Now!**
-Choose an option below to explore:
+Choose an option below:
         """
         
         await update.message.reply_text(welcome_message, reply_markup=reply_markup)
         
-        # Notify referrer if applicable
+        # Notify referrer
         if referred_by:
             try:
-                referrer = await db.get_user(referred_by)
-                if referrer:
-                    await context.bot.send_message(
-                        chat_id=referred_by,
-                        text=f"🎉 Great news! {user_name.get('first_name', 'Someone')} joined using your referral link!\n💰 You earned 25 {CURRENCY} bonus!"
-                    )
+                await context.bot.send_message(
+                    chat_id=referred_by,
+                    text=f"🎉 {user_name.get('first_name', 'Someone')} joined using your referral link!\n💰 You earned 25 {CURRENCY} bonus!"
+                )
             except:
                 pass
     
     else:
-        # Existing user - show dashboard
+        # Existing user dashboard
         current_balance = user.get('balance', 0)
         total_earnings = user.get('total_earnings', 0)
+        messages_count = user.get('messages', 0)
         user_level = user.get('user_level', 1)
-        messages_today = await db.get_messages_today(user_id)
-        
-        # Check for daily login bonus
-        daily_bonus = await economy_manager.process_daily_login(user_id)
         
         keyboard = [
             [
@@ -114,25 +100,23 @@ Choose an option below to explore:
                 InlineKeyboardButton("📊 Stats", callback_data="user_stats")
             ],
             [
-                InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard"),
-                InlineKeyboardButton("🎯 Challenges", callback_data="daily_challenge")
+                InlineKeyboardButton("🏆 Leaderboard", callback_data="show_leaderboard"),
+                InlineKeyboardButton("💸 Withdraw", callback_data="withdraw_info")
             ],
             [
-                InlineKeyboardButton("💸 Withdraw", callback_data="withdraw_menu"),
-                InlineKeyboardButton("👑 Premium", callback_data="premium_info")
+                InlineKeyboardButton("🎁 Invite Friends", callback_data="referral_link"),
+                InlineKeyboardButton("ℹ️ Help", callback_data="help_menu")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        daily_bonus_text = f"\n🎁 Daily Login Bonus: +{daily_bonus} {CURRENCY}" if daily_bonus > 0 else ""
         
         dashboard_message = f"""
 👋 **Welcome back, {user_name.get('first_name', 'User')}!**
 
 💰 **Balance:** {int(current_balance)} {CURRENCY}
 📈 **Total Earned:** {int(total_earnings)} {CURRENCY}
+📝 **Messages:** {messages_count:,}
 🎯 **Level:** {user_level}
-📝 **Messages Today:** {messages_today}{daily_bonus_text}
 
 🚀 **Ready to earn more?**
         """
@@ -140,7 +124,7 @@ Choose an option below to explore:
         await update.message.reply_text(dashboard_message, reply_markup=reply_markup)
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle callback queries from start menu"""
+    """Handle start menu callback queries"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -148,34 +132,72 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     
     if data == "balance":
-        from plugins.balance import check_balance
-        await check_balance(update, context)
+        # Show balance
+        user = await db.get_user(user_id)
+        if user:
+            balance = user.get("balance", 0)
+            await query.edit_message_text(
+                f"💰 **Your Balance**\n\n"
+                f"Current Balance: {int(balance)} {CURRENCY}\n"
+                f"သင့်လက်ကျန်ငွေ: {int(balance)} ကျပ်\n\n"
+                f"💡 Earn more by sending messages in approved groups!"
+            )
     
     elif data == "user_stats":
-        from plugins.stats import user_stats
-        await user_stats(update, context)
+        # Show user statistics
+        user = await db.get_user(user_id)
+        if user:
+            stats_text = f"""
+📊 **Your Statistics**
+
+💰 Balance: {int(user.get('balance', 0))} {CURRENCY}
+📝 Messages: {user.get('messages', 0):,}
+🎯 Level: {user.get('user_level', 1)}
+💸 Total Earned: {int(user.get('total_earnings', 0))} {CURRENCY}
+👥 Referrals: {user.get('successful_referrals', 0)}
+
+🚀 Keep chatting to level up!
+            """
+            await query.edit_message_text(stats_text)
     
-    elif data == "leaderboard":
-        from plugins.leaderboard import show_leaderboard
-        await show_leaderboard(update, context)
-    
-    elif data == "daily_challenge":
-        from plugins.challenges import show_daily_challenge
-        await show_daily_challenge(update, context)
-    
-    elif data == "premium_info":
-        from plugins.premium import show_premium_info
-        await show_premium_info(update, context)
+    elif data == "show_leaderboard":
+        # Show basic leaderboard
+        try:
+            top_users = await db.get_top_users(5, "total_earnings")
+            leaderboard_text = "🏆 **TOP EARNERS**\n\n"
+            
+            for i, user in enumerate(top_users, 1):
+                name = user.get('first_name', 'Unknown')[:15]
+                earnings = user.get('total_earnings', 0)
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                leaderboard_text += f"{medal} {name} - {int(earnings)} {CURRENCY}\n"
+            
+            leaderboard_text += f"\n🎯 Use /top for full leaderboard!"
+            await query.edit_message_text(leaderboard_text)
+        except:
+            await query.edit_message_text("📊 Leaderboard loading... Try /top command!")
     
     elif data == "referral_link":
-        from plugins.help import referral_command
-        await referral_command(update, context)
+        # Show referral link
+        bot_username = context.bot.username or "YourBotUsername"
+        referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+        
+        referral_text = f"""
+👥 **Invite Friends & Earn!**
+
+🔗 **Your Referral Link:**
+`{referral_link}`
+
+💰 **Earn 25 {CURRENCY} for each friend who:**
+• Clicks your link and starts the bot
+• Sends their first message
+
+📊 Share this link and start earning!
+        """
+        await query.edit_message_text(referral_text)
     
-    elif data == "help_menu":
-        from plugins.help import help_command
-        await help_command(update, context)
-    
-    elif data == "withdraw_menu":
+    elif data == "withdraw_info":
+        # Show withdrawal information
         withdraw_text = f"""
 💸 **Withdrawal Information**
 
@@ -184,13 +206,51 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
 ⏱️ **Processing:** 24-48 hours
 
 📋 **To request withdrawal:**
-Use command: `/withdraw <amount> <method> <phone>`
+Use: `/withdraw <amount> <method> <phone>`
 
-**Example:** `/withdraw 1000 kpay 09123456789`
+**Example:**
+`/withdraw 1000 kpay 09123456789`
+
+💡 Make sure you have enough balance!
         """
         await query.edit_message_text(withdraw_text)
+    
+    elif data == "help_menu":
+        # Show help menu
+        help_text = f"""
+ℹ️ **Help & Commands**
+
+💰 **Earning Commands:**
+/balance - Check your balance
+/stats - View your statistics
+/withdraw - Request withdrawal
+
+🏆 **Social Commands:**
+/top - View leaderboards
+/referral - Get your referral link
+
+📋 **Other Commands:**
+/help - Detailed help guide
+/start - Return to main menu
+
+💡 **How to Earn:**
+1. Join approved groups
+2. Send messages (3 messages = 1 kyat)
+3. Invite friends for bonuses
+4. Request withdrawal when ready!
+
+🎯 **Support:** Contact admins for help
+        """
+        await query.edit_message_text(help_text)
 
 def register_handlers(application: Application):
-    """Register start command handlers"""
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(balance|user_stats|leaderboard|daily_challenge|premium_info|referral_link|help_menu|withdraw_menu)$"))
+    """Register advanced start handlers"""
+    # Replace the default start command with advanced version
+    for handler in application.handlers[0][:]:
+        if hasattr(handler, 'command') and 'start' in handler.command:
+            application.handlers[0].remove(handler)
+    
+    application.add_handler(CommandHandler("start", advanced_start_command))
+    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(balance|user_stats|show_leaderboard|referral_link|withdraw_info|help_menu)$"))
+    
+    logger.info("✅ Advanced start handlers registered")
