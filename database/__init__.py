@@ -1,3 +1,1 @@
-from database.database import db
-
-__all__ = ['db']
+# Database package initialization
