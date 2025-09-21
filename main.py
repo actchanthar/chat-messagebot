@@ -2,7 +2,6 @@
 import logging
 import sys
 import os
-import asyncio
 
 # Add project root to Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -19,16 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-async def main():
-    # IMPORTANT: Initialize database connection first
-    logger.info("🔗 Connecting to database...")
-    try:
-        await init_database()
-        logger.info("✅ Database connected successfully")
-    except Exception as e:
-        logger.error(f"❌ Database connection failed: {e}")
-        return
-
+def main():
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -70,6 +60,14 @@ async def main():
         register_challenges_handlers(application)
         register_analytics_handlers(application)
         
+        # Import announcements system
+        try:
+            from plugins.announcements import register_handlers as register_announcements_handlers
+            register_announcements_handlers(application)
+            logger.info("✅ Announcements registered")
+        except ImportError:
+            logger.warning("⚠️ Announcements system not found, continuing without it")
+        
         logger.info("✅ All handlers registered!")
         
     except ImportError as e:
@@ -88,22 +86,23 @@ async def main():
         
         application.add_handler(CommandHandler("start", basic_start))
     
+    # Add database initialization as a job
+    async def init_db_job(context):
+        """Initialize database connection"""
+        logger.info("🔗 Connecting to database...")
+        try:
+            await init_database()
+            logger.info("✅ Database connected successfully")
+        except Exception as e:
+            logger.error(f"❌ Database connection failed: {e}")
+    
+    # Schedule database initialization to run immediately
+    application.job_queue.run_once(init_db_job, when=1)
+    
     # Start the bot
     logger.info("🤖 Bot started successfully!")
     logger.info("💰 Ready to process all commands!")
-    
-    # Run the bot
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling()
-    
-    # Keep the bot running
-    try:
-        await application.updater.idle()
-    finally:
-        await application.updater.stop()
-        await application.stop()
-        await application.shutdown()
+    application.run_polling(allowed_updates=["message", "callback_query"])
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
