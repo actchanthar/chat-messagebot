@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 import logging
 import sys
 import os
@@ -543,45 +543,14 @@ async def handle_start_wd_details(update: Update, context: ContextTypes.DEFAULT_
             await update.message.reply_text("❌ Session expired. Please restart")
             return ConversationHandler.END
 
-        # Process input (text or image)
-        details = None
-        photo_file_id = None
-        
-        if update.message.photo:
-            # Handle QR code image
-            try:
-                photo = update.message.photo[-1]
-                photo_file = await photo.get_file()
-                photo_file_id = photo.file_id
-                details = "QR Code Image Provided"
-                logger.info(f"User {user_id} provided QR code image")
-            except Exception as e:
-                logger.error(f"Error processing photo: {e}")
-                await update.message.reply_text("❌ Error processing image. Please try again.")
-                return START_WD_DETAILS
-                
-        elif update.message.text:
-            details = update.message.text.strip()
-            if not details:
-                await update.message.reply_text(
-                    "❌ **Empty Details**\n\n"
-                    "ကျေးဇူးပြု၍ အချက်အလက်များ ထည့်ပါ။\n"
-                    "Please provide payment details or send QR image."
-                )
-                return START_WD_DETAILS
-        else:
-            await update.message.reply_text(
-                "❌ **Invalid Input**\n\n"
-                "ကျေးဇူးပြု၍ စာသား သို့မဟုတ် QR ပုံ ပို့ပါ။\n"
-                "Please send text details or QR image."
-            )
-            return START_WD_DETAILS
-
-        # COMPLETE WITHDRAWAL PROCESSING - Same as main withdrawal.py
+        # Import and use the main withdrawal details handler
         from plugins.withdrawal import handle_details as main_handle_details
         
-        # Call the main withdrawal details handler
-        return await main_handle_details(update, context)
+        # Call the main withdrawal details handler to complete the process
+        result = await main_handle_details(update, context)
+        
+        # Return the result from the main handler
+        return result
 
     except Exception as e:
         logger.error(f"Error in handle_start_wd_details: {e}")
