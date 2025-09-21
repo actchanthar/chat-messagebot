@@ -25,7 +25,9 @@ from config import (
     CURRENCY,
     LOG_CHANNEL_ID,
     ADMIN_IDS,
-    APPROVED_GROUPS
+    APPROVED_GROUPS,
+    RECEIPT_CHANNEL_ID,
+    AUTO_ANNOUNCE_WITHDRAWALS
 )
 from database.database import db
 
@@ -711,15 +713,13 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                # Auto announcements
+                # UPDATED: Send withdrawal announcement to PROOF CHANNEL ONLY
                 try:
-                    from config import ANNOUNCEMENT_GROUPS, AUTO_ANNOUNCE_WITHDRAWALS
-                    telegram_user = await context.bot.get_chat(target_user_id)
-                    display_name = telegram_user.first_name or "User"
-                    
                     if AUTO_ANNOUNCE_WITHDRAWALS:
-                        announcement_text = f"""
-💸 **WITHDRAWAL SUCCESSFUL!**
+                        telegram_user = await context.bot.get_chat(target_user_id)
+                        display_name = telegram_user.first_name or "User"
+                        
+                        announcement_text = f"""💸 **WITHDRAWAL SUCCESSFUL!**
 
 🎉 **{display_name} just received {amount:,} {CURRENCY}!**
 💳 **Method:** {withdrawal['payment_method']}
@@ -729,25 +729,25 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 💰 **Start earning too:**
 • Chat in groups = Earn {CURRENCY}
-• Minimum withdrawal: 200 {CURRENCY}
+• Minimum withdrawal: {MIN_WITHDRAWAL} {CURRENCY}
 • Fast processing: 2-24 hours
 
 🚀 **Join now:** t.me/{context.bot.username}
 
-#Withdrawal #Success #RealPayments
-                        """
+#Withdrawal #Success #RealPayments"""
                         
-                        for group_id in ANNOUNCEMENT_GROUPS:
-                            try:
-                                await context.bot.send_message(
-                                    chat_id=group_id,
-                                    text=announcement_text
-                                )
-                            except Exception as e:
-                                logger.error(f"Failed to announce to {group_id}: {e}")
+                        # Send ONLY to proof channel
+                        try:
+                            await context.bot.send_message(
+                                chat_id=RECEIPT_CHANNEL_ID,
+                                text=announcement_text
+                            )
+                            logger.info(f"✅ Withdrawal receipt sent to proof channel {RECEIPT_CHANNEL_ID}")
+                        except Exception as e:
+                            logger.error(f"❌ Failed to send receipt to proof channel: {e}")
                 
                 except Exception as e:
-                    logger.error(f"Error in auto announcements: {e}")
+                    logger.error(f"Error in withdrawal announcements: {e}")
 
                 logger.info(f"Admin {user_id} approved withdrawal: {target_user_id} - {amount} {CURRENCY}")
 
