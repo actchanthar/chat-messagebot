@@ -4,13 +4,19 @@ from telegram.ext import Application, CommandHandler
 from config import BOT_TOKEN
 from database.database import db
 
-# Import all plugins
-from plugins import message_handler, balance, admin, broadcast, withdrawal, stats, help
+# Fixed imports - import modules directly
+import plugins.message_handler as message_handler
+import plugins.balance as balance
+import plugins.admin as admin
+import plugins.broadcast as broadcast
+import plugins.withdrawal as withdrawal
+import plugins.stats as stats
+import plugins.help as help
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[logging.StreamHandler()]  # Only console output, no log file
+    handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
