@@ -1,117 +1,122 @@
 from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
 import logging
 import sys
 import os
+import re
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from database.database import db
-from utils.spam_detector import spam_detector
-from config import APPROVED_GROUPS, LOG_CHANNEL_ID
+from config import APPROVED_GROUPS, SPAM_KEYWORDS, SPAM_PATTERNS, MAX_EMOJI_COUNT, MAX_LINKS_COUNT, CURRENCY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle group messages for earning and spam detection"""
-    if not update.message or not update.message.text:
-        return
+async def is_spam_message(text: str) -> bool:
+    """Check if message contains spam"""
+    if not text:
+        return False
     
-    user_id = str(update.effective_user.id)
-    group_id = str(update.effective_chat.id)
-    message_text = update.message.text
+    text_lower = text.lower()
     
+    # Check spam keywords
+    for keyword in SPAM_KEYWORDS:
+        if keyword.lower() in text_lower:
+            return True
+    
+    # Check spam patterns
+    for pattern in SPAM_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    
+    # Check excessive emojis
+    emoji_count = len(re.findall(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]', text))
+    if emoji_count > MAX_EMOJI_COUNT:
+        return True
+    
+    # Check excessive links
+    link_count = len(re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text))
+    if link_count > MAX_LINKS_COUNT:
+        return True
+    
+    return False
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle group messages for earning system"""
     try:
-        # Check if group is approved
+        # Only process group messages
+        if update.effective_chat.type not in ["group", "supergroup"]:
+            return
+        
+        user_id = str(update.effective_user.id)
+        group_id = str(update.effective_chat.id)
+        message_text = update.message.text or ""
+        
+        # Check if group is approved for earning
         if group_id not in APPROVED_GROUPS:
             return
         
         # Get or create user
         user = await db.get_user(user_id)
         if not user:
-            user_name = {
-                "first_name": update.effective_user.first_name or "",
-                "last_name": update.effective_user.last_name or ""
-            }
-            user = await db.create_user(user_id, user_name)
+            # Create new user automatically
+            user = await db.create_user(user_id, {
+                "first_name": update.effective_user.first_name,
+                "last_name": update.effective_user.last_name
+            })
             if not user:
+                logger.error(f"Failed to create user {user_id} in message handler")
                 return
         
         # Check if user is banned
         if user.get("banned", False):
-            try:
-                await context.bot.ban_chat_member(group_id, user_id)
-                await update.message.delete()
-            except:
-                pass
             return
         
-        # Spam detection
-        spam_result = await spam_detector.check_spam(
-            message_text, 
-            user.get("message_timestamps", []),
-            user_id
-        )
+        # Check for spam
+        if await is_spam_message(message_text):
+            logger.info(f"Spam message detected from user {user_id}")
+            return
         
-        if spam_result.get("is_spam", False):
-            logger.warning(f"Spam detected from user {user_id}: {spam_result.get('reason')}")
-            
-            try:
-                # Delete spam message
-                await update.message.delete()
-                
-                # Increment spam count
-                spam_count = user.get("spam_count", 0) + 1
-                await db.update_user(user_id, {"spam_count": spam_count})
-                
-                # Ban after 3 spam messages
-                if spam_count >= 3:
-                    await context.bot.ban_chat_member(group_id, user_id)
-                    await db.update_user(user_id, {"banned": True})
-                    
-                    # Notify admins
-                    try:
-                        await context.bot.send_message(
-                            chat_id=LOG_CHANNEL_ID,
-                            text=f"🚫 User {user_id} banned for spam in {group_id}\n"
-                                 f"Reason: {spam_result.get('reason')}\n"
-                                 f"Message: {message_text[:100]}..."
-                        )
-                    except:
-                        pass
-                
-                return
-            except Exception as e:
-                logger.error(f"Failed to handle spam: {e}")
-                return
+        # Process message for earning - FIXED
+        earned = await db.process_message_earning(user_id, group_id, context)
         
-        # Process message for earning
-        earning_result = await db.process_message_earning(user_id, group_id)
-        
-        if earning_result.get("success", False):
-            earning = earning_result.get("earning", 0)
-            new_balance = earning_result.get("new_balance", 0)
-            message_count = earning_result.get("message_count", 0)
-            
-            # Milestone notifications
-            if earning > 0 and message_count % 100 == 0:
+        if earned:
+            # Get updated user data to show balance
+            updated_user = await db.get_user(user_id)
+            if updated_user:
+                current_balance = updated_user.get("balance", 0)
+                total_messages = updated_user.get("messages", 0)
+                
+                # Send earning notification
                 try:
                     await context.bot.send_message(
                         chat_id=user_id,
-                        text=f"🎉 {message_count:,} messages sent! Balance: {int(new_balance)} kyat"
+                        text=f"💰 **You earned 1 {CURRENCY}!**\n\n"
+                             f"💳 **New Balance:** {int(current_balance)} {CURRENCY}\n"
+                             f"📝 **Total Messages:** {total_messages:,}\n"
+                             f"📊 **Rate:** 3 messages = 1 {CURRENCY}\n\n"
+                             f"Keep chatting to earn more! 🚀"
                     )
-                except:
-                    pass
-    
+                    logger.info(f"User {user_id} earned 1 {CURRENCY} in group {group_id}")
+                except Exception as e:
+                    logger.error(f"Failed to notify user {user_id} about earning: {e}")
+        
+        logger.debug(f"Processed message from user {user_id} in group {group_id}")
+        
     except Exception as e:
         logger.error(f"Error processing message: {e}")
 
 def register_handlers(application: Application):
     """Register message handlers"""
+    logger.info("Registering message handlers")
+    
+    # Handle all text messages in groups
     application.add_handler(MessageHandler(
-        filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND, 
-        handle_group_message
+        filters.TEXT & ~filters.COMMAND & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP),
+        handle_message
     ))
+    
+    logger.info("✅ Message handlers registered successfully")
