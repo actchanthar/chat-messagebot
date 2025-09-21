@@ -96,8 +96,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if pending_count > 0:
             error_msg = (
                 "⏳ သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်မှု ရှိနေပါသည်။\n"
-                "Admin မှ အတည်ပြုပြီးမှ နောက်ထပ် ငွေထုတ်နိုင်ပါသည်။\n\n"
-                "You have pending withdrawal requests. Please wait for admin approval."
+                "Admin မှ အတည်ပြုပြီးမှ သို့မဟုတ် ငြင်းပယ်ပြီးမှ နောက်ထပ် ငွေထုတ်နိုင်ပါသည်။\n\n"
+                "You have pending withdrawal requests. Please wait for admin decision."
             )
             if update.callback_query:
                 await update.callback_query.answer()
@@ -136,6 +136,8 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             f"💰 **Current Balance:** {int(current_balance)} {CURRENCY}\n"
             f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
             f"📈 **Daily Limit:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}{admin_note}\n\n"
+            f"⚠️ **Note:** Amount will be deducted when you submit request\n"
+            f"🔄 **Refunded if rejected by admin**\n\n"
             f"🏦 **ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ:**\n"
             f"Please select your payment method:"
         )
@@ -182,7 +184,9 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return ConversationHandler.END
 
+        # FIXED: Only handle method_ callbacks, ignore others
         if not data.startswith("method_"):
+            # If it's not a withdrawal method, end the conversation
             await query.edit_message_text("❌ Invalid selection. Please use /withdraw to restart.")
             return ConversationHandler.END
 
@@ -200,6 +204,7 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text(
                 f"📱 **Phone Bill Withdrawal**\n\n"
                 f"💰 **Fixed Amount:** 1000 {CURRENCY}\n\n"
+                f"⚠️ **Amount will be deducted from your balance when you submit**\n\n"
                 f"📞 **သင့်ဖုန်းနံပါတ်ကို ထည့်ပါ:**\n"
                 f"Please enter your phone number (e.g., 09123456789):"
             )
@@ -215,7 +220,9 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
             f"💳 **Your Balance:** {int(current_balance)} {CURRENCY}\n"
             f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
             f"📈 **Maximum Today:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n\n"
-            f"💸 **ငွေထုတ်ရန် ပမာဏကို ထည့်ပါ:**\n"
+            f"⚠️ **Important:** Amount will be deducted when you submit\n"
+            f"🔄 **Refunded if admin rejects your request**\n\n"
+            f"💸 **ငွေထuတ်ရန် ပမာဏကို ထည့်ပါ:**\n"
             f"Please enter the amount to withdraw:"
         )
         return STEP_AMOUNT
@@ -311,6 +318,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 f"🏦 **KBZ Pay Details Required**\n\n"
                 f"💰 Amount: {amount} {CURRENCY}\n"
                 f"💳 Method: {payment_method}\n\n"
+                f"⚠️ **Amount will be deducted when you submit**\n\n"
                 f"📱 **Please provide:**\n"
                 f"• Phone number (09XXXXXXXX)\n"
                 f"• Account holder name\n"
@@ -322,6 +330,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 f"🌊 **Wave Pay Details Required**\n\n"
                 f"💰 Amount: {amount} {CURRENCY}\n"
                 f"💳 Method: {payment_method}\n\n"
+                f"⚠️ **Amount will be deducted when you submit**\n\n"
                 f"📱 **Please provide:**\n"
                 f"• Phone number (09XXXXXXXX)\n"
                 f"• Account holder name\n"
@@ -333,6 +342,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 f"₿ **Binance Pay Details Required**\n\n"
                 f"💰 Amount: {amount} {CURRENCY}\n"
                 f"💳 Method: {payment_method}\n\n"
+                f"⚠️ **Amount will be deducted when you submit**\n\n"
                 f"📱 **Please provide:**\n"
                 f"• Binance Pay ID or Email\n"
                 f"• Account holder name\n"
@@ -343,6 +353,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             detail_prompt = (
                 f"📱 **Phone Bill Top-up**\n\n"
                 f"💰 Amount: {amount} {CURRENCY}\n\n"
+                f"⚠️ **Amount will be deducted when you submit**\n\n"
                 f"📞 **သင့်ဖုန်းနံပါတ်ကို ထည့်ပါ:**\n"
                 f"Please enter your phone number:\n"
                 f"ဥပမာ: 09123456789"
@@ -357,7 +368,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
 
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle payment details input (text or QR image)."""
+    """Handle payment details input (text or QR image) - AUTO DEDUCT BALANCE"""
     user_id = str(update.effective_user.id)
     logger.info(f"Payment details from user {user_id}")
 
@@ -403,10 +414,34 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return STEP_DETAILS
 
-        # Get user data
+        # Get user data and verify balance again
         user = await db.get_user(user_id)
-        if not user or user.get("balance", 0) < amount:
-            await update.message.reply_text("❌ Balance changed. Please restart withdrawal process.")
+        if not user:
+            await update.message.reply_text("❌ User not found. Please restart with /start")
+            return ConversationHandler.END
+            
+        current_balance = user.get("balance", 0)
+        if current_balance < amount:
+            await update.message.reply_text(
+                f"❌ **Balance changed during withdrawal process**\n\n"
+                f"💰 Current Balance: {int(current_balance)} {CURRENCY}\n"
+                f"💸 Requested: {amount} {CURRENCY}\n\n"
+                f"Please restart with /withdraw"
+            )
+            return ConversationHandler.END
+
+        # *** IMMEDIATELY DEDUCT BALANCE WHEN REQUEST IS SUBMITTED ***
+        new_balance = current_balance - amount
+        withdrawn_today = user.get("withdrawn_today", 0) + amount
+        
+        # Update user balance immediately (BEFORE admin approval)
+        success = await db.update_user(user_id, {
+            "balance": new_balance,
+            "withdrawn_today": withdrawn_today,
+        })
+        
+        if not success:
+            await update.message.reply_text("❌ Failed to process withdrawal. Please try again.")
             return ConversationHandler.END
 
         # Get user's Telegram info
@@ -420,10 +455,12 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
             f"💳 **Method:** {payment_method}\n"
             f"📱 **Details:** {details}\n"
-            f"📊 **User Balance:** {int(user.get('balance', 0))} {CURRENCY}\n"
+            f"📊 **Previous Balance:** {int(current_balance)} {CURRENCY}\n"
+            f"💵 **New Balance:** {int(new_balance)} {CURRENCY}\n"
             f"📝 **User Messages:** {user.get('messages', 0):,}\n"
             f"🎯 **User Level:** {user.get('user_level', 1)}\n"
             f"📅 **Request Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"💡 **Balance already deducted - will refund if rejected**\n"
             f"⏳ **Status:** PENDING APPROVAL"
         )
 
@@ -458,7 +495,12 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 
         except Exception as e:
             logger.error(f"Failed to send to log channel: {e}")
-            await update.message.reply_text("❌ Failed to submit withdrawal request. Please try again.")
+            # Refund the balance if we can't send to admin
+            await db.update_user(user_id, {
+                "balance": current_balance,
+                "withdrawn_today": withdrawn_today - amount
+            })
+            await update.message.reply_text("❌ Failed to submit withdrawal request. Balance restored. Please try again.")
             return ConversationHandler.END
 
         # Update user with pending withdrawal
@@ -469,7 +511,9 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "photo_file_id": photo_file_id,
             "status": "PENDING",
             "message_id": log_msg.message_id,
-            "request_time": datetime.now(timezone.utc).isoformat()
+            "request_time": datetime.now(timezone.utc).isoformat(),
+            "original_balance": current_balance,
+            "balance_deducted": True
         }
         
         current_pending = user.get("pending_withdrawals", [])
@@ -488,15 +532,19 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
             f"💳 **Method:** {payment_method}\n"
             f"📱 **Details:** {details if not photo_file_id else 'QR Code Provided'}\n\n"
+            f"💵 **Previous Balance:** {int(current_balance)} {CURRENCY}\n"
+            f"💵 **Current Balance:** {int(new_balance)} {CURRENCY}\n\n"
+            f"⚠️ **Amount deducted from your balance**\n"
+            f"🔄 **Will be refunded if admin rejects**\n"
             f"⏳ **Status:** Pending Admin Approval\n"
             f"⏱️ **Processing Time:** Usually 2-24 hours\n\n"
             f"🔔 **You will be notified when processed.**\n\n"
-            f"သင့်ငွေထုတ်မှုကို အောင်မြင်စွာ တင်ပြပါသည်။\n"
-            f"Admin ၏ အတည်ပြုချက်ကို စောင့်ပါ။"
+            f"သင့်ငွေထုတ်မှုကို အောင်မြင်စွာ တင်ပြပြီး လက်ကျန်ငွေမှ နုတ်ယူပါသည်။\n"
+            f"Admin မှ ငြင်းပယ်ပါက ပြန်လည်ထည့်သွင်းပေးပါမည်။"
         )
         
         await update.message.reply_text(success_message)
-        logger.info(f"Withdrawal request submitted: User {user_id}, Amount {amount}, Method {payment_method}")
+        logger.info(f"Withdrawal request submitted and balance deducted: User {user_id}, Amount {amount}, Method {payment_method}")
 
         return ConversationHandler.END
 
@@ -506,7 +554,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
 async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle user profile callback from withdrawal requests"""
+    """Handle user profile callback from withdrawal requests - FIXED"""
     query = update.callback_query
     admin_id = str(query.from_user.id)
     data = query.data
@@ -567,6 +615,11 @@ async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE
 • Successful Referrals: {user.get('successful_referrals', 0)}
 • Total Invites: {user.get('invites', 0)}
 
+⏰ **Timing:**
+• Account Created: {user.get('created_at', 'Unknown')}
+• Last Activity: {user.get('last_activity', 'Unknown')}
+• Last Withdrawal: {user.get('last_withdrawal', 'Never')}
+
 🔄 **Withdrawal History:**
 • Pending Requests: {len([w for w in user.get('pending_withdrawals', []) if w.get('status') == 'PENDING'])}
 • Total Requests: {len(user.get('pending_withdrawals', []))}
@@ -574,14 +627,19 @@ async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE
 🎯 **Risk Assessment:** {'⚠️ Review Needed' if user.get('messages', 0) < 100 else '✅ Trusted User'}
             """
             
-            await query.edit_message_text(profile_text)
+            # FIXED: Send NEW message instead of editing withdrawal message
+            # This preserves the original withdrawal approval buttons
+            await context.bot.send_message(
+                chat_id=admin_id,
+                text=profile_text
+            )
     
     except Exception as e:
         logger.error(f"Error in handle_user_profile: {e}")
         await query.answer("❌ Error loading profile!", show_alert=True)
 
 async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle admin approval/rejection of withdrawal requests."""
+    """Handle admin approval/rejection of withdrawal requests - WITH REFUND SYSTEM"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -622,14 +680,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 return
 
             if action == "approve":
-                # Check balance again
-                if user.get("balance", 0) < amount:
-                    await query.edit_message_text("❌ User has insufficient balance!")
-                    return
-
-                # Approve withdrawal - deduct balance
-                new_balance = user.get("balance", 0) - amount
-                withdrawn_today = user.get("withdrawn_today", 0) + amount
+                # Approve withdrawal - balance is already deducted
                 total_withdrawn = user.get("total_withdrawn", 0) + amount
                 
                 # Update withdrawal status
@@ -638,69 +689,68 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 pending_withdrawals[withdrawal_index]["approved_at"] = datetime.now(timezone.utc).isoformat()
                 
                 await db.update_user(target_user_id, {
-                    "balance": new_balance,
-                    "withdrawn_today": withdrawn_today,
                     "total_withdrawn": total_withdrawn,
                     "last_withdrawal": datetime.now(timezone.utc),
                     "pending_withdrawals": pending_withdrawals
                 })
 
                 # Update admin message
-                updated_message = query.message.text + f"\n\n✅ **APPROVED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                updated_message = query.message.text + f"\n\n✅ **APPROVED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Payment processed - balance was already deducted**"
                 await query.edit_message_text(updated_message)
 
                 # Notify user
                 try:
+                    current_balance = user.get("balance", 0)
                     await context.bot.send_message(
                         chat_id=target_user_id,
                         text=(
                             f"✅ **WITHDRAWAL APPROVED!**\n\n"
                             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
                             f"💳 **Method:** {withdrawal['payment_method']}\n"
-                            f"💵 **New Balance:** {int(new_balance)} {CURRENCY}\n\n"
+                            f"💵 **Current Balance:** {int(current_balance)} {CURRENCY}\n\n"
                             f"🎉 Your withdrawal has been processed successfully!\n"
-                            f"သင့်ငွေထုတ်မှုကို အတည်ပြုပါသည်။"
+                            f"💸 **Payment is being sent to your account!**\n\n"
+                            f"သင့်ငွေထုတ်မှုကို အတည်ပြုပါသည်။\n"
+                            f"ငွေကို သင့်အကောင့်သို့ ပို့နေပါသည်။"
                         )
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                # Auto announcements and receipts
+                # Auto announcements
                 try:
-                    # Get user info for announcements
+                    from config import ANNOUNCEMENT_GROUPS, AUTO_ANNOUNCE_WITHDRAWALS
                     telegram_user = await context.bot.get_chat(target_user_id)
                     display_name = telegram_user.first_name or "User"
                     
-                    # Create announcement message
-                    announcement_text = f"""
-🎉 **WITHDRAWAL SUCCESSFUL!**
+                    if AUTO_ANNOUNCE_WITHDRAWALS:
+                        announcement_text = f"""
+💸 **WITHDRAWAL SUCCESSFUL!**
 
-💰 **Amount:** {amount:,} {CURRENCY}
+🎉 **{display_name} just received {amount:,} {CURRENCY}!**
 💳 **Method:** {withdrawal['payment_method']}
-👤 **User:** {display_name}
 📅 **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
-✅ **Status:** APPROVED & PROCESSED
+✅ **PROOF OUR BOT PAYS REAL MONEY!**
 
-🚀 **Join us to earn too!**
-💬 Send messages in groups to earn {CURRENCY}!
-📊 Current rate: 3 messages = 1 {CURRENCY}
-                    """
-                    
-                    # Send announcement to groups (if configured)
-                    try:
-                        from config import ANNOUNCEMENT_GROUPS, AUTO_ANNOUNCE_WITHDRAWALS
-                        if AUTO_ANNOUNCE_WITHDRAWALS:
-                            for group_id in ANNOUNCEMENT_GROUPS:
-                                try:
-                                    await context.bot.send_message(
-                                        chat_id=group_id,
-                                        text=announcement_text
-                                    )
-                                except Exception as e:
-                                    logger.error(f"Failed to announce to {group_id}: {e}")
-                    except ImportError:
-                        logger.info("Auto announcements not configured")
+💰 **Start earning too:**
+• Chat in groups = Earn {CURRENCY}
+• Minimum withdrawal: 200 {CURRENCY}
+• Fast processing: 2-24 hours
+
+🚀 **Join now:** t.me/{context.bot.username}
+
+#Withdrawal #Success #RealPayments
+                        """
+                        
+                        for group_id in ANNOUNCEMENT_GROUPS:
+                            try:
+                                await context.bot.send_message(
+                                    chat_id=group_id,
+                                    text=announcement_text
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to announce to {group_id}: {e}")
                 
                 except Exception as e:
                     logger.error(f"Error in auto announcements: {e}")
@@ -708,17 +758,24 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 logger.info(f"Admin {user_id} approved withdrawal: {target_user_id} - {amount} {CURRENCY}")
 
             else:  # reject
+                # Reject withdrawal - REFUND the balance
+                current_balance = user.get("balance", 0)
+                refunded_balance = current_balance + amount
+                withdrawn_today = user.get("withdrawn_today", 0) - amount
+                
                 # Update withdrawal status
                 pending_withdrawals[withdrawal_index]["status"] = "REJECTED"
                 pending_withdrawals[withdrawal_index]["rejected_by"] = user_id
                 pending_withdrawals[withdrawal_index]["rejected_at"] = datetime.now(timezone.utc).isoformat()
                 
                 await db.update_user(target_user_id, {
+                    "balance": refunded_balance,
+                    "withdrawn_today": max(0, withdrawn_today),
                     "pending_withdrawals": pending_withdrawals
                 })
 
                 # Update admin message
-                updated_message = query.message.text + f"\n\n❌ **REJECTED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                updated_message = query.message.text + f"\n\n❌ **REJECTED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Balance refunded: {amount:,} {CURRENCY}**"
                 await query.edit_message_text(updated_message)
 
                 # Notify user
@@ -728,16 +785,19 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         text=(
                             f"❌ **WITHDRAWAL REJECTED**\n\n"
                             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
-                            f"💳 **Method:** {withdrawal['payment_method']}\n\n"
+                            f"💳 **Method:** {withdrawal['payment_method']}\n"
+                            f"💵 **Previous Balance:** {int(current_balance)} {CURRENCY}\n"
+                            f"💵 **Refunded Balance:** {int(refunded_balance)} {CURRENCY}\n\n"
+                            f"🔄 **Your balance has been fully restored**\n"
                             f"📝 Your withdrawal request was not approved.\n"
                             f"💡 Please contact support if you have questions.\n\n"
-                            f"သင့်ငွေထုတ်မှုကို ငြင်းပယ်ပါသည်။"
+                            f"သင့်ငွေထုတ်မှုကို ငြင်းပယ်ပြီး လက်ကျန်ငွေ ပြန်လည်ထည့်သွင်းပေးပါသည်။"
                         )
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                logger.info(f"Admin {user_id} rejected withdrawal: {target_user_id} - {amount} {CURRENCY}")
+                logger.info(f"Admin {user_id} rejected withdrawal and refunded: {target_user_id} - {amount} {CURRENCY}")
 
     except Exception as e:
         logger.error(f"Error in handle_approval: {e}")
@@ -756,7 +816,7 @@ def register_handlers(application: Application):
         ],
         states={
             STEP_PAYMENT_METHOD: [
-                CallbackQueryHandler(handle_payment_method)
+                CallbackQueryHandler(handle_payment_method, pattern="^(method_|cancel)$")
             ],
             STEP_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)
@@ -774,9 +834,19 @@ def register_handlers(application: Application):
         persistent=False
     )
     
-    # Register handlers
+    # Register handlers with specific priority order
     application.add_handler(conv_handler)
-    application.add_handler(CallbackQueryHandler(handle_approval, pattern="^(approve_|reject_)"))
-    application.add_handler(CallbackQueryHandler(handle_user_profile, pattern="^profile_"))
+    
+    # Admin approval handlers (high priority)
+    application.add_handler(CallbackQueryHandler(
+        handle_approval, 
+        pattern="^(approve_|reject_)"
+    ))
+    
+    # User profile handler (separate from approval to avoid conflicts)
+    application.add_handler(CallbackQueryHandler(
+        handle_user_profile, 
+        pattern="^profile_"
+    ))
     
     logger.info("✅ Withdrawal handlers registered successfully")
