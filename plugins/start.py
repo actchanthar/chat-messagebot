@@ -215,7 +215,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle start menu callbacks - FIXED to avoid withdrawal conflicts"""
+    """Handle start menu callbacks - DIRECT WITHDRAWAL EXECUTION"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -249,50 +249,94 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                     f"📋 Use `/pending` to check withdrawal history"
                 )
                 
-                # Send new message instead of editing photo
                 await query.message.reply_text(balance_text)
             else:
                 await query.message.reply_text("❌ User not found. Please try /start")
         
         elif data == "start_withdraw":
-            # Guide user to use /withdraw command for secure processing
+            # DIRECT EXECUTION: Full withdrawal process in start callback
             user = await db.get_user(user_id)
-            if user:
-                balance = user.get("balance", 0)
-                
-                # Check for pending withdrawals
-                pending_withdrawals = user.get("pending_withdrawals", [])
-                pending_count = sum(1 for w in pending_withdrawals if w.get("status") == "PENDING")
-                
-                if pending_count > 0:
-                    withdraw_text = (
-                        f"⏳ **You have pending withdrawal requests**\n\n"
-                        f"📊 **Current Status:**\n"
-                        f"• Balance: {int(balance)} {CURRENCY}\n"
-                        f"• Pending Requests: {pending_count}\n\n"
-                        f"⏰ **Please wait for admin approval**\n"
-                        f"📋 **Check status:** `/pending`\n\n"
-                        f"သင့်တွင် ဆိုင်းငံ့ထားသော ငွေထုတ်မှု ရှိနေပါသည်။"
-                    )
-                else:
-                    withdraw_text = (
-                        f"💸 **Start Withdrawal Process**\n\n"
-                        f"💰 **Your Balance:** {int(balance)} {CURRENCY}\n"
-                        f"💎 **Minimum:** 200 {CURRENCY}\n\n"
-                        f"🔐 **For secure withdrawal, use:**\n"
-                        f"**`/withdraw`**\n\n"
-                        f"✅ **Features:**\n"
-                        f"• Secure payment method selection\n"
-                        f"• Amount verification\n"
-                        f"• Admin approval system\n"
-                        f"• Balance protection\n\n"
-                        f"📋 **Check history:** `/pending`\n\n"
-                        f"ငွေထုတ်ရန် /withdraw ကိုအသုံးပြုပါ။"
-                    )
-                
-                await query.message.reply_text(withdraw_text)
-            else:
+            if not user:
                 await query.message.reply_text("❌ User not found. Please try /start first")
+                return
+            
+            # Check for pending withdrawals first
+            pending_withdrawals = user.get("pending_withdrawals", [])
+            pending_count = sum(1 for w in pending_withdrawals if w.get("status") == "PENDING")
+            
+            if pending_count > 0:
+                await query.message.reply_text(
+                    f"⏳ **You have {pending_count} pending withdrawal request(s)**\n\n"
+                    f"Please wait for admin approval or rejection before making a new request.\n\n"
+                    f"📋 Use `/pending` to check status\n"
+                    f"📞 Support: @When_the_night_falls_my_soul_se"
+                )
+                return
+            
+            # Check minimum message requirement BUT SKIP FOR ADMIN/OWNER
+            from config import ADMIN_IDS
+            is_admin_or_owner = user_id in ADMIN_IDS
+            messages_count = user.get("messages", 0)
+            
+            if not is_admin_or_owner and messages_count < 50:
+                await query.message.reply_text(
+                    f"📝 **You need at least 50 messages to withdraw**\n\n"
+                    f"**Current:** {messages_count} messages\n"
+                    f"**Required:** 50 messages\n\n"
+                    f"ကျေးဇူးပြု၍ အနည်းဆုံး ၅၀ စာ ပို့ပြီးမှ ငွေထုတ်ပါ။\n\n"
+                    f"💡 Chat in groups to earn messages!"
+                )
+                return
+            
+            # Check if user is banned
+            if user.get("banned", False):
+                await query.message.reply_text(
+                    f"🚫 **You are banned from using this bot**\n\n"
+                    f"သင်သည် ဤဘော့ကို အသုံးပြုခွင့် ပိတ်ပင်ထားပါသည်။\n\n"
+                    f"📞 Contact support: @When_the_night_falls_my_soul_se"
+                )
+                return
+            
+            # All checks passed - show withdrawal options directly
+            from config import MIN_WITHDRAWAL, MAX_DAILY_WITHDRAWAL
+            current_balance = user.get("balance", 0)
+            
+            # Create payment method selection keyboard with wd_ prefix
+            keyboard = [
+                [
+                    InlineKeyboardButton("💳 KBZ Pay", callback_data="wd_method_KBZ Pay"),
+                    InlineKeyboardButton("🌊 Wave Pay", callback_data="wd_method_Wave Pay")
+                ],
+                [
+                    InlineKeyboardButton("₿ Binance Pay", callback_data="wd_method_Binance Pay"),
+                    InlineKeyboardButton("📱 Phone Bill", callback_data="wd_method_Phone Bill")
+                ],
+                [
+                    InlineKeyboardButton("❌ Cancel", callback_data="wd_cancel")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Special message for admin/owner
+            admin_note = f"\n👑 **ADMIN ACCESS** - Message requirement bypassed!" if is_admin_or_owner else ""
+            
+            prompt_msg = (
+                f"💸 **WITHDRAWAL REQUEST**\n\n"
+                f"💰 **Current Balance:** {int(current_balance)} {CURRENCY}\n"
+                f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
+                f"📈 **Daily Limit:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}{admin_note}\n\n"
+                f"⚠️ **Note:** Amount will be deducted when you submit request\n"
+                f"🔄 **Refunded if rejected by admin**\n\n"
+                f"🏦 **ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ:**\n"
+                f"Please select your payment method:"
+            )
+            
+            # Clear any existing user data and prepare for withdrawal conversation
+            context.user_data.clear()
+            
+            # Send withdrawal options
+            await query.message.reply_text(prompt_msg, reply_markup=reply_markup)
+            logger.info(f"Direct withdrawal initiated from start button by user {user_id} (Admin: {is_admin_or_owner})")
     
     except Exception as e:
         logger.error(f"Error processing start callback {data}: {e}")
