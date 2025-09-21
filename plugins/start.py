@@ -581,7 +581,12 @@ def register_handlers(application: Application):
         ],
         states={
             START_WD_METHOD: [
-                CallbackQueryHandler(handle_start_wd_method, pattern="^(startwd_method_|startwd_cancel)$")
+                # FIXED: More specific pattern matching
+                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_KBZ Pay$"),
+                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_Wave Pay$"),
+                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_Binance Pay$"),
+                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_Phone Bill$"),
+                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_cancel$")
             ],
             START_WD_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_start_wd_amount)
