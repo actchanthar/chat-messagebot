@@ -1,8 +1,16 @@
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
+import logging
+import sys
+import os
+
+# Add the project root to Python path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+
+# Now import what we need
 from database.database import db
 from utils.spam_detector import spam_detector
-import logging
 from config import APPROVED_GROUPS, LOG_CHANNEL_ID
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
