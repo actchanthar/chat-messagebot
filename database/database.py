@@ -89,8 +89,8 @@ class Database:
                 "user_id": user_id,
                 "first_name": user_data.get("first_name", ""),
                 "last_name": user_data.get("last_name", ""),
-                "balance": 0,
-                "total_earnings": 0,
+                "balance": 100,  # Welcome bonus
+                "total_earnings": 100,  # Include welcome bonus in earnings
                 "total_withdrawn": 0,
                 "withdrawn_today": 0,
                 "messages": 0,
@@ -181,6 +181,38 @@ class Database:
             return result.modified_count > 0
         except Exception as e:
             logger.error(f"Error incrementing messages for user {user_id}: {e}")
+            return False
+
+    async def process_message_earning(self, user_id: str, group_id: str, context=None):
+        """Process message for earning calculation"""
+        try:
+            # Get user
+            user = await self.get_user(user_id)
+            if not user or user.get("banned", False):
+                return False
+            
+            # Increment message count
+            await self.increment_user_messages(user_id, group_id)
+            
+            # Get current message rate
+            message_rate = await self.get_message_rate()
+            current_messages = user.get("messages", 0) + 1
+            
+            # Check if user should earn (every X messages)
+            if current_messages % message_rate == 0:
+                # Award 1 kyat
+                await self.add_balance(user_id, 1)
+                
+                # Check for milestones after earning
+                if context:
+                    await self.check_and_announce_milestones(user_id, context)
+                
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error processing message earning for user {user_id}: {e}")
             return False
 
     # Statistics and Rankings
