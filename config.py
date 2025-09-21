@@ -1,13 +1,13 @@
 # Bot Configuration
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
 
 # Database Configuration
-MONGODB_URL = "mongodb://localhost:27017"  # or your MongoDB Atlas URL
+MONGODB_URL = "mongodb+srv://act:actdata@cluster0.z6trhoh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"  # or your MongoDB Atlas URL
 MONGODB_NAME = "message_earning_bot"
 
 # Admin Configuration
-ADMIN_IDS = ["YOUR_ADMIN_USER_ID"]  # Add your Telegram user IDs
-LOG_CHANNEL_ID = "YOUR_LOG_CHANNEL_ID"  # Channel for logging activities
+ADMIN_IDS = ["5062124930"]  # Add your Telegram user IDs
+LOG_CHANNEL_ID = "-1002555129360"  # Channel for logging activities
 
 # Bot Settings
 CURRENCY = "kyat"
