@@ -32,14 +32,18 @@ def main():
         register_start_handlers(application)
         logger.info("✅ Start handlers registered")
 
-        # Import new handlers - FIXED POSITION
+        # Import new handlers - Pending and Approve commands
         from plugins.pending import register_handlers as register_pending_handlers
         from plugins.approve import register_handlers as register_approve_handlers
         
-        # Register new handlers
         register_pending_handlers(application)
         register_approve_handlers(application)
         logger.info("✅ Pending and approve handlers registered")
+
+        # Import settings handlers
+        from plugins.settings import register_handlers as register_settings_handlers
+        register_settings_handlers(application)
+        logger.info("✅ Settings handlers registered")
 
         # Import core handlers
         from plugins.message_handler import register_handlers as register_message_handlers
@@ -76,6 +80,14 @@ def main():
             logger.info("✅ Announcements registered")
         except ImportError:
             logger.warning("⚠️ Announcements system not found, continuing without it")
+
+        # Import auto-forward system
+        try:
+            from plugins.auto_forward import register_handlers as register_autoforward_handlers
+            register_autoforward_handlers(application)
+            logger.info("✅ Auto-forward handlers registered")
+        except ImportError:
+            logger.warning("⚠️ Auto-forward system not found, continuing without it")
 
         logger.info("✅ All handlers registered!")
 
