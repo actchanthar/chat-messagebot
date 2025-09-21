@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 # Conversation states
 STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 
-# Payment methods
-PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "AYA Pay", "CB Pay", "Phone Bill"]
+# Updated payment methods as requested
+PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Binance Pay", "Phone Bill"]
 
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the /withdraw command to initiate withdrawal process."""
@@ -81,7 +81,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         is_admin_or_owner = user_id in ADMIN_IDS
         messages_count = user.get("messages", 0)
         
-        if not is_admin_or_owner and messages_count < 50:  # Only check for regular users
+        if not is_admin_or_owner and messages_count < 50:
             error_msg = f"📝 You need at least 50 messages to withdraw. Current: {messages_count} messages.\nကျေးဇူးပြု၍ အနည်းဆုံး ၅၀ စာ ပို့ပြီးမှ ငွေထုတ်ပါ။"
             if update.callback_query:
                 await update.callback_query.answer()
@@ -109,11 +109,20 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Clear user data for fresh withdrawal
         context.user_data.clear()
 
-        # Create payment method selection keyboard
-        keyboard = []
-        for method in PAYMENT_METHODS:
-            keyboard.append([InlineKeyboardButton(f"💳 {method}", callback_data=f"method_{method}")])
-        keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+        # Create payment method selection keyboard (2 buttons per row as requested)
+        keyboard = [
+            [
+                InlineKeyboardButton("💳 KBZ Pay", callback_data="method_KBZ Pay"),
+                InlineKeyboardButton("🌊 Wave Pay", callback_data="method_Wave Pay")
+            ],
+            [
+                InlineKeyboardButton("₿ Binance Pay", callback_data="method_Binance Pay"),
+                InlineKeyboardButton("📱 Phone Bill", callback_data="method_Phone Bill")
+            ],
+            [
+                InlineKeyboardButton("❌ Cancel", callback_data="cancel")
+            ]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Send payment method selection prompt
@@ -319,16 +328,16 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 f"• OR send QR code image\n\n"
                 f"ဥပမာ: 09123456789 Ma Ma"
             )
-        elif payment_method in ["AYA Pay", "CB Pay"]:
+        elif payment_method == "Binance Pay":
             detail_prompt = (
-                f"🏛️ **{payment_method} Details Required**\n\n"
+                f"₿ **Binance Pay Details Required**\n\n"
                 f"💰 Amount: {amount} {CURRENCY}\n"
                 f"💳 Method: {payment_method}\n\n"
                 f"📱 **Please provide:**\n"
-                f"• Phone number (09XXXXXXXX)\n"
+                f"• Binance Pay ID or Email\n"
                 f"• Account holder name\n"
                 f"• OR send QR code image\n\n"
-                f"ဥပမာ: 09123456789 Your Name"
+                f"ဥပမာ: your@email.com or Binance ID"
             )
         else:  # Phone Bill
             detail_prompt = (
@@ -394,7 +403,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return STEP_DETAILS
 
-        # FIXED: Get user data - this was missing!
+        # Get user data
         user = await db.get_user(user_id)
         if not user or user.get("balance", 0) < amount:
             await update.message.reply_text("❌ Balance changed. Please restart withdrawal process.")
@@ -447,16 +456,6 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     reply_to_message_id=log_msg.message_id
                 )
                 
-            # Pin the message for admin attention
-            try:
-                await context.bot.pin_chat_message(
-                    chat_id=LOG_CHANNEL_ID, 
-                    message_id=log_msg.message_id,
-                    disable_notification=True
-                )
-            except:
-                pass  # Ignore if can't pin
-                
         except Exception as e:
             logger.error(f"Failed to send to log channel: {e}")
             await update.message.reply_text("❌ Failed to submit withdrawal request. Please try again.")
@@ -505,6 +504,81 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Error in handle_details: {e}")
         await update.message.reply_text("❌ Error occurred. Please restart with /withdraw")
         return ConversationHandler.END
+
+async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle user profile callback from withdrawal requests"""
+    query = update.callback_query
+    admin_id = str(query.from_user.id)
+    data = query.data
+    
+    if admin_id not in ADMIN_IDS:
+        await query.answer("❌ You are not authorized!", show_alert=True)
+        return
+    
+    await query.answer()
+    
+    try:
+        if data.startswith("profile_"):
+            target_user_id = data.replace("profile_", "")
+            
+            # Get detailed user info
+            user = await db.get_user(target_user_id)
+            if not user:
+                await query.answer("❌ User not found!", show_alert=True)
+                return
+            
+            # Calculate user stats
+            total_users = await db.get_total_users_count()
+            earning_rank = await db.get_user_rank_by_earnings(target_user_id)
+            message_rank = await db.get_user_rank(target_user_id, "messages")
+            
+            # Get user's Telegram info
+            try:
+                telegram_user = await context.bot.get_chat(target_user_id)
+                username = f"@{telegram_user.username}" if telegram_user.username else "No username"
+                full_name = (telegram_user.first_name or "") + (" " + telegram_user.last_name if telegram_user.last_name else "")
+            except:
+                username = "Private"
+                full_name = user.get('first_name', 'Unknown') + " " + user.get('last_name', '')
+            
+            # Create detailed profile
+            profile_text = f"""
+👤 **USER PROFILE DETAILS**
+
+🆔 **Basic Info:**
+• User ID: {target_user_id}
+• Name: {full_name.strip()}
+• Username: {username}
+• Status: {'🚫 Banned' if user.get('banned', False) else '✅ Active'}
+
+💰 **Financial Stats:**
+• Balance: {int(user.get('balance', 0))} {CURRENCY}
+• Total Earned: {int(user.get('total_earnings', 0))} {CURRENCY}
+• Total Withdrawn: {int(user.get('total_withdrawn', 0))} {CURRENCY}
+• Withdrawn Today: {int(user.get('withdrawn_today', 0))} {CURRENCY}
+
+📊 **Activity Stats:**
+• Total Messages: {user.get('messages', 0):,}
+• User Level: {user.get('user_level', 1)}
+• Earning Rank: #{earning_rank} of {total_users}
+• Message Rank: #{message_rank} of {total_users}
+
+👥 **Referral Stats:**
+• Successful Referrals: {user.get('successful_referrals', 0)}
+• Total Invites: {user.get('invites', 0)}
+
+🔄 **Withdrawal History:**
+• Pending Requests: {len([w for w in user.get('pending_withdrawals', []) if w.get('status') == 'PENDING'])}
+• Total Requests: {len(user.get('pending_withdrawals', []))}
+
+🎯 **Risk Assessment:** {'⚠️ Review Needed' if user.get('messages', 0) < 100 else '✅ Trusted User'}
+            """
+            
+            await query.edit_message_text(profile_text)
+    
+    except Exception as e:
+        logger.error(f"Error in handle_user_profile: {e}")
+        await query.answer("❌ Error loading profile!", show_alert=True)
 
 async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle admin approval/rejection of withdrawal requests."""
@@ -591,6 +665,46 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
+                # Auto announcements and receipts
+                try:
+                    # Get user info for announcements
+                    telegram_user = await context.bot.get_chat(target_user_id)
+                    display_name = telegram_user.first_name or "User"
+                    
+                    # Create announcement message
+                    announcement_text = f"""
+🎉 **WITHDRAWAL SUCCESSFUL!**
+
+💰 **Amount:** {amount:,} {CURRENCY}
+💳 **Method:** {withdrawal['payment_method']}
+👤 **User:** {display_name}
+📅 **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+✅ **Status:** APPROVED & PROCESSED
+
+🚀 **Join us to earn too!**
+💬 Send messages in groups to earn {CURRENCY}!
+📊 Current rate: 3 messages = 1 {CURRENCY}
+                    """
+                    
+                    # Send announcement to groups (if configured)
+                    try:
+                        from config import ANNOUNCEMENT_GROUPS, AUTO_ANNOUNCE_WITHDRAWALS
+                        if AUTO_ANNOUNCE_WITHDRAWALS:
+                            for group_id in ANNOUNCEMENT_GROUPS:
+                                try:
+                                    await context.bot.send_message(
+                                        chat_id=group_id,
+                                        text=announcement_text
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to announce to {group_id}: {e}")
+                    except ImportError:
+                        logger.info("Auto announcements not configured")
+                
+                except Exception as e:
+                    logger.error(f"Error in auto announcements: {e}")
+
                 logger.info(f"Admin {user_id} approved withdrawal: {target_user_id} - {amount} {CURRENCY}")
 
             else:  # reject
@@ -663,5 +777,6 @@ def register_handlers(application: Application):
     # Register handlers
     application.add_handler(conv_handler)
     application.add_handler(CallbackQueryHandler(handle_approval, pattern="^(approve_|reject_)"))
+    application.add_handler(CallbackQueryHandler(handle_user_profile, pattern="^profile_"))
     
     logger.info("✅ Withdrawal handlers registered successfully")
