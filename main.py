@@ -27,9 +27,9 @@ def main():
     try:
         logger.info("📋 Registering handlers...")
         
-        # Import start.py from root directory
-        import start
-        start.register_handlers(application)
+        # Import start.py from PLUGINS directory
+        from plugins.start import register_handlers as register_start_handlers
+        register_start_handlers(application)
         logger.info("✅ Start handlers registered")
         
         # Import core handlers
@@ -38,7 +38,7 @@ def main():
         from plugins.admin import register_handlers as register_admin_handlers
         from plugins.broadcast import register_handlers as register_broadcast_handlers
         from plugins.withdrawal import register_handlers as register_withdrawal_handlers
-        from plugins.withdrawals import register_handlers as register_withdrawals_handlers  # NEW
+        from plugins.withdrawals import register_handlers as register_withdrawals_handlers
         from plugins.stats import register_handlers as register_stats_handlers
         from plugins.help import register_handlers as register_help_handlers
         
@@ -47,7 +47,7 @@ def main():
         register_admin_handlers(application)
         register_broadcast_handlers(application)
         register_withdrawal_handlers(application)
-        register_withdrawals_handlers(application)  # NEW
+        register_withdrawals_handlers(application)
         register_stats_handlers(application)
         register_help_handlers(application)
         
