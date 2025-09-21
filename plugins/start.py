@@ -15,8 +15,8 @@ from config import CURRENCY
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Start image URL
-START_IMAGE_URL = "https://i.ibb.co/RkJBKnkj/x.jpg"
+# Updated start image URL
+START_IMAGE_URL = "https://i.ibb.co/DDbgt0JC/x.jpg"
 
 async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> tuple[bool, list]:
     """Check if user is subscribed to required channels"""
@@ -103,10 +103,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         logger.info(f"Created new user {user_id} during start command")
 
-        # Award welcome bonus
-        welcome_bonus = 100
-        await db.add_bonus(user_id, welcome_bonus)
-
         # Process referral bonus
         if referred_by:
             referrer = await db.get_user(referred_by)
@@ -165,7 +161,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"👥 Referrals: {successful_referrals}\n\n"
     )
 
-    # Add top 5 users leaderboard as requested
+    # Add top 5 users leaderboard as requested - FIXED
     try:
         users = await db.get_all_users()
         if users:
@@ -174,9 +170,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             
             if sorted_users:
                 for i, top_user in enumerate(sorted_users, 1):
-                    name = top_user.get('first_name', 'Unknown')
-                    last_name = top_user.get('last_name', '')
-                    full_name = (name + ' ' + last_name).strip()
+                    # FIXED: Handle None values properly
+                    name = top_user.get('first_name') or 'Unknown'
+                    last_name = top_user.get('last_name') or ''
+                    
+                    # Only concatenate if last_name is not empty
+                    if last_name:
+                        full_name = f"{name} {last_name}".strip()
+                    else:
+                        full_name = name.strip()
                     
                     messages = top_user.get('messages', 0)
                     earnings = int(top_user.get('total_earnings', 0))
@@ -213,7 +215,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(welcome_message, reply_markup=reply_markup)
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle start menu callbacks"""
+    """Handle start menu callbacks - FIXED for photo messages"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -228,32 +230,59 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 balance = user.get("balance", 0)
                 total_earned = user.get("total_earnings", 0)
                 total_withdrawn = user.get("total_withdrawn", 0)
-                await query.edit_message_text(
+                messages = user.get("messages", 0)
+                
+                balance_text = (
                     f"💰 **Your Balance**\n\n"
                     f"💳 **Current Balance:** {int(balance)} {CURRENCY}\n"
                     f"📈 **Total Earned:** {int(total_earned)} {CURRENCY}\n"
-                    f"💸 **Total Withdrawn:** {int(total_withdrawn)} {CURRENCY}\n\n"
+                    f"💸 **Total Withdrawn:** {int(total_withdrawn)} {CURRENCY}\n"
+                    f"📝 **Total Messages:** {messages:,}\n\n"
                     f"သင့်လက်ကျန်ငွေသည် {int(balance)} ကျပ်ဖြစ်ပါသည်။\n\n"
-                    f"💡 Keep chatting in groups to earn more!"
+                    f"💡 Keep chatting in groups to earn more!\n"
+                    f"📊 Rate: 3 messages = 1 {CURRENCY}"
                 )
+                
+                # FIXED: Send new message instead of editing photo
+                await query.message.reply_text(balance_text)
+            else:
+                await query.message.reply_text("❌ User not found. Please try /start")
         
         elif data == "withdraw":
-            await query.edit_message_text(
-                "💸 **Withdrawal System**\n\n"
-                "Use the command: `/withdraw`\n\n"
-                "Available methods:\n"
-                "• KBZ Pay\n"
-                "• Wave Pay\n" 
-                "• Binance Pay\n"
-                "• Phone Bill\n\n"
-                "💎 Minimum: 200 {CURRENCY}\n"
-                "⏱️ Processing: 2-24 hours\n\n"
-                "📞 For help: @When_the_night_falls_my_soul_se"
-            )
+            user = await db.get_user(user_id)
+            if user:
+                balance = user.get("balance", 0)
+                withdraw_text = (
+                    f"💸 **Withdrawal System**\n\n"
+                    f"💳 **Your Balance:** {int(balance)} {CURRENCY}\n\n"
+                    f"Use the command: `/withdraw`\n\n"
+                    f"**Available methods:**\n"
+                    f"• KBZ Pay\n"
+                    f"• Wave Pay\n" 
+                    f"• Binance Pay\n"
+                    f"• Phone Bill\n\n"
+                    f"💎 **Minimum:** 200 {CURRENCY}\n"
+                    f"📈 **Daily Limit:** 10,000 {CURRENCY}\n"
+                    f"⏱️ **Processing:** 2-24 hours\n\n"
+                    f"📞 **For help:** @When_the_night_falls_my_soul_se"
+                )
+            else:
+                withdraw_text = (
+                    f"💸 **Withdrawal System**\n\n"
+                    f"❌ **Error:** User not found\n"
+                    f"Please try /start first"
+                )
+            
+            # FIXED: Send new message instead of editing photo
+            await query.message.reply_text(withdraw_text)
     
     except Exception as e:
         logger.error(f"Error processing callback {data}: {e}")
-        await query.edit_message_text("❌ Error occurred. Please try /start again.")
+        # FIXED: Send new message instead of editing
+        await query.message.reply_text(
+            f"❌ Error occurred while processing {data}.\n"
+            f"Please try /start again or contact support."
+        )
 
 def register_handlers(application: Application):
     """Register start command handlers"""
