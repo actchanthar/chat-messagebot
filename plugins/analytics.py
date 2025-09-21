@@ -90,12 +90,15 @@ async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAU
 • Daily Active Rate: {(active_users_24h / max(total_users, 1) * 100):.1f}%
 • Weekly Active Rate: {(active_users_7d / max(total_users, 1) * 100):.1f}%
 • Premium Conversion: {(premium_users / max(total_users, 1) * 100):.1f}%
+
+🎯 Use /analytics for new dashboard
             """
             
+            # NO BUTTONS - Remove them after click
             await query.edit_message_text(overview_text)
         
         elif data == "analytics_users":
-            # User analytics
+            # User analytics without buttons
             new_users_today = await db.get_new_users_count(1)
             new_users_week = await db.get_new_users_count(7)
             new_users_month = await db.get_new_users_count(30)
@@ -130,10 +133,13 @@ async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAU
                 referrals = user.get('successful_referrals', 0)
                 users_text += f"{i}. {name}: {referrals} referrals\n"
             
+            users_text += f"\n🎯 Use /analytics for new dashboard"
+            
+            # NO BUTTONS
             await query.edit_message_text(users_text)
         
         elif data == "analytics_economy":
-            # Economy analytics
+            # Economy analytics without buttons
             try:
                 total_earnings = await db.get_total_earnings()
                 total_withdrawals = await db.get_total_withdrawals()
@@ -158,19 +164,23 @@ async def handle_analytics_callbacks(update: Update, context: ContextTypes.DEFAU
 • Bot is generating value for users
 • Withdrawal rate is controlled
 • Economy is sustainable
+
+🎯 Use /analytics for new dashboard
                 """
                 
+                # NO BUTTONS
                 await query.edit_message_text(economy_text)
             except Exception as e:
                 logger.error(f"Error in economy analytics: {e}")
                 await query.edit_message_text("❌ Error loading economy data.")
         
         else:
-            await query.edit_message_text("❌ Unknown analytics section.")
+            # For other categories, show placeholder without buttons
+            await query.edit_message_text(f"📊 **{data.replace('analytics_', '').title()} Analytics**\n\nComing soon!\n\n🎯 Use /analytics for dashboard")
     
     except Exception as e:
         logger.error(f"Error in analytics callback {data}: {e}")
-        await query.edit_message_text("❌ Error loading analytics data.")
+        await query.edit_message_text("❌ Error loading analytics data.\n\n🎯 Use /analytics to try again")
 
 def register_handlers(application: Application):
     """Register analytics handlers"""
