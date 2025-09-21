@@ -2,6 +2,7 @@
 import logging
 import sys
 import os
+import asyncio
 
 # Add project root to Python path
 project_root = os.path.dirname(os.path.abspath(__file__))
@@ -9,7 +10,7 @@ sys.path.insert(0, project_root)
 
 from telegram.ext import Application, CommandHandler
 from config import BOT_TOKEN
-from database.database import db
+from database.database import db, init_database
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -18,7 +19,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def main():
+async def main():
+    # IMPORTANT: Initialize database connection first
+    logger.info("🔗 Connecting to database...")
+    try:
+        await init_database()
+        logger.info("✅ Database connected successfully")
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {e}")
+        return
+
     # Create application
     application = Application.builder().token(BOT_TOKEN).build()
     
@@ -81,7 +91,19 @@ def main():
     # Start the bot
     logger.info("🤖 Bot started successfully!")
     logger.info("💰 Ready to process all commands!")
-    application.run_polling(allowed_updates=["message", "callback_query"])
+    
+    # Run the bot
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    # Keep the bot running
+    try:
+        await application.updater.idle()
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
