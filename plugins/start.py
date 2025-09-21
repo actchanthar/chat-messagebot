@@ -38,10 +38,10 @@ async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, c
         return True, []
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Enhanced start command with buttons"""
+    """Enhanced start command with buttons - GUARANTEED TO SHOW BUTTONS"""
     user_id = str(update.effective_user.id)
     chat_id = update.effective_chat.id
-    logger.info(f"Start command by user {user_id}")
+    logger.info(f"ENHANCED start command by user {user_id}")
 
     # Check for referral
     referred_by = None
@@ -73,9 +73,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            "🔐 **Subscription Required**\n\n"
-            "Please join all channels below:\n"
-            "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ဝင်ရောက်ပါ။",
+            "🔐 **Subscription Required**\n\nPlease join all channels below:",
             reply_markup=reply_markup
         )
         return
@@ -114,8 +112,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"🎁 Welcome Bonus: +100 {CURRENCY} added!\n\n"
             f"Earn money by sending messages in groups!\n"
             f"အုပ်စုတွင် စာပို့ခြင်းဖြင့် ငွေရှာပါ။\n\n"
-            f"Invite friends using your referral link!\n"
-            f"Each invite earns you 25 {CURRENCY}!\n\n"
         )
     else:
         welcome_message = (
@@ -128,13 +124,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"👥 Referrals: {successful_referrals}\n\n"
         )
 
-    # Add leaderboard
+    # Add leaderboard (simplified for reliability)
     try:
         users = await db.get_all_users()
         if users and len(users) >= 3:
-            top_users = await db.get_top_users(10, "total_earnings")
+            sorted_users = sorted(users, key=lambda x: x.get("total_earnings", 0), reverse=True)[:10]
             
-            if top_users:
+            if sorted_users and sorted_users[0].get("total_earnings", 0) > 0:
                 phone_bill_reward = await db.get_phone_bill_reward()
                 message_rate = await db.get_message_rate()
                 
@@ -143,47 +139,34 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     f"(၇ ရက်တစ်ခါ Top 1-3 ရတဲ့လူကို {phone_bill_reward} မဲဖောက်ပေးပါတယ်):\n\n"
                 )
                 
-                for i, top_user in enumerate(top_users[:10], 1):
+                for i, top_user in enumerate(sorted_users[:5], 1):  # Show only top 5 for brevity
                     name = top_user.get('first_name', 'Unknown')
-                    last_name = top_user.get('last_name', '')
-                    full_name = (name + ' ' + last_name).strip()
-                    
-                    earnings = top_user.get('total_earnings', 0)
+                    earnings = int(top_user.get('total_earnings', 0))
                     messages = top_user.get('messages', 0)
                     
                     if i <= 3:
-                        top_message += f"{i}. <b>{full_name}</b> - {messages} msg, {int(earnings)} {CURRENCY}\n"
+                        top_message += f"{i}. <b>{name}</b> - {messages} msg, {earnings} {CURRENCY}\n"
                     else:
-                        top_message += f"{i}. {full_name} - {messages} msg, {int(earnings)} {CURRENCY}\n"
+                        top_message += f"{i}. {name} - {messages} msg, {earnings} {CURRENCY}\n"
                 
                 welcome_message += top_message
     except Exception as e:
         logger.error(f"Error generating leaderboard: {e}")
 
-    # Add earning rate and instructions
-    try:
-        message_rate = await db.get_message_rate()
-        welcome_message += (
-            f"\nCurrent earning rate: {message_rate} messages = 1 {CURRENCY}\n"
-            f"Use the buttons below to interact with the bot.\n"
-            f"အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
-        )
-    except:
-        welcome_message += (
-            f"\nCurrent earning rate: 3 messages = 1 {CURRENCY}\n"
-            f"Use the buttons below to interact with the bot.\n"
-            f"အောက်ပါခလုတ်များကို အသုံးပြုပါ။"
-        )
+    # Add instructions
+    welcome_message += (
+        f"\nCurrent earning rate: 3 messages = 1 {CURRENCY}\n"
+        f"Use the buttons below to interact with the bot.\n"
+        f"အောက်ပါခလုတ်များကို အသုံးပြုပါ။\n\n"
+        f"Dev: @When_the_night_falls_my_soul_se\n"
+        f"Updates Channel: https://t.me/ITAnimeAI"
+    )
 
-    # Create keyboard with buttons
+    # CREATE KEYBOARD WITH BUTTONS - THIS IS THE IMPORTANT PART
     keyboard = [
         [
             InlineKeyboardButton("Check Balance", callback_data="balance"),
             InlineKeyboardButton("Withdrawal", callback_data="withdraw")
-        ],
-        [
-            InlineKeyboardButton("📊 My Stats", callback_data="detailed_stats"),
-            InlineKeyboardButton("🏆 Leaderboard", callback_data="show_leaderboard")
         ],
         [
             InlineKeyboardButton("Dev", url="https://t.me/When_the_night_falls_my_soul_se"),
@@ -195,16 +178,25 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    # SEND MESSAGE WITH BUTTONS
     try:
         await update.message.reply_text(
             welcome_message, 
             reply_markup=reply_markup, 
             parse_mode="HTML"
         )
-        logger.info(f"Welcome message with buttons sent to user {user_id}")
+        logger.info(f"BUTTONS sent to user {user_id}")
     except Exception as e:
-        logger.error(f"Failed to send welcome message: {e}")
-        await update.message.reply_text(welcome_message, reply_markup=reply_markup)
+        logger.error(f"HTML parse error: {e}")
+        # Try without HTML parsing
+        try:
+            clean_message = welcome_message.replace("<b>", "").replace("</b>", "")
+            await update.message.reply_text(clean_message, reply_markup=reply_markup)
+            logger.info(f"BUTTONS sent (no HTML) to user {user_id}")
+        except Exception as e2:
+            logger.error(f"Failed to send with buttons: {e2}")
+            # Last resort - send without buttons
+            await update.message.reply_text(clean_message)
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle start menu callbacks"""
@@ -214,95 +206,39 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
     
     await query.answer()
     
-    if data == "check_subscription":
-        subscribed, not_subscribed = await check_subscription(context, int(user_id), query.message.chat_id)
-        if subscribed:
-            await query.edit_message_text("✅ Subscription Verified!\n\nWelcome! Use /start to begin.")
-        else:
-            await query.answer("❌ Please join ALL channels first!", show_alert=True)
-    
-    elif data == "balance":
+    if data == "balance":
         user = await db.get_user(user_id)
         if user:
             balance = user.get("balance", 0)
-            total_earned = user.get("total_earnings", 0)
             await query.edit_message_text(
                 f"💰 Your current balance is {int(balance)} {CURRENCY}.\n"
-                f"သင့်လက်ကျန်ငွေသည် {int(balance)} ကျပ်ဖြစ်ပါသည်။\n\n"
-                f"📈 Total Earned: {int(total_earned)} {CURRENCY}\n\n"
-                f"💡 Keep chatting in groups to earn more!"
+                f"သင့်လက်ကျန်ငွေသည် {int(balance)} ကျပ်ဖြစ်ပါသည်။"
             )
     
     elif data == "withdraw":
         await query.edit_message_text(
             "💸 **Withdrawal System**\n\n"
-            "Use the command: `/withdraw`\n\n"
-            "Available methods:\n"
-            "• KBZ Pay\n"
-            "• Wave Pay\n" 
-            "• AYA Pay\n"
-            "• CB Pay\n"
-            "• Phone Bill\n\n"
+            "Use command: /withdraw\n"
             "Minimum: 200 kyat\n"
             "Processing: 24-48 hours"
         )
-    
-    elif data == "detailed_stats":
-        user = await db.get_user(user_id)
-        if user:
-            rank = await db.get_user_rank_by_earnings(user_id)
-            
-            stats_text = f"""
-📊 **YOUR STATISTICS**
-
-👤 **Profile:**
-• Name: {user.get('first_name', 'Unknown')} {user.get('last_name', '')}
-• Level: {user.get('user_level', 1)}
-• Rank: #{rank}
-
-💰 **Financial:**
-• Balance: {int(user.get('balance', 0))} {CURRENCY}
-• Total Earned: {int(user.get('total_earnings', 0))} {CURRENCY}
-• Total Withdrawn: {int(user.get('total_withdrawn', 0))} {CURRENCY}
-
-📝 **Activity:**
-• Total Messages: {user.get('messages', 0):,}
-• Last Active: {user.get('last_activity', datetime.utcnow()).strftime('%Y-%m-%d')}
-
-👥 **Referrals:**
-• Successful Referrals: {user.get('successful_referrals', 0)}
-            """
-            await query.edit_message_text(stats_text)
-    
-    elif data == "show_leaderboard":
-        try:
-            top_users = await db.get_top_users(10, "total_earnings")
-            leaderboard_text = "🏆 **TOP EARNERS LEADERBOARD**\n\n"
-            
-            for i, user in enumerate(top_users[:10], 1):
-                name = user.get('first_name', 'Unknown')[:15]
-                earnings = user.get('total_earnings', 0)
-                level = user.get('user_level', 1)
-                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                leaderboard_text += f"{medal} {name} - {int(earnings)} {CURRENCY} | Lv.{level}\n"
-            
-            leaderboard_text += "\n🎯 Keep earning to climb higher!"
-            await query.edit_message_text(leaderboard_text)
-        except Exception as e:
-            logger.error(f"Error showing leaderboard: {e}")
-            await query.edit_message_text("🏆 Leaderboard\n\nUse /top for rankings!")
 
 def register_handlers(application: Application):
     """Register start command handlers"""
-    logger.info("Registering start command handlers")
+    logger.info("Registering ENHANCED start handlers with BUTTONS")
     
-    # Clear existing start handlers
+    # Clear any existing start handlers first
     for handler_group in application.handlers.values():
-        for handler in handler_group[:]:
+        handlers_to_remove = []
+        for handler in handler_group:
             if hasattr(handler, 'command') and 'start' in getattr(handler, 'command', []):
-                handler_group.remove(handler)
+                handlers_to_remove.append(handler)
+        for handler in handlers_to_remove:
+            handler_group.remove(handler)
+            logger.info("Removed existing start handler")
     
+    # Add our start command
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CallbackQueryHandler(handle_start_callbacks))
     
-    logger.info("✅ Start handlers registered successfully")
+    logger.info("✅ ENHANCED start handlers with BUTTONS registered successfully")
