@@ -33,6 +33,16 @@ def main():
         logger.info("✅ Start handlers registered")
         
         # Import core handlers
+# Add these imports and registrations in main.py
+
+# Import new handlers
+from plugins.pending import register_handlers as register_pending_handlers
+from plugins.approve import register_handlers as register_approve_handlers
+
+# Register new handlers
+register_pending_handlers(application)
+register_approve_handlers(application)
+
         from plugins.message_handler import register_handlers as register_message_handlers
         from plugins.balance import register_handlers as register_balance_handlers
         from plugins.admin import register_handlers as register_admin_handlers
