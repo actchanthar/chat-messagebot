@@ -45,7 +45,7 @@ class Database:
                     "referral_reward": 50,
                     "message_rate": 3,
                     "last_order_id": 0,
-                    "created_at": datetime.now(timezone.utc)
+                    "created_at": datetime.now(timezone.utc).isoformat()
                 }
                 await self.settings.insert_one(default_settings)
                 logger.info("✅ Initialized default settings")
@@ -65,16 +65,35 @@ class Database:
             return {}
 
     async def update_settings(self, updates: dict):
-        """Update bot settings"""
+        """Update bot settings - FIXED"""
         try:
+            logger.info(f"Attempting to update settings: {updates}")
+            
             result = await self.settings.update_one(
                 {"_id": "bot_settings"},
                 {"$set": updates},
                 upsert=True
             )
+            
+            logger.info(f"Settings update result: modified={result.modified_count}, upserted={result.upserted_id}")
+            
+            # Verify the update worked
+            verification = await self.settings.find_one({"_id": "bot_settings"})
+            if verification:
+                for key, value in updates.items():
+                    actual_value = verification.get(key)
+                    if actual_value == value:
+                        logger.info(f"✅ Successfully updated {key} to {value}")
+                    else:
+                        logger.error(f"❌ Failed to update {key}: expected {value}, got {actual_value}")
+                        return False
+            
             return result.modified_count > 0 or result.upserted_id is not None
+            
         except Exception as e:
             logger.error(f"Error updating settings: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     async def get_referral_reward(self):
@@ -179,15 +198,17 @@ class Database:
             return False
 
     async def create_user(self, user_id: str, user_data: dict, referred_by: str = None):
-        """Create a new user with advanced referral system"""
+        """Create a new user with advanced referral system - FIXED WELCOME BONUS"""
         try:
+            logger.info(f"Creating user {user_id} with referrer {referred_by}")
+            
             user_doc = {
                 "user_id": user_id,
                 "first_name": user_data.get("first_name", ""),
                 "last_name": user_data.get("last_name", ""),
                 "username": user_data.get("username", ""),
                 "balance": 100,  # Welcome bonus
-                "total_earnings": 100,
+                "total_earnings": 100,  # Welcome bonus counted as earnings
                 "total_withdrawn": 0,
                 "withdrawn_today": 0,
                 "messages": 0,
@@ -208,12 +229,27 @@ class Database:
             
             result = await self.users.insert_one(user_doc)
             if result.inserted_id:
-                logger.info(f"Created user {user_id} with referrer {referred_by}")
+                logger.info(f"Successfully created user {user_id} with balance {user_doc['balance']}")
+                
+                # If referred by someone, log it but don't give reward yet
+                if referred_by:
+                    logger.info(f"User {user_id} was referred by {referred_by} - reward pending channel joins")
+                    
+                    # Increment referrer's invites count (not successful_referrals yet)
+                    await self.users.update_one(
+                        {"user_id": referred_by},
+                        {"$inc": {"invites": 1}}
+                    )
+                
                 return user_doc
+            
+            logger.error(f"Failed to insert user {user_id} into database")
             return None
             
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None
 
     async def check_and_process_referral_reward(self, user_id: str, context):
