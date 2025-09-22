@@ -275,7 +275,8 @@ class Database:
             
             user_earnings = user.get("total_earnings", 0)
             higher_earners = await self.users.count_documents({
-                "total_earnings": {"$gt": user_earnings}
+                "total_earnings": {"$gt": user_earnings},
+                "banned": {"$ne": True}
             })
             return higher_earners + 1
         except Exception as e:
@@ -291,12 +292,203 @@ class Database:
             
             user_value = user.get(field, 0)
             higher_users = await self.users.count_documents({
-                field: {"$gt": user_value}
+                field: {"$gt": user_value},
+                "banned": {"$ne": True}
             })
             return higher_users + 1
         except Exception as e:
             logger.error(f"Error getting user rank by {field}: {e}")
             return 0
+
+    async def get_top_users(self, limit: int = 10, sort_by: str = "total_earnings"):
+        """Get top users by specified field"""
+        try:
+            # Valid sort fields
+            valid_fields = ["total_earnings", "messages", "balance", "total_withdrawn", "successful_referrals"]
+            
+            if sort_by not in valid_fields:
+                sort_by = "total_earnings"
+            
+            cursor = self.users.find(
+                {"banned": {"$ne": True}}  # Exclude banned users
+            ).sort(sort_by, -1).limit(limit)
+            
+            users = await cursor.to_list(length=limit)
+            return users
+            
+        except Exception as e:
+            logger.error(f"Error getting top users by {sort_by}: {e}")
+            return []
+
+    async def get_user_stats_summary(self):
+        """Get summary statistics for all users"""
+        try:
+            pipeline = [
+                {
+                    "$group": {
+                        "_id": None,
+                        "total_users": {"$sum": 1},
+                        "total_earnings": {"$sum": "$total_earnings"},
+                        "total_withdrawn": {"$sum": "$total_withdrawn"},
+                        "total_messages": {"$sum": "$messages"},
+                        "active_users": {
+                            "$sum": {
+                                "$cond": [{"$eq": ["$banned", False]}, 1, 0]
+                            }
+                        },
+                        "banned_users": {
+                            "$sum": {
+                                "$cond": [{"$eq": ["$banned", True]}, 1, 0]
+                            }
+                        }
+                    }
+                }
+            ]
+            
+            result = await self.users.aggregate(pipeline).to_list(1)
+            
+            if result:
+                stats = result[0]
+                return {
+                    "total_users": stats.get("total_users", 0),
+                    "active_users": stats.get("active_users", 0),
+                    "banned_users": stats.get("banned_users", 0),
+                    "total_earnings": stats.get("total_earnings", 0),
+                    "total_withdrawn": stats.get("total_withdrawn", 0),
+                    "total_messages": stats.get("total_messages", 0),
+                    "system_balance": stats.get("total_earnings", 0) - stats.get("total_withdrawn", 0)
+                }
+            
+            return {
+                "total_users": 0,
+                "active_users": 0,
+                "banned_users": 0,
+                "total_earnings": 0,
+                "total_withdrawn": 0,
+                "total_messages": 0,
+                "system_balance": 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting user stats summary: {e}")
+            return {
+                "total_users": 0,
+                "active_users": 0,
+                "banned_users": 0,
+                "total_earnings": 0, 
+                "total_withdrawn": 0,
+                "total_messages": 0,
+                "system_balance": 0
+            }
+
+    async def get_leaderboard_data(self, sort_by: str = "total_earnings", limit: int = 15):
+        """Get leaderboard data with rankings"""
+        try:
+            valid_fields = ["total_earnings", "messages", "balance", "total_withdrawn", "successful_referrals"]
+            
+            if sort_by not in valid_fields:
+                sort_by = "total_earnings"
+            
+            # Get top users (exclude banned)
+            cursor = self.users.find(
+                {"banned": {"$ne": True}},  # Exclude banned users
+                {
+                    "user_id": 1,
+                    "first_name": 1,
+                    "last_name": 1,
+                    "username": 1,
+                    "total_earnings": 1,
+                    "messages": 1,
+                    "balance": 1,
+                    "total_withdrawn": 1,
+                    "successful_referrals": 1,
+                    "created_at": 1,
+                    "banned": 1
+                }
+            ).sort(sort_by, -1).limit(limit)
+            
+            users = await cursor.to_list(length=limit)
+            
+            # Add rankings
+            for i, user in enumerate(users):
+                user["rank"] = i + 1
+            
+            return users
+            
+        except Exception as e:
+            logger.error(f"Error getting leaderboard data by {sort_by}: {e}")
+            return []
+
+    async def get_recent_activities(self, limit: int = 10):
+        """Get recent user activities"""
+        try:
+            cursor = self.users.find(
+                {"banned": {"$ne": True}},
+                {
+                    "user_id": 1,
+                    "first_name": 1,
+                    "last_name": 1,
+                    "created_at": 1,
+                    "last_activity": 1,
+                    "total_earnings": 1,
+                    "messages": 1
+                }
+            ).sort("last_activity", -1).limit(limit)
+            
+            users = await cursor.to_list(length=limit)
+            return users
+            
+        except Exception as e:
+            logger.error(f"Error getting recent activities: {e}")
+            return []
+
+    async def get_withdrawal_stats(self):
+        """Get withdrawal statistics"""
+        try:
+            pipeline = [
+                {
+                    "$match": {
+                        "total_withdrawn": {"$gt": 0},
+                        "banned": {"$ne": True}
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "total_withdrawers": {"$sum": 1},
+                        "total_withdrawn": {"$sum": "$total_withdrawn"},
+                        "avg_withdrawal": {"$avg": "$total_withdrawn"},
+                        "max_withdrawal": {"$max": "$total_withdrawn"}
+                    }
+                }
+            ]
+            
+            result = await self.users.aggregate(pipeline).to_list(1)
+            
+            if result:
+                stats = result[0]
+                return {
+                    "total_withdrawers": stats.get("total_withdrawers", 0),
+                    "total_withdrawn": stats.get("total_withdrawn", 0),
+                    "avg_withdrawal": stats.get("avg_withdrawal", 0),
+                    "max_withdrawal": stats.get("max_withdrawal", 0)
+                }
+            
+            return {
+                "total_withdrawers": 0,
+                "total_withdrawn": 0,
+                "avg_withdrawal": 0,
+                "max_withdrawal": 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting withdrawal stats: {e}")
+            return {
+                "total_withdrawers": 0,
+                "total_withdrawn": 0,
+                "avg_withdrawal": 0,
+                "max_withdrawal": 0
+            }
 
     async def process_message_earning(self, user_id: str, group_id: str, context):
         """Process message earning for user"""
