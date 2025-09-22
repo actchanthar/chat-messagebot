@@ -122,12 +122,16 @@ async def reset_spam_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         target_user = context.args[0]
         
-        # Import spam tracking from message_handler
-        from plugins.message_handler import user_warnings, user_last_message
+        # Import spam tracking from message_handler - FIXED IMPORT
+        try:
+            from plugins.message_handler import user_warning_count, user_last_message
+        except ImportError:
+            await update.message.reply_text("❌ Spam tracking system မတွေ့ပါ။")
+            return
         
         # Reset warnings and cooldowns
-        old_warnings = user_warnings.get(target_user, 0)
-        user_warnings[target_user] = 0
+        old_warnings = user_warning_count.get(target_user, 0)
+        user_warning_count[target_user] = 0
         
         if target_user in user_last_message:
             del user_last_message[target_user]
@@ -210,7 +214,7 @@ async def ban_spammer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("❌ Error occurred while banning spammer.")
 
 async def view_spam_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """View spam statistics - Myanmar language"""
+    """View spam statistics - Myanmar language - FIXED"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -218,23 +222,26 @@ async def view_spam_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     
     try:
-        from plugins.message_handler import user_warnings, user_last_message
+        # FIXED IMPORT - Use correct variable names
+        try:
+            from plugins.message_handler import user_warning_count, user_last_message, user_rapid_count
+        except ImportError:
+            await update.message.reply_text("❌ Spam tracking system မတွေ့ပါ။")
+            return
         
         # Count users with warnings
-        total_warned_users = sum(1 for w in user_warnings.values() if w > 0)
+        total_warned_users = sum(1 for w in user_warning_count.values() if w > 0)
         active_users = len([t for t in user_last_message.values() if time.time() - t < 300])
-        users_in_cooldown = sum(1 for uid, warnings in user_warnings.items() 
-                               if warnings >= 5 and uid in user_last_message 
-                               and time.time() - user_last_message[uid] < 300)
+        rapid_users = sum(1 for r in user_rapid_count.values() if r > 0)
         
         # Get users with most warnings
-        top_warned = sorted(user_warnings.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_warned = sorted(user_warning_count.items(), key=lambda x: x[1], reverse=True)[:5]
         
         stats_text = (
             f"📊 **စပမ်ထိန်းချုပ်မှု စာရင်းအင်း**\n\n"
             f"⚠️ **Warning ရှိသော သုံးစွဲသူများ:** {total_warned_users}\n"
-            f"💬 **လက်ရှི တက်ကြွသူများ:** {active_users}\n"
-            f"🔕 **Cooldown ခံနေသူများ:** {users_in_cooldown}\n\n"
+            f"💬 **လက်ရှိ တက်ကြွသူများ:** {active_users}\n"
+            f"🚨 **Rapid messaging သုံးစွဲသူများ:** {rapid_users}\n\n"
         )
         
         if top_warned and any(w[1] > 0 for w in top_warned):
@@ -248,12 +255,11 @@ async def view_spam_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     except:
                         name = "အမည်မသိ"
                     
-                    cooldown_status = ""
-                    if warnings >= 5 and uid in user_last_message:
-                        if time.time() - user_last_message[uid] < 300:
-                            cooldown_status = " (🔕)"
+                    rapid_status = ""
+                    if uid in user_rapid_count and user_rapid_count[uid] > 0:
+                        rapid_status = f" (🚨{user_rapid_count[uid]})"
                     
-                    stats_text += f"{count+1}. {name} - {warnings} warnings{cooldown_status}\n"
+                    stats_text += f"{count+1}. {name} - {warnings} warnings{rapid_status}\n"
                     count += 1
             
             if count == 0:
@@ -266,7 +272,8 @@ async def view_spam_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         stats_text += f"• `/resetspam <user_id>` - Warning များ ရှင်းလင်းရန်\n"
         stats_text += f"• `/spamstats` - စာရင်းအင်းများ ကြည့်ရန်\n"
         stats_text += f"• `/ban <user_id>` - သုံးစွဲသူကို ပိတ်ပင်ရန်\n"
-        stats_text += f"• `/unban <user_id>` - သုံးစွဲသူကို ပြန်လည်ခွင့်ပြုရန်"
+        stats_text += f"• `/unban <user_id>` - သုံးစွဲသူကို ပြန်လည်ခွင့်ပြုရန်\n"
+        stats_text += f"• `/systemstatus` - စနစ်အခြေအနေ ကြည့်ရန်"
         
         await update.message.reply_text(stats_text)
     
@@ -324,7 +331,7 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Broadcast ပို့၍မရပါ။")
 
 async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Check system status - Myanmar language"""
+    """Check system status - Myanmar language - FIXED"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -337,9 +344,24 @@ async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         total_earnings = await db.get_total_earnings()
         total_withdrawals = await db.get_total_withdrawals()
         
-        # Get spam stats
-        from plugins.message_handler import user_warnings
-        warned_users = sum(1 for w in user_warnings.values() if w > 0)
+        # Get spam stats - FIXED IMPORT
+        try:
+            from plugins.message_handler import user_warning_count, user_rapid_count
+            warned_users = sum(1 for w in user_warning_count.values() if w > 0)
+            rapid_users = sum(1 for r in user_rapid_count.values() if r > 0)
+        except ImportError:
+            warned_users = 0
+            rapid_users = 0
+        
+        # Get bot uptime
+        import psutil
+        try:
+            uptime_seconds = time.time() - psutil.Process().create_time()
+            uptime_hours = int(uptime_seconds // 3600)
+            uptime_minutes = int((uptime_seconds % 3600) // 60)
+            uptime_str = f"{uptime_hours}h {uptime_minutes}m"
+        except:
+            uptime_str = "Unknown"
         
         status_text = (
             f"🤖 **စနစ်အခြေအနေ**\n\n"
@@ -348,8 +370,10 @@ async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"💸 **စုစုပေါင်းထုတ်ယူငွေ:** {int(total_withdrawals):,} {CURRENCY}\n"
             f"💳 **စနစ်ရှိငွေ:** {int(total_earnings - total_withdrawals):,} {CURRENCY}\n\n"
             f"⚠️ **Warning ရှိသူများ:** {warned_users}\n"
+            f"🚨 **Rapid messaging:** {rapid_users}\n"
             f"🛡️ **Anti-spam:** အလုပ်လုပ်နေသည်\n"
-            f"📊 **Database:** ချိတ်ဆက်ထားသည်\n\n"
+            f"📊 **Database:** ချိတ်ဆက်ထားသည်\n"
+            f"⏱️ **Bot uptime:** {uptime_str}\n\n"
             f"✅ **စနစ်အားလုံး ကောင်းမွန်စွာအလုပ်လုပ်နေပါသည်**"
         )
         
