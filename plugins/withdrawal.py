@@ -61,6 +61,58 @@ async def get_next_order_id():
         # Fallback to timestamp-based ID
         return int(datetime.now().timestamp()) % 100000
 
+async def check_user_subscriptions(user_id: str, context: ContextTypes.DEFAULT_TYPE):
+    """Check if user has joined all mandatory channels and invited enough users"""
+    try:
+        # Get mandatory channels
+        channels = await db.get_mandatory_channels()
+        
+        joined_channels = []
+        not_joined_channels = []
+        
+        # Check each channel
+        for channel in channels:
+            channel_id = channel.get('channel_id')
+            channel_name = channel.get('channel_name', 'Unknown Channel')
+            
+            try:
+                # Check if user is member of channel
+                member = await context.bot.get_chat_member(channel_id, int(user_id))
+                
+                if member.status in ['member', 'administrator', 'creator']:
+                    joined_channels.append({
+                        'id': channel_id,
+                        'name': channel_name,
+                        'status': 'joined'
+                    })
+                else:
+                    not_joined_channels.append({
+                        'id': channel_id,
+                        'name': channel_name,
+                        'status': 'not_joined'
+                    })
+                    
+            except TelegramError:
+                # User is not a member or channel not accessible
+                not_joined_channels.append({
+                    'id': channel_id,
+                    'name': channel_name,
+                    'status': 'not_joined'
+                })
+        
+        # Check referral count
+        user = await db.get_user(user_id)
+        referral_count = user.get('successful_referrals', 0) if user else 0
+        
+        # User must join all channels AND have 10+ referrals
+        all_requirements_met = len(not_joined_channels) == 0 and referral_count >= 10
+        
+        return all_requirements_met, joined_channels, not_joined_channels, referral_count
+        
+    except Exception as e:
+        logger.error(f"Error checking subscriptions for {user_id}: {e}")
+        return False, [], [], 0
+
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the /withdraw command to initiate withdrawal process."""
     user_id = str(update.effective_user.id)
@@ -99,6 +151,78 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             else:
                 await update.message.reply_text(error_msg)
             return ConversationHandler.END
+
+        # Check force join requirements FIRST
+        try:
+            requirements_met, joined, not_joined, referral_count = await check_user_subscriptions(user_id, context)
+            
+            if not requirements_met:
+                # Create join buttons for not joined channels
+                keyboard = []
+                
+                # Add join buttons for channels
+                for channel in not_joined[:5]:  # Show max 5 channels
+                    channel_name = channel['name']
+                    channel_id = channel['id']
+                    
+                    # Create join button with proper URL
+                    try:
+                        # Get channel info to create proper invite link
+                        chat_info = await context.bot.get_chat(channel_id)
+                        if hasattr(chat_info, 'invite_link') and chat_info.invite_link:
+                            join_url = chat_info.invite_link
+                        else:
+                            # Fallback to username-based link if available
+                            if hasattr(chat_info, 'username') and chat_info.username:
+                                join_url = f"https://t.me/{chat_info.username}"
+                            else:
+                                join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                    except:
+                        join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                    
+                    keyboard.append([InlineKeyboardButton(f"📺 Join {channel_name}", url=join_url)])
+                
+                # Add refresh button
+                keyboard.append([InlineKeyboardButton("🔄 Check Requirements", callback_data="check_withdrawal_req")])
+                
+                # Add referral link button if needed
+                if referral_count < 10:
+                    keyboard.append([InlineKeyboardButton("👥 My Referral Link", callback_data="get_referral_link")])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                requirements_text = (
+                    f"🚫 **WITHDRAWAL REQUIREMENTS NOT MET**\n\n"
+                    f"**ငွေထုတ်ရန် လိုအပ်ချက်များ:**\n\n"
+                    f"📺 **Join Required Channels:** {len(joined)}/{len(joined) + len(not_joined)} {'✅' if len(not_joined) == 0 else '❌'}\n"
+                    f"👥 **Invite Friends:** {referral_count}/10 {'✅' if referral_count >= 10 else '❌'}\n\n"
+                )
+                
+                if not_joined:
+                    requirements_text += f"**❌ You must join these channels:**\n"
+                    for i, channel in enumerate(not_joined[:5], 1):
+                        requirements_text += f"{i}. {channel['name']}\n"
+                    requirements_text += f"\n"
+                
+                if referral_count < 10:
+                    requirements_text += f"**❌ You need {10 - referral_count} more referrals**\n"
+                    requirements_text += f"📤 **Your referral link:**\n"
+                    requirements_text += f"`https://t.me/{context.bot.username}?start=ref_{user_id}`\n\n"
+                
+                requirements_text += f"💡 **Complete all requirements to enable withdrawal**\n"
+                requirements_text += f"🎯 **Join channels and invite friends to proceed**"
+                
+                if update.callback_query:
+                    await update.callback_query.answer()
+                    await update.callback_query.message.edit_text(requirements_text, reply_markup=reply_markup)
+                else:
+                    await update.message.reply_text(requirements_text, reply_markup=reply_markup)
+                
+                return ConversationHandler.END
+                
+        except Exception as e:
+            logger.error(f"Error checking force join requirements: {e}")
+            # Continue if force join check fails
 
         # Check minimum message requirement BUT SKIP FOR ADMIN/OWNER
         is_admin_or_owner = user_id in ADMIN_IDS
@@ -152,7 +276,7 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         current_balance = user.get("balance", 0)
         
         # Special message for admin/owner
-        admin_note = f"\n👑 **ADMIN ACCESS** - Message requirement bypassed!" if is_admin_or_owner else ""
+        admin_note = f"\n👑 **ADMIN ACCESS** - All requirements bypassed!" if is_admin_or_owner else ""
         
         prompt_msg = (
             f"💸 **WITHDRAWAL REQUEST**\n\n"
@@ -199,6 +323,20 @@ async def handle_payment_method(update: Update, context: ContextTypes.DEFAULT_TY
                 "❌ **Withdrawal Cancelled**\n\n"
                 "ငွေထုတ်မှု လုပ်ငန်းစဉ်ကို ပယ်ဖျက်လိုက်ပါပြီ။\n"
                 "Use /withdraw to start again anytime."
+            )
+            return ConversationHandler.END
+
+        # Handle withdrawal requirement callbacks
+        if data == "check_withdrawal_req":
+            # Restart withdrawal process
+            return await withdraw(update, context)
+        
+        if data == "get_referral_link":
+            referral_link = f"https://t.me/{context.bot.username}?start=ref_{user_id}"
+            await query.answer()
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"👥 **YOUR REFERRAL LINK**\n\n{referral_link}\n\nShare this link to invite friends and earn 50 {CURRENCY} per successful referral!"
             )
             return ConversationHandler.END
 
@@ -481,6 +619,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"💵 **New Balance:** {int(new_balance)} {CURRENCY}\n"
             f"📝 **User Messages:** {user.get('messages', 0):,}\n"
             f"🎯 **User Level:** {user.get('user_level', 1)}\n"
+            f"👥 **Referrals:** {user.get('successful_referrals', 0)}\n"
             f"📅 **Request Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             f"💡 **Balance already deducted - will refund if rejected**\n"
             f"⏳ **Status:** PENDING APPROVAL"
@@ -635,305 +774,4 @@ async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE
 📊 **Activity Stats:**
 • Total Messages: {user.get('messages', 0):,}
 • User Level: {user.get('user_level', 1)}
-• Earning Rank: #{earning_rank} of {total_users}
-• Message Rank: #{message_rank} of {total_users}
-
-👥 **Referral Stats:**
-• Successful Referrals: {user.get('successful_referrals', 0)}
-• Total Invites: {user.get('invites', 0)}
-
-🔄 **Order History:**
-• Pending Orders: {len(pending_orders)}
-• Completed Orders: {len(completed_orders)}
-• Total Requests: {len(user.get('pending_withdrawals', []))}
-
-⏰ **Timing:**
-• Account Created: {user.get('created_at', 'Unknown')}
-• Last Activity: {user.get('last_activity', 'Unknown')}
-• Last Withdrawal: {user.get('last_withdrawal', 'Never')}
-
-🎯 **Risk Assessment:** {'⚠️ Review Needed' if user.get('messages', 0) < 100 else '✅ Trusted User'}"""
-            
-            # Send NEW message to preserve withdrawal buttons
-            await context.bot.send_message(
-                chat_id=admin_id,
-                text=profile_text
-            )
-    
-    except Exception as e:
-        logger.error(f"Error in handle_user_profile: {e}")
-        await query.answer("❌ Error loading profile!", show_alert=True)
-
-async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle admin approval/rejection with ORDER ID tracking - FIXED"""
-    query = update.callback_query
-    admin_id = str(query.from_user.id)
-    data = query.data
-    
-    if admin_id not in ADMIN_IDS:
-        await query.answer("❌ You are not authorized!", show_alert=True)
-        return
-
-    await query.answer()
-    logger.info(f"Processing approval callback: {data}")
-    
-    try:
-        if data.startswith("approve_") or data.startswith("reject_"):
-            parts = data.split("_")
-            action = parts[0]
-            target_user_id = parts[1]
-            amount = int(parts[2])
-            
-            # Handle both old format (3 parts) and new format (4 parts with order_id)
-            order_id = int(parts[3]) if len(parts) > 3 else None
-            
-            logger.info(f"Parsed callback: action={action}, user={target_user_id}, amount={amount}, order_id={order_id}")
-            
-            # Get user from database
-            user = await db.get_user(target_user_id)
-            if not user:
-                await query.edit_message_text("❌ User not found.")
-                return
-
-            # Find the pending withdrawal - IMPROVED MATCHING LOGIC
-            pending_withdrawals = user.get("pending_withdrawals", [])
-            withdrawal = None
-            withdrawal_index = -1
-            
-            logger.info(f"Searching through {len(pending_withdrawals)} pending withdrawals")
-            
-            for i, w in enumerate(pending_withdrawals):
-                logger.info(f"Checking withdrawal {i}: status={w.get('status')}, amount={w.get('amount')}, order_id={w.get('order_id')}, message_id={w.get('message_id')}")
-                
-                # Multiple matching criteria for better reliability
-                is_match = (
-                    w.get("status") == "PENDING" and 
-                    w.get("amount") == amount and
-                    (
-                        # Match by order ID if available
-                        (order_id is not None and w.get("order_id") == order_id) or
-                        # Match by message ID as fallback
-                        w.get("message_id") == query.message.message_id or
-                        # Match by amount and recent timestamp as last resort
-                        (order_id is None and abs(w.get("amount", 0) - amount) == 0)
-                    )
-                )
-                
-                if is_match:
-                    withdrawal = w
-                    withdrawal_index = i
-                    logger.info(f"Found matching withdrawal at index {i}")
-                    break
-
-            if not withdrawal:
-                # Debug information
-                debug_info = f"Debug info:\n"
-                debug_info += f"- Callback data: {data}\n"
-                debug_info += f"- Message ID: {query.message.message_id}\n"
-                debug_info += f"- Looking for: user={target_user_id}, amount={amount}, order_id={order_id}\n"
-                debug_info += f"- Found {len(pending_withdrawals)} pending withdrawals:\n"
-                
-                for i, w in enumerate(pending_withdrawals):
-                    debug_info += f"  {i}: status={w.get('status')}, amount={w.get('amount')}, order_id={w.get('order_id')}, msg_id={w.get('message_id')}\n"
-                
-                logger.error(debug_info)
-                await query.edit_message_text(f"❌ Withdrawal request not found.\n\n{debug_info}")
-                return
-
-            if action == "approve":
-                # Approve withdrawal - balance is already deducted
-                total_withdrawn = user.get("total_withdrawn", 0) + amount
-                
-                # Update withdrawal status
-                pending_withdrawals[withdrawal_index]["status"] = "APPROVED"
-                pending_withdrawals[withdrawal_index]["approved_by"] = admin_id
-                pending_withdrawals[withdrawal_index]["approved_at"] = datetime.now(timezone.utc).isoformat()
-                
-                await db.update_user(target_user_id, {
-                    "total_withdrawn": total_withdrawn,
-                    "last_withdrawal": datetime.now(timezone.utc),
-                    "pending_withdrawals": pending_withdrawals
-                })
-
-                # Update admin message
-                order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else "N/A"
-                updated_message = query.message.text + f"\n\n✅ **APPROVED** by Admin {admin_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Payment processed for Order {order_display}**"
-                await query.edit_message_text(updated_message)
-
-                # Notify user with Order ID
-                try:
-                    current_balance = user.get("balance", 0)
-                    order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else f"WD-{withdrawal.get('message_id', 'Unknown')}"
-                    
-                    await context.bot.send_message(
-                        chat_id=target_user_id,
-                        text=(
-                            f"✅ **WITHDRAWAL APPROVED!**\n\n"
-                            f"🆔 **Order ID:** {order_display}\n"
-                            f"💰 **Amount:** {amount:,} {CURRENCY}\n"
-                            f"💳 **Method:** {withdrawal['payment_method']}\n"
-                            f"💵 **Current Balance:** {int(current_balance)} {CURRENCY}\n\n"
-                            f"🎉 Your withdrawal has been processed successfully!\n"
-                            f"💸 **Payment is being sent to your account!**\n\n"
-                            f"သင့်ငွေထုတ်မှု {order_display} ကို အတည်ပြုပါသည်။\n"
-                            f"ငွေကို သင့်အကောင့်သို့ ပို့နေပါသည်။"
-                        )
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to notify user {target_user_id}: {e}")
-
-                # Send withdrawal announcement with Order ID
-                try:
-                    if AUTO_ANNOUNCE_WITHDRAWALS:
-                        telegram_user = await context.bot.get_chat(target_user_id)
-                        display_name = telegram_user.first_name or "User"
-                        order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else f"WD-{withdrawal.get('message_id', 'Unknown')}"
-                        
-                        announcement_text = f"""💸 **WITHDRAWAL SUCCESSFUL!**
-
-🎉 **{display_name} just received {amount:,} {CURRENCY}!**
-💳 **Method:** {withdrawal['payment_method']}
-🆔 **Order ID:** {order_display}
-📅 **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
-
-✅ **PROOF OUR BOT PAYS REAL MONEY!**
-
-💰 **Start earning too:**
-• Chat in groups = Earn {CURRENCY}
-• Minimum withdrawal: {MIN_WITHDRAWAL} {CURRENCY}
-• Fast processing: 2-24 hours
-
-🚀 **Join now:** t.me/{context.bot.username}
-
-#Withdrawal #Success #RealPayments"""
-                        
-                        # Send to proof channel first
-                        receipt_msg = None
-                        try:
-                            receipt_msg = await context.bot.send_message(
-                                chat_id=RECEIPT_CHANNEL_ID,
-                                text=announcement_text
-                            )
-                            logger.info(f"✅ Withdrawal receipt sent to proof channel for {order_display}")
-                        except Exception as e:
-                            logger.error(f"❌ Failed to send receipt to proof channel: {e}")
-                        
-                        # Forward from receipt channel to main groups
-                        if receipt_msg:
-                            for group_id in GENERAL_ANNOUNCEMENT_GROUPS:
-                                try:
-                                    await context.bot.forward_message(
-                                        chat_id=group_id,
-                                        from_chat_id=RECEIPT_CHANNEL_ID,
-                                        message_id=receipt_msg.message_id
-                                    )
-                                    logger.info(f"✅ Forwarded {order_display} receipt to group {group_id}")
-                                    await asyncio.sleep(0.5)
-                                except Exception as e:
-                                    logger.error(f"❌ Failed to forward {order_display} to group {group_id}: {e}")
-                
-                except Exception as e:
-                    logger.error(f"Error in withdrawal announcements: {e}")
-
-                logger.info(f"Admin {admin_id} approved withdrawal {order_display}: {target_user_id} - {amount} {CURRENCY}")
-
-            else:  # reject
-                # Reject withdrawal - REFUND the balance
-                current_balance = user.get("balance", 0)
-                refunded_balance = current_balance + amount
-                withdrawn_today = user.get("withdrawn_today", 0) - amount
-                
-                # Update withdrawal status
-                pending_withdrawals[withdrawal_index]["status"] = "REJECTED"
-                pending_withdrawals[withdrawal_index]["rejected_by"] = admin_id
-                pending_withdrawals[withdrawal_index]["rejected_at"] = datetime.now(timezone.utc).isoformat()
-                
-                await db.update_user(target_user_id, {
-                    "balance": refunded_balance,
-                    "withdrawn_today": max(0, withdrawn_today),
-                    "pending_withdrawals": pending_withdrawals
-                })
-
-                # Update admin message
-                order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else "N/A"
-                updated_message = query.message.text + f"\n\n❌ **REJECTED** by Admin {admin_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Balance refunded for Order {order_display}: {amount:,} {CURRENCY}**"
-                await query.edit_message_text(updated_message)
-
-                # Notify user with Order ID
-                try:
-                    order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else f"WD-{withdrawal.get('message_id', 'Unknown')}"
-                    
-                    await context.bot.send_message(
-                        chat_id=target_user_id,
-                        text=(
-                            f"❌ **WITHDRAWAL REJECTED**\n\n"
-                            f"🆔 **Order ID:** {order_display}\n"
-                            f"💰 **Amount:** {amount:,} {CURRENCY}\n"
-                            f"💳 **Method:** {withdrawal['payment_method']}\n"
-                            f"💵 **Previous Balance:** {int(current_balance)} {CURRENCY}\n"
-                            f"💵 **Refunded Balance:** {int(refunded_balance)} {CURRENCY}\n\n"
-                            f"🔄 **Your balance has been fully restored**\n"
-                            f"📝 Your withdrawal request was not approved.\n"
-                            f"💡 Please contact support if you have questions.\n\n"
-                            f"Order {order_display} ကို ငြင်းပယ်ပြီး လက်ကျန်ငွေ ပြန်လည်ထည့်သွင်းပေးပါမည်။"
-                        )
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to notify user {target_user_id}: {e}")
-
-                logger.info(f"Admin {admin_id} rejected withdrawal {order_display} and refunded: {target_user_id} - {amount} {CURRENCY}")
-
-    except Exception as e:
-        logger.error(f"Error in handle_approval: {e}")
-        logger.error(f"Callback data: {data}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        await query.edit_message_text(f"❌ Error processing withdrawal decision: {str(e)}")
-
-def register_handlers(application: Application):
-    """Register all withdrawal handlers - FIXED CALLBACK PATTERNS"""
-    logger.info("Registering withdrawal conversation handlers with Order ID system")
-    
-    # Create conversation handler with FIXED PATTERNS
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("withdraw", withdraw)
-        ],
-        states={
-            STEP_PAYMENT_METHOD: [
-                # FIXED: More flexible pattern matching
-                CallbackQueryHandler(handle_payment_method, pattern=r"^wd_method_"),
-                CallbackQueryHandler(handle_payment_method, pattern=r"^wd_cancel$")
-            ],
-            STEP_AMOUNT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)
-            ],
-            STEP_DETAILS: [
-                MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, handle_details)
-            ],
-        },
-        fallbacks=[
-            CommandHandler("withdraw", withdraw),
-            CallbackQueryHandler(handle_payment_method, pattern=r"^wd_cancel$")
-        ],
-        allow_reentry=True,
-        name="withdrawal_conversation",
-        persistent=False,
-        per_message=False  # ADDED: This should fix the callback issue
-    )
-    
-    # Register with GROUP 0 (highest priority)
-    application.add_handler(conv_handler, group=0)
-    
-    # Other handlers with lower priority
-    application.add_handler(CallbackQueryHandler(
-        handle_approval, 
-        pattern=r"^(approve_|reject_)"
-    ), group=1)
-    
-    application.add_handler(CallbackQueryHandler(
-        handle_user_profile, 
-        pattern=r"^profile_"
-    ), group=1)
-    
-    logger.info("✅ Withdrawal handlers with Order ID system registered successfully")
+•
