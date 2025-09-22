@@ -1,680 +1,365 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 import logging
 import sys
 import os
-from datetime import datetime
+import re
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from database.database import db
-from config import CURRENCY, MIN_WITHDRAWAL, MAX_DAILY_WITHDRAWAL, ADMIN_IDS
+from config import CURRENCY, BOT_NAME, APPROVED_GROUPS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Updated start image URL
-START_IMAGE_URL = "https://i.ibb.co/DDbgt0JC/x.jpg"
-
-# Conversation states for start menu withdrawal
-START_WD_METHOD, START_WD_AMOUNT, START_WD_DETAILS = range(3)
-
-async def check_subscription(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> tuple[bool, list]:
-    """Check if user is subscribed to required channels"""
-    try:
-        channels = await db.get_channels()
-        if not channels:
-            return True, []
-
-        not_subscribed_channels = []
-        for channel in channels:
-            try:
-                member = await context.bot.get_chat_member(channel["channel_id"], user_id)
-                if member.status not in ["member", "administrator", "creator"]:
-                    not_subscribed_channels.append(channel)
-            except Exception as e:
-                logger.error(f"Error checking subscription: {e}")
-                not_subscribed_channels.append(channel)
-
-        return len(not_subscribed_channels) == 0, not_subscribed_channels
-    except Exception as e:
-        logger.error(f"Error in check_subscription: {e}")
-        return True, []
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Enhanced start command with image and custom design"""
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start command with referral system and channel requirements"""
     user_id = str(update.effective_user.id)
-    chat_id = update.effective_chat.id
-    logger.info(f"Start command by user {user_id} in chat {chat_id}")
+    user = update.effective_user
+    logger.info(f"Start command from user {user_id}")
 
-    # Check for referral
-    referred_by = None
-    if context.args:
-        try:
-            ref_code = str(context.args[0])
-            if ref_code.startswith("ref_"):
-                referred_by = ref_code[4:]
-            else:
-                referred_by = ref_code
-            logger.info(f"User {user_id} started with referral from {referred_by}")
-        except Exception as e:
-            logger.error(f"Error parsing referral ID for user {user_id}: {e}")
+    try:
+        # Extract referral code from command arguments
+        referred_by = None
+        if context.args:
+            ref_arg = context.args[0]
+            if ref_arg.startswith("ref_"):
+                referred_by = ref_arg[4:]  # Remove "ref_" prefix
+                logger.info(f"User {user_id} referred by {referred_by}")
 
-    # Check force subscription
-    subscribed, not_subscribed_channels = await check_subscription(context, int(user_id), chat_id)
-    if not subscribed:
-        keyboard = []
-        for i in range(0, len(not_subscribed_channels), 2):
-            row = []
-            channel_1 = not_subscribed_channels[i]
-            row.append(InlineKeyboardButton(
-                channel_1["channel_name"],
-                url=f"https://t.me/{channel_1['channel_name'][1:]}"
-            ))
-            if i + 1 < len(not_subscribed_channels):
-                channel_2 = not_subscribed_channels[i + 1]
-                row.append(InlineKeyboardButton(
-                    channel_2["channel_name"],
-                    url=f"https://t.me/{channel_2['channel_name'][1:]}"
-                ))
-            keyboard.append(row)
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "Please join the following channels to use the bot:\n"
-            "ကျေးဇူးပြု၍ အောက်ပါချန်နယ်များသို့ဝင်ရောက်ပါ။",
-            reply_markup=reply_markup
-        )
-        logger.info(f"User {user_id} not subscribed to required channels: {[ch['channel_name'] for ch in not_subscribed_channels]}")
-        return
-
-    # Get or create user
-    user = await db.get_user(user_id)
-    is_new_user = False
-    
-    if not user:
-        is_new_user = True
-        user = await db.create_user(user_id, {
-            "first_name": update.effective_user.first_name,
-            "last_name": update.effective_user.last_name
-        }, referred_by)
-        if not user:
-            logger.error(f"Failed to create user {user_id}")
-            await update.message.reply_text("Error creating user. Please try again later.")
-            return
-        logger.info(f"Created new user {user_id} during start command")
-
-        # Process referral bonus
-        if referred_by:
-            referrer = await db.get_user(referred_by)
-            if referrer:
-                referral_reward = await db.get_referral_reward()
-                current_balance = referrer.get("balance", 0)
-                new_invites = referrer.get("invites", 0) + 1
-                successful_referrals = referrer.get("successful_referrals", 0) + 1
+        # Check if user already exists
+        existing_user = await db.get_user(user_id)
+        
+        if existing_user:
+            # Existing user - show welcome back message
+            current_balance = existing_user.get("balance", 0)
+            total_earnings = existing_user.get("total_earnings", 0)
+            messages_count = existing_user.get("messages", 0)
+            referrals = existing_user.get("successful_referrals", 0)
+            
+            welcome_text = (
+                f"👋 **ကြိုဆိုပါတယ် {user.first_name}!**\n\n"
+                f"💰 **လက်ကျန်ငွေ:** {int(current_balance)} {CURRENCY}\n"
+                f"📈 **စုစုပေါင်းရငွေ:** {int(total_earnings)} {CURRENCY}\n"
+                f"💬 **ပို့ထားသောစာ:** {messages_count:,} စာ\n"
+                f"👥 **ဖိတ်ကြားမှုများ:** {referrals} မိတ်ဆွေ\n\n"
+                f"🎯 **ငွေရှာနည်း:**\n"
+                f"• Approved Groups များထဲမှာ စာပို့ပါ\n"
+                f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
+                f"• အနည်းဆုံး ၂၀၀ {CURRENCY} ငွေထုတ်နိုင်ပါတယ်\n\n"
+                f"🔗 **မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရယူပါ!**\n"
+                f"**သင့်ရဲ့ ဖိတ်ကြားလင့်:** `https://t.me/{context.bot.username}?start=ref_{user_id}`"
+            )
+            
+            # Create main menu keyboard
+            keyboard = [
+                [
+                    InlineKeyboardButton("💰 ငွေထုတ်မယ်", callback_data="withdraw_menu"),
+                    InlineKeyboardButton("📊 ကျွန်တော့်အခြေအနေ", callback_data="my_profile")
+                ],
+                [
+                    InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard_menu"),
+                    InlineKeyboardButton("👥 မိတ်ဆွေဖိတ်မယ်", callback_data="invite_friends")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+        else:
+            # New user - create account
+            user_data = {
+                "first_name": user.first_name or "",
+                "last_name": user.last_name or "",
+                "username": user.username or ""
+            }
+            
+            new_user = await db.create_user(user_id, user_data, referred_by)
+            
+            if not new_user:
+                await update.message.reply_text("❌ အကောင့်ဖွင့်၍မရပါ။ ထပ်မံကြိုးစားပါ။")
+                return
+            
+            # Welcome message for new user
+            welcome_text = (
+                f"🎉 **{BOT_NAME} မှ ကြိုဆိုပါတယ်!**\n\n"
+                f"👤 **{user.first_name}**, သင့်အကောင့်ကို အောင်မြင်စွာ ဖွင့်လှစ်ပါပြီ!\n\n"
+                f"🎁 **Welcome Bonus:** ၁၀၀ {CURRENCY} ရရှိပါပြီ!\n\n"
+                f"💡 **ငွေရှာနည်း:**\n"
+                f"• Approved Groups များတွင် စာများပို့ပါ\n"
+                f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
+                f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရပါ\n"
+                f"• အနည်းဆုံး ၂၀၀ {CURRENCY} ငွေထုတ်နိုင်ပါတယ်\n\n"
+                f"📋 **လိုအပ်ချက်များ:**\n"
+                f"• Mandatory channels များ join လုပ်ရပါမယ်\n"
+                f"• အနည်းဆုံး ၁၀ မိတ်ဆွေ ဖိတ်ကြားရပါမယ်\n"
+                f"• အနည်းဆုံး ၅၀ စာ ပို့ရပါမယ်\n\n"
+            )
+            
+            # Check if this is a referral and there are mandatory channels
+            channels = await db.get_mandatory_channels()
+            
+            if referred_by and channels:
+                # Special handling for referred users
+                keyboard = []
                 
-                await db.update_user(referred_by, {
-                    "balance": current_balance + referral_reward,
-                    "invites": new_invites,
-                    "successful_referrals": successful_referrals
-                })
+                # Add join buttons for each channel
+                for channel in channels[:5]:  # Show max 5 channels
+                    channel_name = channel.get('channel_name', 'Channel')
+                    channel_id = channel.get('channel_id')
+                    
+                    try:
+                        # Try to get proper invite link
+                        chat_info = await context.bot.get_chat(channel_id)
+                        if hasattr(chat_info, 'invite_link') and chat_info.invite_link:
+                            join_url = chat_info.invite_link
+                        elif hasattr(chat_info, 'username') and chat_info.username:
+                            join_url = f"https://t.me/{chat_info.username}"
+                        else:
+                            join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                    except:
+                        join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                    
+                    keyboard.append([InlineKeyboardButton(f"📺 Join {channel_name}", url=join_url)])
                 
+                # Add verification button
+                keyboard.append([InlineKeyboardButton("✅ I Joined All Channels", callback_data="check_referral_channels")])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Get referrer name
+                referrer_name = "friend"
                 try:
-                    await context.bot.send_message(
-                        chat_id=referred_by,
-                        text=f"🎉 **Your referral link worked!**\n\n"
-                             f"👤 **{update.effective_user.first_name}** joined using your link!\n"
-                             f"💰 **You earned:** {referral_reward} {CURRENCY}\n"
-                             f"💵 **New Balance:** {int(current_balance + referral_reward)} {CURRENCY}\n"
-                             f"🎯 **Keep sharing to earn more!**"
-                    )
-                    logger.info(f"Awarded {referral_reward} {CURRENCY} to referrer {referred_by} for user {user_id}")
-                except Exception as e:
-                    logger.error(f"Failed to notify referrer {referred_by}: {e}")
-
-        # ANNOUNCE NEW USER
-        try:
-            from plugins.announcements import announcement_system
-            await announcement_system.announce_new_user(
-                user_id=user_id,
-                user_name=update.effective_user.first_name or "New User",
-                referred_by=referred_by,
-                context=context
-            )
-        except Exception as e:
-            logger.error(f"Failed to announce new user: {e}")
-
-    # Get user stats
-    current_balance = user.get("balance", 0)
-    total_messages = user.get("messages", 0)
-    user_level = user.get("user_level", 1)
-    total_earnings = user.get("total_earnings", 0)
-    successful_referrals = user.get("successful_referrals", 0)
-
-    # Create welcome message with your custom format
-    welcome_message = (
-        f"စာပို့ရင်း ငွေရှာမယ်:\n"
-        f"Welcome back, {update.effective_user.first_name}! 🎉\n\n"
-        f"💰 Balance: {int(current_balance)} {CURRENCY}\n"
-        f"📝 Messages: {total_messages}\n"
-        f"🎯 Level: {user_level}\n"
-        f"💸 Total Earned: {int(total_earnings)} {CURRENCY}\n"
-        f"👥 Referrals: {successful_referrals}\n\n"
-    )
-
-    # Add top 5 users leaderboard as requested - FIXED
-    try:
-        users = await db.get_all_users()
-        if users:
-            # Sort by total earnings (as shown in your example)
-            sorted_users = sorted(users, key=lambda x: x.get("total_earnings", 0), reverse=True)[:5]
-            
-            if sorted_users:
-                for i, top_user in enumerate(sorted_users, 1):
-                    # FIXED: Handle None values properly
-                    name = top_user.get('first_name') or 'Unknown'
-                    last_name = top_user.get('last_name') or ''
-                    
-                    # Only concatenate if last_name is not empty
-                    if last_name:
-                        full_name = f"{name} {last_name}".strip()
-                    else:
-                        full_name = name.strip()
-                    
-                    messages = top_user.get('messages', 0)
-                    earnings = int(top_user.get('total_earnings', 0))
-                    
-                    welcome_message += f"{i}. {full_name} - {messages} msg, {earnings} {CURRENCY}\n"
+                    referrer_info = await context.bot.get_chat(int(referred_by))
+                    referrer_name = referrer_info.first_name or "friend"
+                except:
+                    pass
                 
+                welcome_text += f"\n🎁 **SPECIAL REFERRAL BONUS**\n\n"
+                welcome_text += f"👥 **You were invited by {referrer_name}!**\n"
+                welcome_text += f"💰 **Join all channels below to activate referral bonus**\n"
+                welcome_text += f"🎯 **Your friend will get 50 {CURRENCY} when you join all channels**\n\n"
+                welcome_text += f"📺 **Please join these channels to continue:**"
+                
+            else:
+                # Regular new user or no channels
+                keyboard = [
+                    [
+                        InlineKeyboardButton("💰 Start Earning", callback_data="start_earning"),
+                        InlineKeyboardButton("👥 Invite Friends", callback_data="invite_friends")
+                    ],
+                    [
+                        InlineKeyboardButton("ℹ️ How to Earn", callback_data="how_to_earn"),
+                        InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard_menu")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                welcome_text += f"🚀 **Ready to start earning? Click the buttons below!**"
+        
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        
     except Exception as e:
-        logger.error(f"Error generating leaderboard: {e}")
+        logger.error(f"Error in start command: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again later.")
 
-    # Add referral sharing link to welcome message
-    bot_username = context.bot.username or "ACTearnbot"
-    referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-    share_text = "💰%20Join%20this%20earning%20bot%20and%20make%20money%20by%20chatting!%20🚀"
-    share_url = f"https://telegram.me/share/url?url={referral_link}&text={share_text}"
-    
-    welcome_message += f"\nဒီလင့်ကိုပို့ပြီး ငွေရှာလိုက်ပါ\n{share_url}\n"
-
-    # Create custom keyboard with referral button
-    keyboard = [
-        [
-            InlineKeyboardButton("Balance", callback_data="menu_balance"),
-            InlineKeyboardButton("Withdraw", callback_data="menu_withdraw")
-        ],
-        [
-            InlineKeyboardButton("ငွေထုတ်ချာနယ်", url="https://t.me/actearnproof"),
-            InlineKeyboardButton("Join Group", url="https://t.me/+3Km76-24T3RjNzY1")
-        ],
-        [
-            InlineKeyboardButton("လူခေါ်ရင်းငွေရှာ", callback_data="menu_referral")
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    try:
-        # Send the image first
-        await update.message.reply_photo(
-            photo=START_IMAGE_URL,
-            caption=welcome_message,
-            reply_markup=reply_markup
-        )
-        logger.info(f"Sent welcome message with image to user {user_id} in chat {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to send image, sending text only: {e}")
-        # Fallback to text-only message if image fails
-        await update.message.reply_text(welcome_message, reply_markup=reply_markup)
-
-async def handle_menu_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle balance button from start menu"""
+async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle referral channel check callback"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     
     await query.answer()
-    logger.info(f"Balance button clicked by user {user_id}")
     
     try:
-        user = await db.get_user(user_id)
-        if user:
-            balance = user.get("balance", 0)
-            total_earned = user.get("total_earnings", 0)
-            total_withdrawn = user.get("total_withdrawn", 0)
-            messages = user.get("messages", 0)
-            
-            # Check for pending withdrawals
-            pending_withdrawals = user.get("pending_withdrawals", [])
-            pending_count = sum(1 for w in pending_withdrawals if w.get("status") == "PENDING")
-            
-            balance_text = (
-                f"💰 **Your Balance**\n\n"
-                f"💳 **Current Balance:** {int(balance)} {CURRENCY}\n"
-                f"📈 **Total Earned:** {int(total_earned)} {CURRENCY}\n"
-                f"💸 **Total Withdrawn:** {int(total_withdrawn)} {CURRENCY}\n"
-                f"📝 **Total Messages:** {messages:,}\n"
-                f"⏳ **Pending Withdrawals:** {pending_count}\n\n"
-                f"သင့်လက်ကျန်ငွေသည် {int(balance)} ကျပ်ဖြစ်ပါသည်။\n\n"
-                f"💡 Keep chatting in groups to earn more!\n"
-                f"📊 Rate: 3 messages = 1 {CURRENCY}\n"
-                f"📋 Use `/pending` to check withdrawal history"
+        # Check if user joined all channels
+        from plugins.withdrawal import check_user_subscriptions
+        requirements_met, joined, not_joined, referral_count = await check_user_subscriptions(user_id, context)
+        
+        if len(not_joined) == 0:
+            # All channels joined
+            await query.edit_message_text(
+                "✅ **CONGRATULATIONS!**\n\n"
+                "🎉 You joined all mandatory channels!\n"
+                "💰 Your referrer will receive their bonus now!\n"
+                "🚀 Start chatting in groups to earn kyat!\n\n"
+                "💡 **How to earn:**\n"
+                "• Send messages in approved groups\n"
+                "• Earn 1 kyat every 3 messages\n"
+                "• Invite more friends for bonuses!\n\n"
+                f"**Your referral link:**\n"
+                f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
             )
             
-            await query.message.reply_text(balance_text)
+            # Process referral reward
+            await db.check_and_process_referral_reward(user_id, context)
+            
         else:
-            await query.message.reply_text("❌ User not found. Please try /start")
-    except Exception as e:
-        logger.error(f"Error in handle_menu_balance: {e}")
-        await query.message.reply_text("❌ Error occurred. Please try /start again.")
-
-async def handle_menu_referral(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle referral button from start menu"""
-    query = update.callback_query
-    user_id = str(query.from_user.id)
-    
-    await query.answer()
-    logger.info(f"Referral button clicked by user {user_id}")
-    
-    try:
-        user = await db.get_user(user_id)
-        if user:
-            bot_username = context.bot.username
-            referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-            
-            # Easy share URL
-            share_text = "💰 Join this earning bot and make money by chatting! 🚀"
-            share_url = f"https://telegram.me/share/url?url={referral_link}&text={share_text}"
-            
-            successful_referrals = user.get("successful_referrals", 0)
-            total_invites = user.get("invites", 0)
-            
-            referral_reward = await db.get_referral_reward()
-            
-            referral_text = (
-                f"👥 **Invite Friends & Earn!**\n\n"
-                f"🔗 **Your Referral Link:**\n"
-                f"`{referral_link}`\n\n"
-                f"💰 **Earn {referral_reward} {CURRENCY} for each friend who:**\n"
-                f"• Clicks your link\n"
-                f"• Starts using the bot\n"
-                f"• Sends their first message\n\n"
-                f"📊 **Your Referral Stats:**\n"
-                f"• Successful Referrals: {successful_referrals}\n"
-                f"• Total Invites: {total_invites}\n\n"
-                f"💡 **Tips:**\n"
-                f"• Share in groups and social media\n"
-                f"• Explain how the bot works\n"
-                f"• Help friends get started\n\n"
-                f"Start sharing and earn more! 🚀"
+            # Not all channels joined
+            not_joined_names = [ch['name'] for ch in not_joined[:3]]
+            await query.edit_message_text(
+                f"❌ **Please join ALL channels first**\n\n"
+                f"✅ **Joined:** {len(joined)} channels\n"
+                f"❌ **Still need to join:** {len(not_joined)} channels\n\n"
+                f"**Missing channels:** {', '.join(not_joined_names)}\n\n"
+                f"💡 **Join all channels then click the button again**"
             )
-            
-            # Add easy share button
-            share_keyboard = [
-                [InlineKeyboardButton("📤 Easy Share", url=share_url)]
-            ]
-            share_markup = InlineKeyboardMarkup(share_keyboard)
-            
-            await query.message.reply_text(referral_text, reply_markup=share_markup)
-        else:
-            await query.message.reply_text("❌ User not found. Please try /start")
-    except Exception as e:
-        logger.error(f"Error in handle_menu_referral: {e}")
-        await query.message.reply_text("❌ Error occurred. Please try /start again.")
-
-async def handle_menu_withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle withdraw button from start menu - FIXED - Send NEW message"""
-    query = update.callback_query
-    user_id = str(query.from_user.id)
-    
-    await query.answer()
-    logger.info(f"Withdraw button clicked by user {user_id}")
-    
-    try:
-        user = await db.get_user(user_id)
-        if not user:
-            await query.message.reply_text("❌ User not found. Please try /start first")
-            return ConversationHandler.END
-        
-        # Check for pending withdrawals first
-        pending_withdrawals = user.get("pending_withdrawals", [])
-        pending_count = sum(1 for w in pending_withdrawals if w.get("status") == "PENDING")
-        
-        if pending_count > 0:
-            await query.message.reply_text(
-                f"⏳ **You have {pending_count} pending withdrawal request(s)**\n\n"
-                f"Please wait for admin approval or rejection before making a new request.\n\n"
-                f"📋 Use `/pending` to check status\n"
-                f"📞 Support: @When_the_night_falls_my_soul_se"
-            )
-            return ConversationHandler.END
-        
-        # Check minimum message requirement BUT SKIP FOR ADMIN/OWNER
-        is_admin_or_owner = user_id in ADMIN_IDS
-        messages_count = user.get("messages", 0)
-        
-        if not is_admin_or_owner and messages_count < 50:
-            await query.message.reply_text(
-                f"📝 **You need at least 50 messages to withdraw**\n\n"
-                f"**Current:** {messages_count} messages\n"
-                f"**Required:** 50 messages\n\n"
-                f"ကျေးဇူးပြု၍ အနည်းဆုံး ၅၀ စာ ပို့ပြီးမှ ငွေထုတ်ပါ။\n\n"
-                f"💡 Chat in groups to earn messages!"
-            )
-            return ConversationHandler.END
-        
-        # Check if user is banned
-        if user.get("banned", False):
-            await query.message.reply_text(
-                f"🚫 **You are banned from using this bot**\n\n"
-                f"သင်သည် ဤဘော့ကို အသုံးပြုခွင့် ပိတ်ပင်ထားပါသည်။\n\n"
-                f"📞 Contact support: @When_the_night_falls_my_soul_se"
-            )
-            return ConversationHandler.END
-        
-        # All checks passed - show withdrawal options
-        current_balance = user.get("balance", 0)
-        
-        # Create payment method selection keyboard with UNIQUE prefixes
-        keyboard = [
-            [
-                InlineKeyboardButton("💳 KBZ Pay", callback_data="startwd_method_KBZ Pay"),
-                InlineKeyboardButton("🌊 Wave Pay", callback_data="startwd_method_Wave Pay")
-            ],
-            [
-                InlineKeyboardButton("₿ Binance Pay", callback_data="startwd_method_Binance Pay"),
-                InlineKeyboardButton("📱 Phone Bill", callback_data="startwd_method_Phone Bill")
-            ],
-            [
-                InlineKeyboardButton("❌ Cancel", callback_data="startwd_cancel")
-            ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Special message for admin/owner
-        admin_note = f"\n👑 **ADMIN ACCESS** - Message requirement bypassed!" if is_admin_or_owner else ""
-        
-        prompt_msg = (
-            f"💸 **WITHDRAWAL REQUEST**\n\n"
-            f"💰 **Current Balance:** {int(current_balance)} {CURRENCY}\n"
-            f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
-            f"📈 **Daily Limit:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}{admin_note}\n\n"
-            f"⚠️ **Note:** Amount will be deducted when you submit request\n"
-            f"🔄 **Refunded if rejected by admin**\n\n"
-            f"🏦 **ကျေးဇူးပြု၍ ငွေပေးချေမှုနည်းလမ်းကို ရွေးချယ်ပါ:**\n"
-            f"Please select your payment method:"
-        )
-        
-        # Clear any existing user data
-        context.user_data.clear()
-        
-        # FIXED: Send NEW message instead of editing photo caption
-        withdrawal_msg = await query.message.reply_text(prompt_msg, reply_markup=reply_markup)
-        
-        # Store the message ID for later editing
-        context.user_data["withdrawal_message_id"] = withdrawal_msg.message_id
-        
-        logger.info(f"Start menu withdrawal initiated by user {user_id} (Admin: {is_admin_or_owner})")
-        
-        return START_WD_METHOD
         
     except Exception as e:
-        logger.error(f"Error in handle_menu_withdraw: {e}")
-        await query.message.reply_text(
-            f"❌ Error occurred.\n\n"
-            f"💡 **Try:** `/withdraw`"
-        )
-        return ConversationHandler.END
+        logger.error(f"Error in referral check: {e}")
+        await query.edit_message_text("❌ Error checking channels. Please try again.")
 
-async def handle_start_wd_method(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle payment method selection from start menu"""
+async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle start menu callbacks"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
-    logger.info(f"Start withdrawal method selection: {data} by user {user_id}")
-
+    
+    await query.answer()
+    
     try:
-        await query.answer()
-
-        if data == "startwd_cancel":
+        if data == "withdraw_menu":
             await query.edit_message_text(
-                "❌ **Withdrawal Cancelled**\n\n"
-                "ငွေထုတ်မှု လုပ်ငန်းစဉ်ကို ပယ်ဖျက်လိုက်ပါပြီ။\n"
-                "Use the Withdraw button or /withdraw to start again."
+                "💰 **WITHDRAWAL MENU**\n\n"
+                "To start withdrawal, use the command:\n"
+                "👉 `/withdraw`\n\n"
+                "**Requirements:**\n"
+                "• Join all mandatory channels\n"
+                "• Invite at least 10 friends\n"
+                "• Send at least 50 messages\n"
+                "• Minimum 200 kyat balance\n\n"
+                "**Payment Methods:**\n"
+                "• KBZ Pay\n"
+                "• Wave Pay\n"
+                "• Binance Pay\n"
+                "• Phone Bill Top-up"
             )
-            return ConversationHandler.END
-
-        # Handle withdrawal method callbacks specifically
-        if not data.startswith("startwd_method_"):
-            await query.edit_message_text("❌ Invalid selection. Please try again.")
-            return ConversationHandler.END
-
-        method = data.replace("startwd_method_", "")
-        payment_methods = ["KBZ Pay", "Wave Pay", "Binance Pay", "Phone Bill"]
-        
-        if method not in payment_methods:
-            await query.edit_message_text("❌ Invalid payment method. Please try again.")
-            return START_WD_METHOD
-
-        context.user_data["payment_method"] = method
-        logger.info(f"User {user_id} selected payment method: {method}")
-
-        # Special handling for Phone Bill (fixed amount)
-        if method == "Phone Bill":
-            context.user_data["withdrawal_amount"] = 1000
+            
+        elif data == "my_profile":
+            user = await db.get_user(user_id)
+            if user:
+                balance = user.get("balance", 0)
+                earnings = user.get("total_earnings", 0)
+                messages = user.get("messages", 0)
+                referrals = user.get("successful_referrals", 0)
+                withdrawn = user.get("total_withdrawn", 0)
+                
+                # Get user rank
+                rank = await db.get_user_rank_by_earnings(user_id)
+                total_users = await db.get_total_users_count()
+                
+                profile_text = (
+                    f"👤 **YOUR PROFILE**\n\n"
+                    f"💰 **Balance:** {int(balance)} {CURRENCY}\n"
+                    f"📈 **Total Earned:** {int(earnings)} {CURRENCY}\n"
+                    f"💸 **Total Withdrawn:** {int(withdrawn)} {CURRENCY}\n"
+                    f"💬 **Messages Sent:** {messages:,}\n"
+                    f"👥 **Successful Referrals:** {referrals}\n"
+                    f"🏆 **Rank:** #{rank} of {total_users:,}\n\n"
+                    f"🎯 **Keep chatting to earn more!**\n"
+                    f"📋 **Referral Link:**\n"
+                    f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
+                )
+                await query.edit_message_text(profile_text)
+            
+        elif data == "invite_friends":
             await query.edit_message_text(
-                f"📱 **Phone Bill Withdrawal**\n\n"
-                f"💰 **Fixed Amount:** 1000 {CURRENCY}\n\n"
-                f"⚠️ **Amount will be deducted from your balance when you submit**\n\n"
-                f"📞 **သင့်ဖုန်းနံပါတ်ကို ထည့်ပါ:**\n"
-                f"Please enter your phone number (e.g., 09123456789):"
+                f"👥 **INVITE FRIENDS & EARN!**\n\n"
+                f"💰 **Earn 50 {CURRENCY} for each friend who:**\n"
+                f"• Joins using your link\n"
+                f"• Joins all mandatory channels\n"
+                f"• Stays active in the community\n\n"
+                f"🔗 **Your Referral Link:**\n"
+                f"`https://t.me/{context.bot.username}?start=ref_{user_id}`\n\n"
+                f"📤 **How to share:**\n"
+                f"1. Copy the link above\n"
+                f"2. Share with friends on social media\n"
+                f"3. Explain they'll get 100 {CURRENCY} welcome bonus\n"
+                f"4. You get 50 {CURRENCY} when they join channels\n\n"
+                f"🎯 **No limit on referrals - invite unlimited friends!**"
             )
-            return START_WD_DETAILS
-
-        # For other methods, ask for amount
-        user = await db.get_user(user_id)
-        current_balance = user.get("balance", 0) if user else 0
-        
-        await query.edit_message_text(
-            f"💰 **Enter Withdrawal Amount**\n\n"
-            f"🏦 **Payment Method:** {method}\n"
-            f"💳 **Your Balance:** {int(current_balance)} {CURRENCY}\n"
-            f"💎 **Minimum:** {MIN_WITHDRAWAL} {CURRENCY}\n"
-            f"📈 **Maximum Today:** {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n\n"
-            f"⚠️ **Important:** Amount will be deducted when you submit\n"
-            f"🔄 **Refunded if admin rejects your request**\n\n"
-            f"💸 **ငွေထုတ်ရန် ပမာဏကို ထည့်ပါ:**\n"
-            f"Please enter the amount to withdraw:"
-        )
-        return START_WD_AMOUNT
-
+            
+        elif data == "leaderboard_menu":
+            await query.edit_message_text(
+                "🏆 **LEADERBOARD & RANKINGS**\n\n"
+                "View rankings with command:\n"
+                "👉 `/leaderboard` or `/lb`\n\n"
+                "**Categories:**\n"
+                "• 💰 Top Earners\n"
+                "• 💬 Most Active Users\n"
+                "• 💳 Richest Users\n"
+                "• 💸 Top Withdrawers\n"
+                "• 👥 Best Referrers\n\n"
+                "Check your personal rank:\n"
+                "👉 `/rank` or `/myrank`"
+            )
+            
+        elif data == "start_earning":
+            # Get approved groups list
+            group_info = []
+            for group_id in APPROVED_GROUPS:
+                try:
+                    chat = await context.bot.get_chat(group_id)
+                    if hasattr(chat, 'username') and chat.username:
+                        group_info.append(f"• @{chat.username}")
+                    else:
+                        group_info.append(f"• {chat.title or 'Group'}")
+                except:
+                    group_info.append(f"• Group {group_id}")
+            
+            groups_text = '\n'.join(group_info[:5]) if group_info else "• Check bot announcements for group links"
+            
+            await query.edit_message_text(
+                f"🚀 **START EARNING NOW!**\n\n"
+                f"💰 **How it works:**\n"
+                f"1. Join approved groups below\n"
+                f"2. Send messages in those groups\n"
+                f"3. Earn 1 {CURRENCY} every 3 messages\n"
+                f"4. Withdraw when you reach 200 {CURRENCY}\n\n"
+                f"📺 **Approved Groups:**\n"
+                f"{groups_text}\n\n"
+                f"⚠️ **Important:**\n"
+                f"• Only meaningful messages count\n"
+                f"• No spam or repeated messages\n"
+                f"• Join mandatory channels to withdraw\n\n"
+                f"🎯 **Start chatting and earning now!**"
+            )
+            
+        elif data == "how_to_earn":
+            await query.edit_message_text(
+                f"💡 **HOW TO EARN {CURRENCY}**\n\n"
+                f"**1. Chat in Groups (Primary Method):**\n"
+                f"• Send messages in approved groups\n"
+                f"• Earn 1 {CURRENCY} every 3 messages\n"
+                f"• Only meaningful messages count\n\n"
+                f"**2. Referral System:**\n"
+                f"• Invite friends = 50 {CURRENCY} each\n"
+                f"• Friends must join mandatory channels\n"
+                f"• Unlimited referrals allowed\n\n"
+                f"**3. Milestones & Bonuses:**\n"
+                f"• Special rewards at major milestones\n"
+                f"• Bonus events and competitions\n"
+                f"• Active user rewards\n\n"
+                f"**Withdrawal Requirements:**\n"
+                f"• Minimum 200 {CURRENCY}\n"
+                f"• Join all mandatory channels\n"
+                f"• 10+ successful referrals\n"
+                f"• 50+ messages sent\n\n"
+                f"🎯 **Start earning today!**"
+            )
+    
     except Exception as e:
-        logger.error(f"Error in handle_start_wd_method: {e}")
-        await query.edit_message_text("❌ Error occurred. Please try /withdraw.")
-        return ConversationHandler.END
-
-async def handle_start_wd_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle withdrawal amount input from start menu"""
-    user_id = str(update.effective_user.id)
-    message = update.message
-    logger.info(f"Start withdrawal amount input: {message.text} by user {user_id}")
-
-    try:
-        payment_method = context.user_data.get("payment_method")
-        if not payment_method:
-            await message.reply_text("❌ Session expired. Please try /withdraw")
-            return ConversationHandler.END
-
-        # Parse and validate amount
-        try:
-            amount = int(float(message.text.strip()))
-        except ValueError:
-            await message.reply_text(
-                "❌ **Invalid Amount**\n\n"
-                "ကျေးဇူးပြု၍ မှန်ကန်သော နံပါတ်ထည့်ပါ (e.g., 1000)\n"
-                "Please enter a valid number."
-            )
-            return START_WD_AMOUNT
-
-        # Validate minimum amount
-        if amount < MIN_WITHDRAWAL:
-            await message.reply_text(
-                f"❌ **Amount Too Low**\n\n"
-                f"အနည်းဆုံး ငွေထုတ်ပမာဏ: {MIN_WITHDRAWAL} {CURRENCY}\n"
-                f"Minimum withdrawal: {MIN_WITHDRAWAL} {CURRENCY}"
-            )
-            return START_WD_AMOUNT
-
-        # Validate maximum daily limit
-        if amount > MAX_DAILY_WITHDRAWAL:
-            await message.reply_text(
-                f"❌ **Amount Too High**\n\n"
-                f"နေ့စဉ် အများဆုံး: {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}\n"
-                f"Daily maximum: {MAX_DAILY_WITHDRAWAL:,} {CURRENCY}"
-            )
-            return START_WD_AMOUNT
-
-        # Check user balance
-        user = await db.get_user(user_id)
-        if not user:
-            await message.reply_text("❌ User not found. Please restart with /start")
-            return ConversationHandler.END
-
-        balance = user.get("balance", 0)
-        if balance < amount:
-            await message.reply_text(
-                f"❌ **Insufficient Balance**\n\n"
-                f"💰 Your Balance: {int(balance)} {CURRENCY}\n"
-                f"💸 Requested: {amount} {CURRENCY}\n"
-                f"💡 Need {amount - int(balance)} more {CURRENCY}\n\n"
-                f"လက်ကျန်ငွေ မလုံလောက်ပါ။"
-            )
-            return START_WD_AMOUNT
-
-        context.user_data["withdrawal_amount"] = amount
-
-        # Prompt for payment details based on method
-        if payment_method == "KBZ Pay":
-            detail_prompt = (
-                f"🏦 **KBZ Pay Details Required**\n\n"
-                f"💰 Amount: {amount} {CURRENCY}\n"
-                f"💳 Method: {payment_method}\n\n"
-                f"⚠️ **Amount will be deducted when you submit**\n\n"
-                f"📱 **Please provide:**\n"
-                f"• Phone number (09XXXXXXXX)\n"
-                f"• Account holder name\n"
-                f"• OR send QR code image\n\n"
-                f"ဥပမာ: 09123456789 Mg Mg"
-            )
-        elif payment_method == "Wave Pay":
-            detail_prompt = (
-                f"🌊 **Wave Pay Details Required**\n\n"
-                f"💰 Amount: {amount} {CURRENCY}\n"
-                f"💳 Method: {payment_method}\n\n"
-                f"⚠️ **Amount will be deducted when you submit**\n\n"
-                f"📱 **Please provide:**\n"
-                f"• Phone number (09XXXXXXXX)\n"
-                f"• Account holder name\n"
-                f"• OR send QR code image\n\n"
-                f"ဥပမာ: 09123456789 Ma Ma"
-            )
-        elif payment_method == "Binance Pay":
-            detail_prompt = (
-                f"₿ **Binance Pay Details Required**\n\n"
-                f"💰 Amount: {amount} {CURRENCY}\n"
-                f"💳 Method: {payment_method}\n\n"
-                f"⚠️ **Amount will be deducted when you submit**\n\n"
-                f"📱 **Please provide:**\n"
-                f"• Binance Pay ID or Email\n"
-                f"• Account holder name\n"
-                f"• OR send QR code image\n\n"
-                f"ဥပမာ: your@email.com or Binance ID"
-            )
-
-        await message.reply_text(detail_prompt)
-        return START_WD_DETAILS
-
-    except Exception as e:
-        logger.error(f"Error in handle_start_wd_amount: {e}")
-        await message.reply_text("❌ Error occurred. Please try /withdraw")
-        return ConversationHandler.END
-
-async def handle_start_wd_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle withdrawal details from start menu - COMPLETE PROCESSING"""
-    user_id = str(update.effective_user.id)
-    logger.info(f"Start withdrawal details from user {user_id}")
-
-    try:
-        amount = context.user_data.get("withdrawal_amount")
-        payment_method = context.user_data.get("payment_method")
-        
-        if not amount or not payment_method:
-            await update.message.reply_text("❌ Session expired. Please restart")
-            return ConversationHandler.END
-
-        # Import and use the main withdrawal details handler
-        from plugins.withdrawal import handle_details as main_handle_details
-        
-        # Call the main withdrawal details handler to complete the process
-        result = await main_handle_details(update, context)
-        
-        # Return the result from the main handler
-        return result
-
-    except Exception as e:
-        logger.error(f"Error in handle_start_wd_details: {e}")
-        await update.message.reply_text("❌ Error occurred. Please try /withdraw")
-        return ConversationHandler.END
+        logger.error(f"Error in start callbacks: {e}")
+        await query.edit_message_text("❌ Error occurred. Please try again.")
 
 def register_handlers(application: Application):
-    """Register start command handlers with INDEPENDENT withdrawal conversation"""
-    logger.info("Registering ENHANCED start handlers with INDEPENDENT WITHDRAWAL")
+    """Register start command handlers"""
+    logger.info("Registering start handlers with advanced referral system")
     
-    # Register start command
-    application.add_handler(CommandHandler("start", start))
+    # Command handlers
+    application.add_handler(CommandHandler("start", start_command))
     
-    # Register balance button handler (simple callback)
-    application.add_handler(CallbackQueryHandler(
-        handle_menu_balance, 
-        pattern="^menu_balance$"
-    ))
+    # Callback handlers
+    application.add_handler(CallbackQueryHandler(handle_referral_check, pattern="^check_referral_channels$"))
+    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(withdraw_menu|my_profile|invite_friends|leaderboard_menu|start_earning|how_to_earn)$"))
     
-    # Register referral button handler
-    application.add_handler(CallbackQueryHandler(
-        handle_menu_referral, 
-        pattern="^menu_referral$"
-    ))
-    
-    # Create SEPARATE conversation handler for start menu withdrawals
-    start_withdrawal_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(handle_menu_withdraw, pattern="^menu_withdraw$")
-        ],
-        states={
-            START_WD_METHOD: [
-                # FIXED: More specific pattern matching
-                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_KBZ Pay$"),
-                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_Wave Pay$"),
-                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_Binance Pay$"),
-                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_method_Phone Bill$"),
-                CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_cancel$")
-            ],
-            START_WD_AMOUNT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_start_wd_amount)
-            ],
-            START_WD_DETAILS: [
-                MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, handle_start_wd_details)
-            ],
-        },
-        fallbacks=[
-            CallbackQueryHandler(handle_start_wd_method, pattern="^startwd_cancel$")
-        ],
-        allow_reentry=True,
-        name="start_withdrawal_conversation",
-        persistent=False
-    )
-    
-    # Register the start withdrawal conversation
-    application.add_handler(start_withdrawal_conv)
-    
-    logger.info("✅ ENHANCED start handlers with INDEPENDENT WITHDRAWAL registered successfully")
+    logger.info("✅ Start handlers with advanced referral system registered successfully")
