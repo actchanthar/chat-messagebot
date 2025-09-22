@@ -109,15 +109,13 @@ class Database:
             return []
 
     async def add_mandatory_channel(self, channel_id: str, channel_name: str, added_by: str = "admin"):
-        """Add a mandatory channel - FIXED"""
+        """Add a mandatory channel"""
         try:
             logger.info(f"Adding mandatory channel: {channel_id} - {channel_name} by {added_by}")
             
             # Get current channels
             channels_doc = await self.settings.find_one({"_id": "mandatory_channels"})
             current_channels = channels_doc.get("channels", []) if channels_doc else []
-            
-            logger.info(f"Current channels count: {len(current_channels)}")
             
             # Check if channel already exists
             for channel in current_channels:
@@ -143,18 +141,10 @@ class Database:
             )
             
             logger.info(f"Database update result: modified={result.modified_count}, upserted={result.upserted_id}")
-            
-            # Verify the channel was added
-            verification = await self.settings.find_one({"_id": "mandatory_channels"})
-            final_count = len(verification.get("channels", [])) if verification else 0
-            logger.info(f"Final channels count after adding: {final_count}")
-            
             return True
             
         except Exception as e:
             logger.error(f"Error adding mandatory channel {channel_id}: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     async def remove_mandatory_channel(self, channel_id: str):
@@ -189,7 +179,7 @@ class Database:
             return False
 
     async def create_user(self, user_id: str, user_data: dict, referred_by: str = None):
-        """Create a new user - FIXED SIGNATURE"""
+        """Create a new user with advanced referral system"""
         try:
             user_doc = {
                 "user_id": user_id,
@@ -210,16 +200,15 @@ class Database:
                 "message_count": 0,
                 "last_message_time": None,
                 "pending_withdrawals": [],
+                "referral_channels_joined": False,  # NEW: Track if user joined mandatory channels
+                "referral_reward_given": False,     # NEW: Track if referrer got reward
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "last_activity": datetime.now(timezone.utc).isoformat()
             }
             
             result = await self.users.insert_one(user_doc)
             if result.inserted_id:
-                # Process referral if exists
-                if referred_by:
-                    await self.process_referral(referred_by, user_id)
-                
+                logger.info(f"Created user {user_id} with referrer {referred_by}")
                 return user_doc
             return None
             
@@ -227,27 +216,142 @@ class Database:
             logger.error(f"Error creating user {user_id}: {e}")
             return None
 
-    async def process_referral(self, referrer_id: str, referred_id: str):
-        """Process referral reward"""
+    async def check_and_process_referral_reward(self, user_id: str, context):
+        """Check if referred user joined channels and give referrer reward"""
         try:
-            referral_reward = await self.get_referral_reward()
+            user = await self.get_user(user_id)
+            if not user:
+                return False
             
-            # Give reward to referrer
-            await self.users.update_one(
-                {"user_id": referrer_id},
-                {
-                    "$inc": {
-                        "balance": referral_reward,
-                        "total_earnings": referral_reward,
-                        "successful_referrals": 1
+            referred_by = user.get("referred_by")
+            if not referred_by or user.get("referral_reward_given", False):
+                return False  # No referrer or reward already given
+            
+            # Check if user joined all mandatory channels
+            from plugins.withdrawal import check_user_subscriptions
+            requirements_met, joined, not_joined, referral_count = await check_user_subscriptions(user_id, context)
+            
+            channels_joined = len(not_joined) == 0  # All channels joined
+            previously_joined = user.get("referral_channels_joined", False)
+            
+            if channels_joined and not previously_joined:
+                # User just joined all channels - give referrer reward
+                referral_reward = await self.get_referral_reward()
+                
+                # Give reward to referrer
+                referrer_update = await self.users.update_one(
+                    {"user_id": referred_by},
+                    {
+                        "$inc": {
+                            "balance": referral_reward,
+                            "total_earnings": referral_reward,
+                            "successful_referrals": 1
+                        }
                     }
-                }
-            )
+                )
+                
+                # Mark user as channels joined and reward given
+                user_update = await self.users.update_one(
+                    {"user_id": user_id},
+                    {
+                        "$set": {
+                            "referral_channels_joined": True,
+                            "referral_reward_given": True
+                        }
+                    }
+                )
+                
+                if referrer_update.modified_count > 0:
+                    logger.info(f"Referral reward processed: {referred_by} got {referral_reward} for {user_id} joining channels")
+                    
+                    # Notify referrer about the reward
+                    try:
+                        referrer_user = await context.bot.get_chat(int(referred_by))
+                        referred_user = await context.bot.get_chat(int(user_id))
+                        
+                        from config import CURRENCY
+                        await context.bot.send_message(
+                            chat_id=referred_by,
+                            text=(
+                                f"🎉 **REFERRAL REWARD EARNED!**\n\n"
+                                f"👤 **{referred_user.first_name or 'User'}** joined all mandatory channels!\n"
+                                f"💰 **You earned:** {referral_reward} {CURRENCY}\n\n"
+                                f"🔗 **Keep inviting friends to earn more!**\n"
+                                f"📋 **Your referral link:** https://t.me/{context.bot.username}?start=ref_{referred_by}"
+                            )
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to notify referrer {referred_by}: {e}")
+                    
+                    return True
             
-            logger.info(f"Processed referral: {referrer_id} got {referral_reward} for referring {referred_id}")
+            elif not channels_joined and previously_joined:
+                # User left channels - remove referrer reward
+                referral_reward = await self.get_referral_reward()
+                
+                # Remove reward from referrer (if they still have enough balance)
+                referrer = await self.get_user(referred_by)
+                if referrer and referrer.get("balance", 0) >= referral_reward:
+                    await self.users.update_one(
+                        {"user_id": referred_by},
+                        {
+                            "$inc": {
+                                "balance": -referral_reward,
+                                "total_earnings": -referral_reward,
+                                "successful_referrals": -1
+                            }
+                        }
+                    )
+                    
+                    # Mark user as channels left
+                    await self.users.update_one(
+                        {"user_id": user_id},
+                        {
+                            "$set": {
+                                "referral_channels_joined": False,
+                                "referral_reward_given": False
+                            }
+                        }
+                    )
+                    
+                    logger.info(f"Referral reward removed: {referred_by} lost {referral_reward} because {user_id} left channels")
+                    
+                    # Notify referrer about the removal
+                    try:
+                        from config import CURRENCY
+                        await context.bot.send_message(
+                            chat_id=referred_by,
+                            text=(
+                                f"⚠️ **REFERRAL REWARD REMOVED**\n\n"
+                                f"👤 Your referred user left mandatory channels\n"
+                                f"💸 **Removed:** {referral_reward} {CURRENCY}\n\n"
+                                f"💡 **They need to rejoin channels for you to get the reward back**"
+                            )
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to notify referrer about removal {referred_by}: {e}")
+                    
+                    return True
+            
+            # Update user's channel status if changed
+            if channels_joined != previously_joined:
+                await self.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"referral_channels_joined": channels_joined}}
+                )
+            
+            return False
             
         except Exception as e:
-            logger.error(f"Error processing referral: {e}")
+            logger.error(f"Error checking referral reward for {user_id}: {e}")
+            return False
+
+    async def process_referral(self, referrer_id: str, referred_id: str):
+        """Process referral reward - LEGACY METHOD (now handled by check_and_process_referral_reward)"""
+        # This method is kept for compatibility but the actual reward processing
+        # is now done in check_and_process_referral_reward when user joins channels
+        logger.info(f"Legacy referral processing called: {referrer_id} -> {referred_id}")
+        return True
 
     async def get_user(self, user_id: str):
         """Get user by ID"""
