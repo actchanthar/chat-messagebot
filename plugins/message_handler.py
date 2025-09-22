@@ -26,134 +26,134 @@ from config import (
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Anti-spam tracking
+# Gentle anti-spam tracking
 user_message_times = defaultdict(list)
 user_warnings = defaultdict(int)
-user_cooldowns = {}
+user_last_message = {}
 
-async def is_spam_message(message_text: str, user_id: str) -> tuple[bool, str]:
-    """Enhanced spam detection"""
+async def is_spam_message(message_text: str, user_id: str) -> tuple[bool, str, str]:
+    """Gentle spam detection - returns (is_spam, reason, severity)"""
     if not message_text:
-        return True, "Empty message"
+        return True, "Empty message", "mild"
     
     text = message_text.strip().lower()
     original_text = message_text.strip()
     
     # Check message length
-    if len(text) < 3:
-        return True, "Message too short"
+    if len(text) < 2:
+        return True, "Message too short", "mild"
     
     if len(text) > 500:
-        return True, "Message too long"
+        return True, "Message too long", "moderate"
     
-    # Check for repeated characters (ddd, mmm, etc)
-    if re.search(r'(.)\1{3,}', text):
-        return True, "Too many repeated characters"
+    # Check for obvious spam patterns only
+    obvious_spam_patterns = [
+        r'^[a-z]{1,2}$',  # Only d, dm, etc.
+        r'(.)\1{4,}',  # Only 5+ repeated characters (ddddd)
+        r'^[^\w\s]*$',  # Only special characters
+    ]
     
-    # Check for spam patterns
-    for pattern in SPAM_PATTERNS:
+    for pattern in obvious_spam_patterns:
         if re.search(pattern, text):
-            return True, f"Matches spam pattern"
+            return True, f"Obvious spam pattern", "moderate"
     
-    # Check spam keywords
-    for keyword in SPAM_KEYWORDS:
-        if text == keyword.lower() or text in keyword.lower():
-            return True, f"Spam keyword: {text}"
+    # Check against severe spam keywords only
+    severe_spam = ["dmd", "dmmd", "dmdm", "mdm", "dm", "md", "rm", "em", "m", "g", "f", "k", "d"]
     
-    # Check for excessive emojis
-    emoji_count = len(re.findall(r'[^\w\s]', original_text))
-    if emoji_count > MAX_EMOJI_COUNT:
-        return True, "Too many emojis/special characters"
+    if text in severe_spam:
+        return True, f"Spam keyword: {text}", "moderate"
     
-    # Rate limiting check
+    # Rate limiting check - GENTLE
     now = time.time()
     user_times = user_message_times[user_id]
     
     # Remove old messages (older than 1 minute)
     user_times[:] = [t for t in user_times if now - t < 60]
     
-    # Check if too many messages in last minute
-    if len(user_times) >= MAX_MESSAGES_PER_MINUTE:
-        return True, "Rate limit exceeded"
+    # Check if too many messages in last minute (increased limit)
+    if len(user_times) >= 15:  # Increased from 10 to 15
+        return True, "Sending too fast", "mild"
     
-    # Add current message time
+    # Check for rapid messaging (less than 1 second apart)
+    if user_id in user_last_message:
+        time_diff = now - user_last_message[user_id]
+        if time_diff < 1.0:  # Less than 1 second
+            return True, "Messaging too rapidly", "rapid"
+    
+    # Update last message time
+    user_last_message[user_id] = now
     user_times.append(now)
     
-    return False, ""
+    return False, "", "none"
 
-async def handle_spam(update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str):
-    """Handle spam message with progressive punishment"""
+async def handle_spam_gently(update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str, severity: str):
+    """Gentle spam handling - Myanmar language"""
     user_id = str(update.effective_user.id)
-    user_name = update.effective_user.first_name or "User"
+    user_name = update.effective_user.first_name or "သုံးစွဲသူ"
     
-    # Increase warning count
-    user_warnings[user_id] += 1
-    warnings = user_warnings[user_id]
-    
-    # Delete the spam message
+    # Delete the spam message silently
     try:
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
             message_id=update.message.message_id
         )
-        logger.info(f"Deleted spam message from {user_id}: {reason}")
-    except Exception as e:
-        logger.error(f"Failed to delete spam message: {e}")
+    except:
+        pass  # Ignore if can't delete
     
-    # Apply progressive punishment
-    if warnings >= 5:
-        # Ban user after 5 warnings
-        await db.ban_user(user_id, f"Spam: {reason}")
+    # Handle different severity levels
+    if severity == "rapid":
+        # Just delay/ignore rapid messages - no warning
+        logger.info(f"Rapid messaging from {user_id} - message ignored")
+        return
+    
+    elif severity == "mild":
+        # Very gentle warning - no punishment
+        user_warnings[user_id] += 1
+        warnings = user_warnings[user_id]
         
-        # Try to ban from group
-        try:
-            await context.bot.ban_chat_member(
-                chat_id=update.effective_chat.id,
-                user_id=int(user_id)
-            )
-            warning_msg = f"🚫 {user_name} has been banned for excessive spam!"
-        except Exception as e:
-            warning_msg = f"🚫 {user_name} banned from bot for spam!"
-            logger.error(f"Failed to ban from group: {e}")
+        if warnings <= 3:  # Only warn first 3 times
+            warning_msg = f"⏰ {user_name} - စာများကို ပိုနှေးနှေးပို့ပါ။ အဓိပ္ပါယ်ရှိတဲ့စာများ ရေးပြီး ငွေရယူပါ! 💰"
+        else:
+            return  # No more warnings after 3 times
+    
+    elif severity == "moderate":
+        # Moderate warning
+        user_warnings[user_id] += 1
+        warnings = user_warnings[user_id]
         
-    elif warnings >= 3:
-        # Mute for 1 hour after 3 warnings
-        user_cooldowns[user_id] = time.time() + 3600  # 1 hour
-        warning_msg = f"🔇 {user_name} muted for 1 hour! (Warning {warnings}/5)\nStop spamming or you'll be banned!"
+        warning_msg = f"⚠️ {user_name} - စပမ်မလုပ်ပါနှင့်! အဓိပ္ပါယ်ရှိသော စာများရေးပြီး ငွေရယူပါ! ({warnings}/5)"
         
+        # Only give cooldown after 5 warnings
+        if warnings >= 5:
+            warning_msg = f"🔕 {user_name} - စပမ်များလွန်းပါသည်! ၅မိနစ် စာမပို့ပါနှင့်။ ({warnings}/5)"
+    
     else:
-        # Just warn and cooldown
-        user_cooldowns[user_id] = time.time() + 300  # 5 minutes cooldown
-        warning_msg = f"⚠️ {user_name}: No spam allowed! (Warning {warnings}/5)\nWrite meaningful messages to earn!"
+        return
     
-    # Send warning message that auto-deletes
+    # Send gentle warning that auto-deletes
     try:
         warning = await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=warning_msg
         )
         
-        # Auto-delete warning after 15 seconds
-        def delete_warning():
-            try:
-                context.bot.delete_message(
-                    chat_id=update.effective_chat.id,
-                    message_id=warning.message_id
-                )
-            except:
-                pass
-        
+        # Auto-delete warning after 10 seconds
         context.job_queue.run_once(
-            lambda context: delete_warning(),
-            15
+            lambda context: delete_warning_message(context, update.effective_chat.id, warning.message_id),
+            10
         )
     except Exception as e:
-        logger.error(f"Failed to send warning: {e}")
-    
-    logger.warning(f"Spam detected from {user_id}: {reason} (Warning {warnings}/5)")
+        logger.error(f"Failed to send gentle warning: {e}")
+
+def delete_warning_message(context, chat_id, message_id):
+    """Helper to delete warning message"""
+    try:
+        context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except:
+        pass
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Enhanced message handler with anti-spam and earning system"""
+    """Gentle message handler - Myanmar friendly"""
     try:
         # Skip if not a text message
         if not update.message or not update.message.text:
@@ -171,27 +171,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_id = str(update.effective_user.id)
         message_text = update.message.text
         
-        # CHECK FOR SPAM FIRST
-        is_spam, reason = await is_spam_message(message_text, user_id)
-        if is_spam:
-            await handle_spam(update, context, reason)
-            return  # Don't process earnings for spam
+        # GENTLE SPAM CHECK
+        is_spam, reason, severity = await is_spam_message(message_text, user_id)
         
-        # Check if user is in cooldown
-        if user_id in user_cooldowns:
-            if time.time() < user_cooldowns[user_id]:
-                # User is in cooldown, delete message silently
-                try:
-                    await context.bot.delete_message(
-                        chat_id=update.effective_chat.id,
-                        message_id=update.message.message_id
-                    )
-                except:
-                    pass
-                return
-            else:
-                # Cooldown expired
-                del user_cooldowns[user_id]
+        if is_spam:
+            await handle_spam_gently(update, context, reason, severity)
+            
+            # Don't process earnings for spam, but don't be harsh
+            if severity in ["moderate", "rapid"]:
+                return  # Don't earn for clear spam
+            # For "mild" spam, still allow earning after warning
+        
+        # Check if user has too many warnings (gentle cooldown)
+        warnings = user_warnings.get(user_id, 0)
+        if warnings >= 5:
+            # Check if 5 minutes have passed since last warning
+            now = time.time()
+            if user_id in user_last_message:
+                if now - user_last_message[user_id] < 300:  # 5 minutes
+                    # Just ignore message during cooldown - no harsh action
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=update.effective_chat.id,
+                            message_id=update.message.message_id
+                        )
+                    except:
+                        pass
+                    return
+                else:
+                    # Reset warnings after cooldown
+                    user_warnings[user_id] = 0
         
         # Get user from database
         user = await db.get_user(user_id)
@@ -219,14 +228,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         earned = await db.process_message_earning(user_id, chat_id, context)
         
         if earned:
-            # User earned money - send notification
+            # User earned money - send Myanmar notification
             current_user = await db.get_user(user_id)
             new_balance = current_user.get("balance", 0) if current_user else 0
             
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"💰 You earned 1 {CURRENCY}! New balance: {int(new_balance)} {CURRENCY}",
+                    text=f"💰 သင် 1 {CURRENCY} ရရှိပါပြီ! လက်ကျန်ငွေ: {int(new_balance)} {CURRENCY}",
                     disable_notification=True
                 )
                 logger.info(f"User {user_id} earned 1 {CURRENCY} in group {chat_id}")
@@ -237,8 +246,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Error in handle_message: {e}")
 
 def register_handlers(application: Application):
-    """Register message handlers"""
-    logger.info("Registering message handlers")
+    """Register gentle message handlers"""
+    logger.info("Registering gentle message handlers")
     
     # Handle all text messages in groups (not commands)
     application.add_handler(MessageHandler(
@@ -246,4 +255,4 @@ def register_handlers(application: Application):
         handle_message
     ))
     
-    logger.info("✅ Message handlers registered successfully")
+    logger.info("✅ Gentle message handlers registered successfully")
