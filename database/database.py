@@ -36,7 +36,7 @@ class Database:
             raise
 
     async def initialize_settings(self):
-        """Initialize default settings"""
+        """Initialize default settings - IMPROVED"""
         try:
             settings_doc = await self.settings.find_one({"_id": "bot_settings"})
             if not settings_doc:
@@ -45,10 +45,16 @@ class Database:
                     "referral_reward": 50,
                     "message_rate": 3,
                     "last_order_id": 0,
-                    "created_at": datetime.now(timezone.utc).isoformat()
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat()
                 }
-                await self.settings.insert_one(default_settings)
-                logger.info("✅ Initialized default settings")
+                result = await self.settings.insert_one(default_settings)
+                if result.inserted_id:
+                    logger.info("✅ Initialized default settings successfully")
+                else:
+                    logger.error("❌ Failed to initialize default settings")
+            else:
+                logger.info("✅ Settings document already exists")
         except Exception as e:
             logger.error(f"Error initializing settings: {e}")
 
@@ -57,6 +63,7 @@ class Database:
         try:
             settings = await self.settings.find_one({"_id": "bot_settings"})
             if not settings:
+                logger.warning("Settings not found, initializing...")
                 await self.initialize_settings()
                 settings = await self.settings.find_one({"_id": "bot_settings"})
             return settings or {}
@@ -65,31 +72,64 @@ class Database:
             return {}
 
     async def update_settings(self, updates: dict):
-        """Update bot settings - FIXED"""
+        """Update bot settings - COMPLETELY FIXED"""
         try:
             logger.info(f"Attempting to update settings: {updates}")
             
-            result = await self.settings.update_one(
-                {"_id": "bot_settings"},
-                {"$set": updates},
-                upsert=True
-            )
+            # Add timestamp to updates
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
             
-            logger.info(f"Settings update result: modified={result.modified_count}, upserted={result.upserted_id}")
+            # First check if settings document exists
+            existing_settings = await self.settings.find_one({"_id": "bot_settings"})
             
-            # Verify the update worked
+            if existing_settings:
+                # Update existing document
+                result = await self.settings.update_one(
+                    {"_id": "bot_settings"},
+                    {"$set": updates}
+                )
+                logger.info(f"Update existing - modified: {result.modified_count}, matched: {result.matched_count}")
+                
+                if result.matched_count == 0:
+                    logger.error("❌ No document matched the filter")
+                    return False
+                    
+            else:
+                # Create new document if it doesn't exist
+                logger.info("Settings document doesn't exist, creating new one...")
+                default_settings = {
+                    "_id": "bot_settings",
+                    "referral_reward": 50,
+                    "message_rate": 3,
+                    "last_order_id": 0,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                default_settings.update(updates)
+                
+                result = await self.settings.insert_one(default_settings)
+                logger.info(f"Created new settings document: {result.inserted_id}")
+        
+            # Always verify the final result
             verification = await self.settings.find_one({"_id": "bot_settings"})
+            
             if verification:
-                for key, value in updates.items():
+                success = True
+                for key, expected_value in updates.items():
+                    if key == "updated_at":  # Skip timestamp verification
+                        continue
+                        
                     actual_value = verification.get(key)
-                    if actual_value == value:
-                        logger.info(f"✅ Successfully updated {key} to {value}")
+                    if actual_value == expected_value:
+                        logger.info(f"✅ Successfully verified {key} = {actual_value}")
                     else:
-                        logger.error(f"❌ Failed to update {key}: expected {value}, got {actual_value}")
-                        return False
-            
-            return result.modified_count > 0 or result.upserted_id is not None
-            
+                        logger.error(f"❌ Verification failed for {key}: expected {expected_value}, got {actual_value}")
+                        success = False
+                
+                return success
+            else:
+                logger.error("❌ Settings document not found after update attempt")
+                return False
+                
         except Exception as e:
             logger.error(f"Error updating settings: {e}")
             import traceback
@@ -155,7 +195,7 @@ class Database:
             # Update in database
             result = await self.settings.update_one(
                 {"_id": "mandatory_channels"},
-                {"$set": {"channels": current_channels}},
+                {"$set": {"channels": current_channels, "updated_at": datetime.now(timezone.utc).isoformat()}},
                 upsert=True
             )
             
@@ -187,7 +227,7 @@ class Database:
             # Update in database
             await self.settings.update_one(
                 {"_id": "mandatory_channels"},
-                {"$set": {"channels": updated_channels}}
+                {"$set": {"channels": updated_channels, "updated_at": datetime.now(timezone.utc).isoformat()}}
             )
             
             logger.info(f"Removed channel {channel_id}, remaining: {len(updated_channels)}")
@@ -198,7 +238,7 @@ class Database:
             return False
 
     async def create_user(self, user_id: str, user_data: dict, referred_by: str = None):
-        """Create a new user with advanced referral system - FIXED WELCOME BONUS"""
+        """Create a new user with advanced referral system"""
         try:
             logger.info(f"Creating user {user_id} with referrer {referred_by}")
             
@@ -221,8 +261,8 @@ class Database:
                 "message_count": 0,
                 "last_message_time": None,
                 "pending_withdrawals": [],
-                "referral_channels_joined": False,  # NEW: Track if user joined mandatory channels
-                "referral_reward_given": False,     # NEW: Track if referrer got reward
+                "referral_channels_joined": False,  # Track if user joined mandatory channels
+                "referral_reward_given": False,     # Track if referrer got reward
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "last_activity": datetime.now(timezone.utc).isoformat()
             }
@@ -383,9 +423,7 @@ class Database:
             return False
 
     async def process_referral(self, referrer_id: str, referred_id: str):
-        """Process referral reward - LEGACY METHOD (now handled by check_and_process_referral_reward)"""
-        # This method is kept for compatibility but the actual reward processing
-        # is now done in check_and_process_referral_reward when user joins channels
+        """Process referral reward - LEGACY METHOD"""
         logger.info(f"Legacy referral processing called: {referrer_id} -> {referred_id}")
         return True
 
@@ -527,14 +565,13 @@ class Database:
     async def get_top_users(self, limit: int = 10, sort_by: str = "total_earnings"):
         """Get top users by specified field"""
         try:
-            # Valid sort fields
             valid_fields = ["total_earnings", "messages", "balance", "total_withdrawn", "successful_referrals"]
             
             if sort_by not in valid_fields:
                 sort_by = "total_earnings"
             
             cursor = self.users.find(
-                {"banned": {"$ne": True}}  # Exclude banned users
+                {"banned": {"$ne": True}}
             ).sort(sort_by, -1).limit(limit)
             
             users = await cursor.to_list(length=limit)
@@ -613,9 +650,8 @@ class Database:
             if sort_by not in valid_fields:
                 sort_by = "total_earnings"
             
-            # Get top users (exclude banned)
             cursor = self.users.find(
-                {"banned": {"$ne": True}},  # Exclude banned users
+                {"banned": {"$ne": True}},
                 {
                     "user_id": 1,
                     "first_name": 1,
@@ -633,7 +669,6 @@ class Database:
             
             users = await cursor.to_list(length=limit)
             
-            # Add rankings
             for i, user in enumerate(users):
                 user["rank"] = i + 1
             
@@ -736,9 +771,8 @@ class Database:
             return False
 
     async def bulk_update_user_names(self, context):
-        """Bulk update user names from Telegram API - USE CAREFULLY"""
+        """Bulk update user names from Telegram API"""
         try:
-            # Get users with missing names
             cursor = self.users.find(
                 {
                     "$or": [
@@ -750,7 +784,7 @@ class Database:
                     "banned": {"$ne": True}
                 },
                 {"user_id": 1, "first_name": 1, "last_name": 1, "username": 1}
-            ).limit(50)  # Limit to avoid rate limits
+            ).limit(50)
             
             users_to_update = await cursor.to_list(length=50)
             updated_count = 0
@@ -761,7 +795,6 @@ class Database:
                     if not user_id:
                         continue
                     
-                    # Get fresh info from Telegram
                     telegram_user = await context.bot.get_chat(int(user_id))
                     
                     if telegram_user:
@@ -769,7 +802,6 @@ class Database:
                         updated_count += 1
                         logger.info(f"Updated user info for {user_id}: {telegram_user.first_name}")
                     
-                    # Small delay to avoid rate limits
                     await asyncio.sleep(0.1)
                     
                 except Exception as e:
@@ -793,7 +825,6 @@ class Database:
             current_messages = user.get("message_count", 0) + 1
             message_rate = await self.get_message_rate()
             
-            # Check if user should earn (every N messages)
             should_earn = (current_messages % message_rate) == 0
             
             updates = {
@@ -803,7 +834,6 @@ class Database:
             }
             
             if should_earn:
-                # User earns 1 currency unit
                 new_balance = user.get("balance", 0) + 1
                 new_total_earnings = user.get("total_earnings", 0) + 1
                 
@@ -813,10 +843,10 @@ class Database:
                 })
                 
                 await self.update_user(user_id, updates)
-                return True  # Earned money
+                return True
             else:
                 await self.update_user(user_id, updates)
-                return False  # No earning this message
+                return False
                 
         except Exception as e:
             logger.error(f"Error processing message earning for {user_id}: {e}")
