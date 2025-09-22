@@ -1,5 +1,6 @@
 # Bot Configuration
 BOT_TOKEN = "7784918819:AAHS_tdSRck51UlgW_RQZ1LMSsXrLzqD7Oo"
+BOT_NAME = "စာပို့ရင်း ငွေရှာကြမယ်"  # Your bot name
 
 # Database Configuration
 MONGODB_URL = "mongodb+srv://act:actdata@cluster0.z6trhoh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
