@@ -18,30 +18,45 @@ MESSAGE_RATE = 3
 MIN_WITHDRAWAL = 200
 MAX_DAILY_WITHDRAWAL = 10000
 
-# Enhanced Anti-Spam Settings - GENTLER APPROACH
-MAX_EMOJI_COUNT = 5  # Increased from 3 to 5 - allow more emojis
-MAX_LINKS_COUNT = 2  # Keep at 2
-MIN_MESSAGE_LENGTH = 2  # Reduced from 3 to 2 - allow shorter messages
-MAX_MESSAGE_LENGTH = 500  # Keep same
-MAX_REPEATED_CHARS = 4  # Increased from 3 to 4 - allow more repeated chars
-MAX_MESSAGES_PER_MINUTE = 15  # Increased from 8 to 15 - allow more messages
-SPAM_COOLDOWN_MINUTES = 5  # Keep 5 minutes
+# Smart Anti-Spam Settings - PROTECT NORMAL USERS
+MAX_EMOJI_COUNT = 8  # Increased - allow more emojis for normal users
+MAX_LINKS_COUNT = 3  # Increased - allow more links for normal sharing
+MIN_MESSAGE_LENGTH = 1  # Reduced - allow very short messages
+MAX_MESSAGE_LENGTH = 1000  # Increased - allow longer messages for normal chat
+MAX_REPEATED_CHARS = 5  # Increased - allow more repeated chars (hahaha, etc)
+MAX_MESSAGES_PER_MINUTE = 20  # Increased - allow more messages for active users
+SPAM_COOLDOWN_MINUTES = 2  # Reduced - shorter cooldown, more forgiving
 
-# More specific spam keywords (only obvious spam)
+# Rapid Spam Detection Settings (New)
+RAPID_MESSAGE_THRESHOLD = 2.0  # Seconds between messages to be considered rapid
+MAX_RAPID_MESSAGES = 3  # Max rapid messages before considered spam
+RAPID_WINDOW_SECONDS = 10  # Time window to check for rapid messages
+MAX_MESSAGES_IN_WINDOW = 8  # Max messages allowed in rapid window
+
+# Only the most obvious spam keywords (very restrictive)
 SPAM_KEYWORDS = [
-    # Only obvious single/double letter spam
-    "dmd", "dmmd", "dmdm", "mdm", "dm", "md", "rm", "em", "m",
-    "g", "f", "k", "d", "dd", "mm", "ff", "kk", "gg", "rr",
-    # Obvious meaningless combinations
-    "fkf", "kf", "mdfof", "rrkrek", "x.x", "dmr", "mf", "dkf"
+    # Only single letters and obvious meaningless combinations
+    "dmd", "dmmd", "dmdm", "dm", "md", "m", "d", "g", "f", "k",
+    # Only clear nonsense patterns
+    "dd", "mm", "ff", "kk", "gg", "rr"
 ]
 
-# Only obvious spam patterns - removed normal text patterns
+# Only the most obvious spam patterns (very restrictive)
 SPAM_PATTERNS = [
-    r'^[a-z]{1,2}$',  # Only d, dm, dmd (1-2 letters)
-    r'(.)\1{4,}',  # 5+ repeated characters (aaaaa, ddddd)
-    r'^[^\w\s]+$',  # Only special characters (!@#$%)
-    r'^\s*$',  # Empty or whitespace only messages
+    r'^[a-z]{1,2}$',  # Only single/double letters (d, dm)
+    r'(.)\1{5,}',     # 6+ repeated characters (dddddd)
+    r'^[^\w\s]*$',    # Only special characters (!!!, @@@)
+    r'^\s*$',         # Empty or whitespace only
+]
+
+# Normal User Protection Patterns (New)
+MEANINGFUL_PATTERNS = [
+    r'.{10,}',        # 10+ characters = meaningful
+    r'\w+\s+\w+',     # Multiple words = meaningful
+    r'[\u1000-\u109F]+',  # Myanmar text = meaningful
+    r'\d+',           # Contains numbers = meaningful
+    r'[?!.]',         # Contains punctuation = meaningful
+    r'(how|what|when|where|why|who|hello|hi|good|thank|ok|yes|no)',  # Normal words
 ]
 
 # Receipt and Announcement Settings
@@ -73,7 +88,14 @@ WELCOME_BONUS = 100  # New users get 100 kyat welcome bonus
 # Phone Bill Reward for top users
 PHONE_BILL_REWARD = 1000
 
-# Myanmar Language Settings
-MYANMAR_WARNINGS = True  # Enable Myanmar language warnings
-GENTLE_MODE = True       # Enable gentle anti-spam mode
-AUTO_FORGIVE_MINUTES = 5  # Auto-reset warnings after 5 minutes
+# Smart Anti-Spam Feature Flags (New)
+PROTECT_NORMAL_USERS = True      # Enable normal user protection
+MYANMAR_LANGUAGE_SUPPORT = True  # Enable Myanmar language warnings
+SMART_SPAM_DETECTION = True      # Enable smart spam detection
+AUTO_FORGIVE_ENABLED = True      # Auto-reset warnings after cooldown
+GENTLE_MODE_ENABLED = True       # Enable gentle anti-spam mode
+
+# Logging and Debug Settings
+DETAILED_SPAM_LOGGING = True     # Log spam detection details
+LOG_NORMAL_USERS = False         # Don't spam logs with normal user activity
+LOG_EARNING_NOTIFICATIONS = True # Log when users earn money
