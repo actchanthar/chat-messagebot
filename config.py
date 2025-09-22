@@ -18,37 +18,30 @@ MESSAGE_RATE = 3
 MIN_WITHDRAWAL = 200
 MAX_DAILY_WITHDRAWAL = 10000
 
-# Enhanced Anti-Spam Settings
-MAX_EMOJI_COUNT = 3  # Maximum emojis per message
-MAX_LINKS_COUNT = 1  # Maximum links per message
-MIN_MESSAGE_LENGTH = 3  # Minimum message length
-MAX_MESSAGE_LENGTH = 500  # Maximum message length
-MAX_REPEATED_CHARS = 3  # Maximum repeated characters
-MAX_MESSAGES_PER_MINUTE = 8  # Maximum messages per user per minute
-SPAM_COOLDOWN_MINUTES = 5  # Cooldown period for spammers
+# Enhanced Anti-Spam Settings - GENTLER APPROACH
+MAX_EMOJI_COUNT = 5  # Increased from 3 to 5 - allow more emojis
+MAX_LINKS_COUNT = 2  # Keep at 2
+MIN_MESSAGE_LENGTH = 2  # Reduced from 3 to 2 - allow shorter messages
+MAX_MESSAGE_LENGTH = 500  # Keep same
+MAX_REPEATED_CHARS = 4  # Increased from 3 to 4 - allow more repeated chars
+MAX_MESSAGES_PER_MINUTE = 15  # Increased from 8 to 15 - allow more messages
+SPAM_COOLDOWN_MINUTES = 5  # Keep 5 minutes
 
-# Enhanced Spam Keywords (case insensitive)
+# More specific spam keywords (only obvious spam)
 SPAM_KEYWORDS = [
+    # Only obvious single/double letter spam
     "dmd", "dmmd", "dmdm", "mdm", "dm", "md", "rm", "em", "m",
-    "gm", "fkf", "kf", "mdfof", "rrkrek", "x.x", "g",
-    "haha", "lol", "wtf", "omg", "bruh", "ok", "yes", "no",
-    "test", "testing", "spam", "bot", "earn", "money", "dmr",
-    "mf", "dkf", "rkrek", "ddmd", "dmr", "d", "f", "k",
-    "dd", "mm", "ff", "kk", "gg", "rr", "tt", "pp"
+    "g", "f", "k", "d", "dd", "mm", "ff", "kk", "gg", "rr",
+    # Obvious meaningless combinations
+    "fkf", "kf", "mdfof", "rrkrek", "x.x", "dmr", "mf", "dkf"
 ]
 
-# Enhanced Spam Patterns (regex)
+# Only obvious spam patterns - removed normal text patterns
 SPAM_PATTERNS = [
-    r'^[a-z]{1,3}$',  # Single/double/triple letters (d, dm, dmd)
-    r'^[A-Z]{1,3}$',  # Single caps (D, DM, DMD)
-    r'(.)\1{2,}',  # Repeated characters (aaa, ddd, mmm)
-    r'^(ha|haha|lol|wtf|omg|bruh|ok|yes|no|test)$',  # Common spam words
-    r'(.{1,3})\1{2,}',  # Repeated patterns (dmdmdm)
-    r'^[^\w\s]+$',  # Only special characters
-    r'^\s*$',  # Empty or whitespace only
-    r'^[a-z]$',  # Single letter
-    r'^[0-9]{1,3}$',  # Short numbers
-    r'^(.)\\1+$',  # Same character repeated
+    r'^[a-z]{1,2}$',  # Only d, dm, dmd (1-2 letters)
+    r'(.)\1{4,}',  # 5+ repeated characters (aaaaa, ddddd)
+    r'^[^\w\s]+$',  # Only special characters (!@#$%)
+    r'^\s*$',  # Empty or whitespace only messages
 ]
 
 # Receipt and Announcement Settings
@@ -71,11 +64,16 @@ AUTO_ANNOUNCE_NEW_USERS = True
 AUTO_ANNOUNCE_MILESTONES = True
 
 # Referral Settings
-DEFAULT_REFERRAL_REWARD = 50  # 50 kyat per referral
-DEFAULT_MESSAGE_RATE = 3      # 3 messages = 1 kyat
+DEFAULT_REFERRAL_REWARD = 50  # 50 kyat per referral as requested
+DEFAULT_MESSAGE_RATE = 3      # 3 messages = 1 kyat as requested
 
 # Welcome Settings
 WELCOME_BONUS = 100  # New users get 100 kyat welcome bonus
 
 # Phone Bill Reward for top users
 PHONE_BILL_REWARD = 1000
+
+# Myanmar Language Settings
+MYANMAR_WARNINGS = True  # Enable Myanmar language warnings
+GENTLE_MODE = True       # Enable gentle anti-spam mode
+AUTO_FORGIVE_MINUTES = 5  # Auto-reset warnings after 5 minutes
