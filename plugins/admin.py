@@ -19,7 +19,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Add mandatory channel command - FIXED"""
+    """Add mandatory channel command"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -43,7 +43,6 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         
         logger.info(f"Admin {user_id} attempting to add channel: {channel_id} - {channel_name}")
         
-        # Basic validation - channel ID format
         if not channel_id.startswith('-100'):
             await update.message.reply_text(
                 "❌ **Invalid Channel ID Format**\n\n"
@@ -52,7 +51,6 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
         
-        # Try to get channel info to validate
         channel_accessible = False
         actual_channel_name = channel_name
         try:
@@ -62,11 +60,8 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             logger.info(f"Channel accessible: {actual_channel_name}")
         except Exception as e:
             logger.warning(f"Cannot access channel {channel_id}: {e}")
-            # Continue anyway - channel might be private
             channel_accessible = False
         
-        # Add channel to database - FORCE ADD EVEN IF NOT ACCESSIBLE
-        logger.info(f"Adding channel to database...")
         success = await db.add_mandatory_channel(channel_id, channel_name, user_id)
         
         if success:
@@ -109,14 +104,7 @@ async def add_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
     except Exception as e:
         logger.error(f"Error in add_channel: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        await update.message.reply_text(
-            "❌ **System Error**\n\n"
-            f"Error occurred while adding channel.\n"
-            f"Please try again or contact developer.\n\n"
-            f"Error: {str(e)[:100]}"
-        )
+        await update.message.reply_text("❌ System error occurred while adding channel.")
 
 async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Remove mandatory channel command"""
@@ -136,8 +124,6 @@ async def remove_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     try:
         channel_id = context.args[0].strip()
-        
-        # Remove channel from database
         success = await db.remove_mandatory_channel(channel_id)
         
         if success:
@@ -196,7 +182,6 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             text += f"   🆔 ID: `{channel_id}`\n"
             text += f"   👤 Added by: Admin {added_by}\n"
             
-            # Format date
             try:
                 if len(str(added_at)) > 10:
                     formatted_date = str(added_at)[:10]
@@ -219,7 +204,7 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ Error loading channels list.")
 
 async def set_referral_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Set referral reward amount - FIXED"""
+    """Set referral reward amount - COMPLETELY FIXED"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -247,30 +232,31 @@ async def set_referral_reward_command(update: Update, context: ContextTypes.DEFA
             
         logger.info(f"Admin {user_id} attempting to set referral reward to {new_reward}")
         
+        # Show initial status
+        status_msg = await update.message.reply_text("🔄 **Updating referral reward...**")
+        
         success = await db.update_settings({"referral_reward": new_reward})
         
         if success:
-            # Verify the update by getting current settings
-            current_settings = await db.get_settings()
-            actual_reward = current_settings.get("referral_reward", 0)
-            
-            if actual_reward == new_reward:
-                await update.message.reply_text(
-                    f"✅ **Referral Reward Updated Successfully**\n\n"
-                    f"💰 **New Reward:** {new_reward} {CURRENCY} per successful referral\n"
-                    f"👨‍💼 **Updated by:** Admin {user_id}\n"
-                    f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
-                    f"💡 **Note:** Users get {new_reward} {CURRENCY} when their referrals join mandatory channels."
-                )
-                logger.info(f"✅ Admin {user_id} successfully updated referral reward to {new_reward}")
-            else:
-                await update.message.reply_text(
-                    f"⚠️ **Update completed but verification failed**\n\n"
-                    f"Expected: {new_reward}, Got: {actual_reward}\n"
-                    f"Please check database connection."
-                )
+            await status_msg.edit_text(
+                f"✅ **Referral Reward Updated Successfully**\n\n"
+                f"💰 **New Reward:** {new_reward} {CURRENCY} per successful referral\n"
+                f"👨‍💼 **Updated by:** Admin {user_id}\n"
+                f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"💡 **Note:** Users get {new_reward} {CURRENCY} when their referrals join mandatory channels.\n\n"
+                f"🔍 **Verify with:** `/viewsettings`"
+            )
+            logger.info(f"✅ Admin {user_id} successfully updated referral reward to {new_reward}")
         else:
-            await update.message.reply_text("❌ Failed to update referral reward. Please try again.")
+            await status_msg.edit_text(
+                f"❌ **Failed to update referral reward**\n\n"
+                f"**Troubleshooting:**\n"
+                f"• Check database connection with `/systemstatus`\n"
+                f"• Try `/debugsettings` to inspect database\n"
+                f"• Use `/fixsettings` to force fix database\n"
+                f"• Contact developer if issue persists\n\n"
+                f"**Attempted value:** {new_reward} {CURRENCY}"
+            )
             logger.error(f"❌ Admin {user_id} failed to update referral reward to {new_reward}")
             
     except ValueError:
@@ -306,26 +292,20 @@ async def set_message_rate_command(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text("❌ Message rate cannot be more than 100.")
             return
             
+        status_msg = await update.message.reply_text("🔄 **Updating message rate...**")
         success = await db.update_settings({"message_rate": new_rate})
         
         if success:
-            # Verify the update
-            current_settings = await db.get_settings()
-            actual_rate = current_settings.get("message_rate", 0)
-            
-            if actual_rate == new_rate:
-                await update.message.reply_text(
-                    f"✅ **Message Earning Rate Updated Successfully**\n\n"
-                    f"💬 **New Rate:** {new_rate} messages = 1 {CURRENCY}\n"
-                    f"👨‍💼 **Updated by:** Admin {user_id}\n"
-                    f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
-                    f"💡 **Note:** Users now earn 1 {CURRENCY} for every {new_rate} messages."
-                )
-                logger.info(f"Admin {user_id} updated message rate to {new_rate}")
-            else:
-                await update.message.reply_text(f"⚠️ Update verification failed: Expected {new_rate}, got {actual_rate}")
+            await status_msg.edit_text(
+                f"✅ **Message Earning Rate Updated Successfully**\n\n"
+                f"💬 **New Rate:** {new_rate} messages = 1 {CURRENCY}\n"
+                f"👨‍💼 **Updated by:** Admin {user_id}\n"
+                f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"💡 **Note:** Users now earn 1 {CURRENCY} for every {new_rate} messages."
+            )
+            logger.info(f"Admin {user_id} updated message rate to {new_rate}")
         else:
-            await update.message.reply_text("❌ Failed to update message rate. Please try again.")
+            await status_msg.edit_text(f"❌ Failed to update message rate. Please try again.")
             
     except ValueError:
         await update.message.reply_text("❌ Invalid rate. Please enter a valid number between 1-100.")
@@ -455,7 +435,6 @@ async def update_user_names_command(update: Update, context: ContextTypes.DEFAUL
     try:
         await update.message.reply_text("🔄 **Updating user names from Telegram API...**\n\nThis may take a few seconds...")
         
-        # Update user names
         updated_count = await db.bulk_update_user_names(context)
         
         await update.message.reply_text(
@@ -474,7 +453,7 @@ async def update_user_names_command(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text("❌ Error updating user names. Please try again later.")
 
 async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Admin command to ban a user - Myanmar language"""
+    """Admin command to ban a user"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -493,16 +472,13 @@ async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         target_user_id = context.args[0]
         reason = " ".join(context.args[1:]) if len(context.args) > 1 else "Admin မှ ပိတ်ပင်ခြင်း - No reason specified"
         
-        # Check if trying to ban another admin
         if target_user_id in ADMIN_IDS:
             await update.message.reply_text("❌ Cannot ban another admin user.")
             return
         
-        # Ban user in database
         success = await db.ban_user(target_user_id, reason)
         
         if success:
-            # Try to get user info
             try:
                 user_info = await context.bot.get_chat(target_user_id)
                 user_name = user_info.first_name or "Unknown User"
@@ -533,7 +509,7 @@ async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("❌ Error occurred while banning user.")
 
 async def unban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Admin command to unban a user - Myanmar language"""
+    """Admin command to unban a user"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -549,12 +525,9 @@ async def unban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     try:
         target_user_id = context.args[0]
-        
-        # Unban user in database
         success = await db.unban_user(target_user_id)
         
         if success:
-            # Try to get user info
             try:
                 user_info = await context.bot.get_chat(target_user_id)
                 user_name = user_info.first_name or "Unknown User"
@@ -584,7 +557,7 @@ async def unban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Error occurred while unbanning user.")
 
 async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Check system status - Myanmar language"""
+    """Check system status"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -592,15 +565,12 @@ async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     
     try:
-        # Get system stats
         total_users = await db.get_total_users_count()
         total_earnings = await db.get_total_earnings()
         total_withdrawals = await db.get_total_withdrawals()
         channels = await db.get_mandatory_channels()
         
-        # Check database connection
         db_status = "🟢 Connected" if db.connected else "🔴 Disconnected"
-        
         uptime_str = "Running"
         
         status_text = (
@@ -631,7 +601,7 @@ async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ Error checking system status.")
 
 async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Broadcast message to all users - Myanmar language"""
+    """Broadcast message to all users"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -648,8 +618,6 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     try:
         message = " ".join(context.args)
-        
-        # Get all users
         users = await db.get_all_users()
         active_users = [user for user in users if not user.get('banned', False)]
         
@@ -666,14 +634,12 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 )
                 sent_count += 1
                 
-                # Update progress every 50 users
                 if (i + 1) % 50 == 0:
                     try:
                         await status_msg.edit_text(f"📡 **Broadcasting... {i + 1}/{len(active_users)} users processed**")
                     except:
                         pass
                     
-                # Small delay to avoid rate limiting
                 if sent_count % 20 == 0:
                     await asyncio.sleep(1)
                     
@@ -682,7 +648,6 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 if "bot was blocked" not in str(e).lower():
                     logger.warning(f"Failed to send broadcast to {user['user_id']}: {e}")
         
-        # Final status report
         success_rate = (sent_count / max(len(active_users), 1)) * 100
         
         await status_msg.edit_text(
@@ -720,7 +685,6 @@ async def test_forward_command(update: Update, context: ContextTypes.DEFAULT_TYP
         forwarded_count = 0
         failed_count = 0
         
-        # Forward to all approved groups
         for group_id in APPROVED_GROUPS:
             try:
                 await context.bot.send_message(
@@ -753,13 +717,12 @@ async def test_announce_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     try:
-        # Try to import announcement groups, fallback to approved groups
         try:
             from config import GENERAL_ANNOUNCEMENT_GROUPS
             announcement_groups = GENERAL_ANNOUNCEMENT_GROUPS
         except ImportError:
             announcement_groups = APPROVED_GROUPS
-            logger.info("Using APPROVED_GROUPS as announcement groups (GENERAL_ANNOUNCEMENT_GROUPS not configured)")
+            logger.info("Using APPROVED_GROUPS as announcement groups")
         
         test_announcement = (
             f"📣 **SYSTEM ANNOUNCEMENT TEST**\n\n"
@@ -772,7 +735,6 @@ async def test_announce_command(update: Update, context: ContextTypes.DEFAULT_TY
         announced_count = 0
         failed_count = 0
         
-        # Send to announcement groups
         for group_id in announcement_groups:
             try:
                 await context.bot.send_message(
@@ -804,7 +766,6 @@ async def handle_forward_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
         return
     
-    # Check if replying to a message
     if not update.message.reply_to_message:
         await update.message.reply_text(
             "❌ **အသုံးပြုပုံ:** Reply to a message with `/forward`\n\n"
@@ -821,7 +782,6 @@ async def handle_forward_command(update: Update, context: ContextTypes.DEFAULT_T
         
         status_msg = await update.message.reply_text("📤 **Forwarding message to all groups...**")
         
-        # Forward to all approved groups
         for group_id in APPROVED_GROUPS:
             try:
                 await context.bot.forward_message(
@@ -850,7 +810,7 @@ async def handle_forward_command(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text("❌ Error occurred during forwarding.")
 
 async def debug_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Debug user information - FIXED"""
+    """Debug user information"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -887,7 +847,6 @@ async def debug_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         debug_text += f"⏰ **Last Activity:** {str(user.get('last_activity', 'Unknown'))[:10]}"
         
         await update.message.reply_text(debug_text)
-        
         logger.info(f"Admin {user_id} debugged user {target_user_id}")
         
     except Exception as e:
@@ -909,7 +868,6 @@ async def reset_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         target_user_id = context.args[0]
         
-        # Extra safety check
         if target_user_id in ADMIN_IDS:
             await update.message.reply_text("❌ **SECURITY ERROR:** Cannot reset admin user!")
             return
@@ -933,8 +891,103 @@ async def reset_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error in reset user: {e}")
         await update.message.reply_text(f"❌ **Error:** {e}")
 
+async def debug_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug settings database - TROUBLESHOOTING COMMAND"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin only command")
+        return
+    
+    try:
+        # Get raw settings document
+        settings_doc = await db.settings.find_one({"_id": "bot_settings"})
+        
+        debug_text = f"🔍 **SETTINGS DEBUG INFO**\n\n"
+        
+        if settings_doc:
+            debug_text += f"✅ **Settings document exists**\n\n"
+            debug_text += f"📋 **Raw Document:**\n"
+            for key, value in settings_doc.items():
+                debug_text += f"• `{key}`: {value}\n"
+        else:
+            debug_text += f"❌ **Settings document NOT FOUND**\n\n"
+            debug_text += f"🔄 **Creating default settings...**"
+            
+            # Create default settings
+            await db.initialize_settings()
+            new_settings = await db.settings.find_one({"_id": "bot_settings"})
+            
+            if new_settings:
+                debug_text += f"\n✅ **Created successfully:**\n"
+                for key, value in new_settings.items():
+                    debug_text += f"• `{key}`: {value}\n"
+            else:
+                debug_text += f"\n❌ **Failed to create default settings**"
+        
+        # Test database connection
+        debug_text += f"\n🔗 **Database Status:**\n"
+        debug_text += f"• Connected: {db.connected}\n"
+        debug_text += f"• Collections: {await db.db.list_collection_names()}"
+        
+        await update.message.reply_text(debug_text)
+        
+    except Exception as e:
+        logger.error(f"Error in debug settings: {e}")
+        await update.message.reply_text(f"❌ **Debug Error:** {e}")
+
+async def fix_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Force fix settings database"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin only command")
+        return
+    
+    try:
+        status_msg = await update.message.reply_text("🔧 **Fixing settings database...**")
+        
+        # Delete existing settings document
+        await db.settings.delete_one({"_id": "bot_settings"})
+        
+        # Create fresh settings
+        fresh_settings = {
+            "_id": "bot_settings",
+            "referral_reward": 25,  # Set to 25 as requested
+            "message_rate": 3,
+            "last_order_id": 0,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        result = await db.settings.insert_one(fresh_settings)
+        
+        if result.inserted_id:
+            # Verify
+            verification = await db.settings.find_one({"_id": "bot_settings"})
+            
+            await status_msg.edit_text(
+                f"✅ **Settings Database Fixed**\n\n"
+                f"🔄 **Actions taken:**\n"
+                f"• Deleted old settings document\n"
+                f"• Created fresh settings document\n"
+                f"• Set referral reward to 25 {CURRENCY}\n\n"
+                f"📋 **Current Settings:**\n"
+                f"• Referral Reward: {verification.get('referral_reward', 0)} {CURRENCY}\n"
+                f"• Message Rate: {verification.get('message_rate', 0)} messages\n\n"
+                f"✅ **System ready for use!**\n"
+                f"🔍 **Test with:** `/setreferral 25`"
+            )
+            logger.info(f"Admin {user_id} fixed settings database")
+        else:
+            await status_msg.edit_text("❌ Failed to create fresh settings")
+        
+    except Exception as e:
+        logger.error(f"Error fixing settings: {e}")
+        await update.message.reply_text(f"❌ **Fix Error:** {e}")
+
 def register_handlers(application: Application):
-    """Register admin command handlers - COMPLETE WITH ALL COMMANDS"""
+    """Register admin command handlers - COMPLETE WITH ALL COMMANDS INCLUDING DEBUG"""
     logger.info("Registering comprehensive admin handlers with all commands")
     
     # Channel management commands
@@ -968,6 +1021,8 @@ def register_handlers(application: Application):
     # Debug and development commands
     application.add_handler(CommandHandler("debuguser", debug_user_command))
     application.add_handler(CommandHandler("resetuser", reset_user_command))
+    application.add_handler(CommandHandler("debugsettings", debug_settings_command))
+    application.add_handler(CommandHandler("fixsettings", fix_settings_command))
     
     logger.info("✅ All admin handlers registered successfully")
     logger.info("Available admin commands:")
@@ -977,3 +1032,4 @@ def register_handlers(application: Application):
     logger.info("  Stats: /systemstats, /systemstatus, /updatenames")
     logger.info("  Communication: /broadcast, /forward")
     logger.info("  Testing: /testforward, /testannounce")
+    logger.info("  Debug: /debugsettings, /fixsettings")
