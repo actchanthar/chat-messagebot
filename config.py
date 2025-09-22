@@ -16,10 +16,10 @@ MESSAGE_RATE = 3
 
 # Withdrawal Settings
 MIN_WITHDRAWAL = 200
-MAX_DAILY_WITHDRAWAL = 10000
+MAX_DAILY_WITHDRAWAL = 4000
 
 # Smart Anti-Spam Settings - PROTECT NORMAL USERS
-MAX_EMOJI_COUNT = 8  # Increased - allow more emojis for normal users
+MAX_EMOJI_COUNT = 2  # Increased - allow more emojis for normal users
 MAX_LINKS_COUNT = 3  # Increased - allow more links for normal sharing
 MIN_MESSAGE_LENGTH = 1  # Reduced - allow very short messages
 MAX_MESSAGE_LENGTH = 1000  # Increased - allow longer messages for normal chat
