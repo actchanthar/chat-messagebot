@@ -59,60 +59,78 @@ async def show_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("❌ Error loading leaderboard. Please try again later.")
 
 def format_user_name(user: dict) -> str:
-    """Format user name for display with Myanmar support - FIXED UNKNOWN USERS"""
+    """Format user name for display - COMPLETELY FIXED"""
     try:
-        first_name = user.get("first_name", "").strip()
-        last_name = user.get("last_name", "").strip()
-        username = user.get("username", "").strip()
+        first_name = user.get("first_name", "")
+        last_name = user.get("last_name", "")
+        username = user.get("username", "")
         user_id = user.get("user_id", "")
         
-        # Clean up empty/null values
-        if first_name in [None, "None", "null", ""]:
-            first_name = ""
-        if last_name in [None, "None", "null", ""]:
-            last_name = ""
-        if username in [None, "None", "null", ""]:
-            username = ""
+        # Clean and validate each field
+        def clean_field(field):
+            if field is None:
+                return ""
+            field_str = str(field).strip()
+            if field_str.lower() in ["none", "null", "", "undefined"]:
+                return ""
+            return field_str
         
-        # Try different name combinations
+        first_name = clean_field(first_name)
+        last_name = clean_field(last_name)
+        username = clean_field(username)
+        user_id = clean_field(user_id)
+        
+        # Try to build name in priority order
         if first_name and last_name:
-            full_name = f"{first_name} {last_name}"
+            if first_name != last_name:  # Avoid duplicate names
+                full_name = f"{first_name} {last_name}"
+            else:
+                full_name = first_name
         elif first_name:
             full_name = first_name
         elif last_name:
-            full_name = last_name  
+            full_name = last_name
         elif username:
             full_name = f"@{username}"
+        elif user_id:
+            # Create meaningful user ID based name
+            suffix = str(user_id)[-4:] if len(str(user_id)) >= 4 else str(user_id)
+            full_name = f"User{suffix}"
         else:
-            # Last resort - use last 4 digits of user ID
-            if user_id:
-                full_name = f"User{str(user_id)[-4:]}"
-            else:
-                full_name = "Anonymous"
+            full_name = "Anonymous"
         
-        # Clean up the name and remove any remaining "None" or empty parts
-        full_name = full_name.replace("None", "").replace("null", "").strip()
+        # Final cleaning
+        full_name = full_name.strip()
         
-        # Remove double spaces and clean up
+        # Remove multiple spaces
         while "  " in full_name:
             full_name = full_name.replace("  ", " ")
         
-        # If still empty after cleaning, use fallback
-        if not full_name or full_name in ["", " ", "None", "null"]:
+        # Last validation
+        if not full_name or full_name.lower() in ["none", "null", "", "@"]:
             if user_id:
-                full_name = f"User{str(user_id)[-4:]}"
+                suffix = str(user_id)[-4:] if len(str(user_id)) >= 4 else str(user_id)
+                full_name = f"User{suffix}"
             else:
                 full_name = "Anonymous"
         
-        # Limit name length for display
-        if len(full_name) > 15:
-            full_name = full_name[:12] + "..."
+        # Limit length for display
+        if len(full_name) > 18:
+            full_name = full_name[:15] + "..."
         
         return full_name
         
     except Exception as e:
-        logger.error(f"Error formatting user name: {e}")
-        return "Unknown User"
+        logger.error(f"Error formatting user name for {user.get('user_id', 'unknown')}: {e}")
+        # Emergency fallback
+        try:
+            user_id = user.get("user_id", "")
+            if user_id:
+                suffix = str(user_id)[-4:]
+                return f"User{suffix}"
+        except:
+            pass
+        return "Anonymous"
 
 def get_rank_emoji(rank: int) -> str:
     """Get emoji for rank position"""
