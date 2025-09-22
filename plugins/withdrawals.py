@@ -848,18 +848,19 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("❌ Error processing withdrawal decision.")
 
 def register_handlers(application: Application):
-    """Register all withdrawal handlers - FIXED WITH ORDER ID"""
+    """Register all withdrawal handlers - FIXED CALLBACK PATTERNS"""
     logger.info("Registering withdrawal conversation handlers with Order ID system")
     
-    # Create conversation handler with HIGHER PRIORITY
+    # Create conversation handler with FIXED PATTERNS
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("withdraw", withdraw)
         ],
         states={
             STEP_PAYMENT_METHOD: [
-                CallbackQueryHandler(handle_payment_method, pattern="^wd_method_.*$"),
-                CallbackQueryHandler(handle_payment_method, pattern="^wd_cancel$")
+                # FIXED: More flexible pattern matching
+                CallbackQueryHandler(handle_payment_method, pattern=r"^wd_method_"),
+                CallbackQueryHandler(handle_payment_method, pattern=r"^wd_cancel$")
             ],
             STEP_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)
@@ -870,11 +871,12 @@ def register_handlers(application: Application):
         },
         fallbacks=[
             CommandHandler("withdraw", withdraw),
-            CallbackQueryHandler(handle_payment_method, pattern="^wd_cancel$")
+            CallbackQueryHandler(handle_payment_method, pattern=r"^wd_cancel$")
         ],
         allow_reentry=True,
         name="withdrawal_conversation",
-        persistent=False
+        persistent=False,
+        per_message=False  # ADDED: This should fix the callback issue
     )
     
     # Register with GROUP 0 (highest priority)
@@ -883,12 +885,12 @@ def register_handlers(application: Application):
     # Other handlers with lower priority
     application.add_handler(CallbackQueryHandler(
         handle_approval, 
-        pattern="^(approve_|reject_)"
+        pattern=r"^(approve_|reject_)"
     ), group=1)
     
     application.add_handler(CallbackQueryHandler(
         handle_user_profile, 
-        pattern="^profile_"
+        pattern=r"^profile_"
     ), group=1)
     
     logger.info("✅ Withdrawal handlers with Order ID system registered successfully")
