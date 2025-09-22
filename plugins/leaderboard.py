@@ -59,20 +59,50 @@ async def show_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text("❌ Error loading leaderboard. Please try again later.")
 
 def format_user_name(user: dict) -> str:
-    """Format user name for display with Myanmar support"""
+    """Format user name for display with Myanmar support - FIXED UNKNOWN USERS"""
     try:
         first_name = user.get("first_name", "").strip()
         last_name = user.get("last_name", "").strip()
         username = user.get("username", "").strip()
+        user_id = user.get("user_id", "")
         
+        # Clean up empty/null values
+        if first_name in [None, "None", "null", ""]:
+            first_name = ""
+        if last_name in [None, "None", "null", ""]:
+            last_name = ""
+        if username in [None, "None", "null", ""]:
+            username = ""
+        
+        # Try different name combinations
         if first_name and last_name:
             full_name = f"{first_name} {last_name}"
         elif first_name:
             full_name = first_name
+        elif last_name:
+            full_name = last_name  
         elif username:
             full_name = f"@{username}"
         else:
-            full_name = f"User{user.get('user_id', 'Unknown')[-4:]}"
+            # Last resort - use last 4 digits of user ID
+            if user_id:
+                full_name = f"User{str(user_id)[-4:]}"
+            else:
+                full_name = "Anonymous"
+        
+        # Clean up the name and remove any remaining "None" or empty parts
+        full_name = full_name.replace("None", "").replace("null", "").strip()
+        
+        # Remove double spaces and clean up
+        while "  " in full_name:
+            full_name = full_name.replace("  ", " ")
+        
+        # If still empty after cleaning, use fallback
+        if not full_name or full_name in ["", " ", "None", "null"]:
+            if user_id:
+                full_name = f"User{str(user_id)[-4:]}"
+            else:
+                full_name = "Anonymous"
         
         # Limit name length for display
         if len(full_name) > 15:
@@ -82,7 +112,7 @@ def format_user_name(user: dict) -> str:
         
     except Exception as e:
         logger.error(f"Error formatting user name: {e}")
-        return "Unknown"
+        return "Unknown User"
 
 def get_rank_emoji(rank: int) -> str:
     """Get emoji for rank position"""
