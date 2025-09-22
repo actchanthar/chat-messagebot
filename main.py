@@ -1,129 +1,105 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import asyncio
 import logging
 import sys
 import os
+from telegram import Update
+from telegram.ext import Application, ContextTypes
 
-# Add project root to Python path
+# Add project root to path
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
-from telegram.ext import Application, CommandHandler
+# Import configuration
 from config import BOT_TOKEN
-from database.database import db, init_database
 
+# Import database
+from database.database import init_database
+
+# Import all plugins
+from plugins import start, withdrawal, message_handler, admin, leaderboard, force_join
+
+# Set up logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.FileHandler('bot.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
 
-def main():
-    # Create application
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    logger.info("🚀 Starting World's Most Advanced Message Earning Bot...")
-
+async def post_init(application: Application) -> None:
+    """Initialize database and other async components after bot starts"""
     try:
-        logger.info("📋 Registering handlers...")
-
-        # Import start.py from PLUGINS directory
-        from plugins.start import register_handlers as register_start_handlers
-        register_start_handlers(application)
-        logger.info("✅ Start handlers registered")
-
-        # Import new handlers - Pending and Approve commands
-        from plugins.pending import register_handlers as register_pending_handlers
-        from plugins.approve import register_handlers as register_approve_handlers
+        logger.info("🔄 Initializing database connection...")
+        await init_database()
+        logger.info("✅ Database connected successfully")
         
-        register_pending_handlers(application)
-        register_approve_handlers(application)
-        logger.info("✅ Pending and approve handlers registered")
+        # Get bot info
+        bot_info = await application.bot.get_me()
+        logger.info(f"🤖 Bot started: @{bot_info.username} ({bot_info.first_name})")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize components: {e}")
+        raise
 
-        # Import settings handlers
-        from plugins.settings import register_handlers as register_settings_handlers
-        register_settings_handlers(application)
-        logger.info("✅ Settings handlers registered")
+async def post_shutdown(application: Application) -> None:
+    """Clean up resources when bot shuts down"""
+    try:
+        logger.info("🔄 Shutting down bot...")
+        
+        # Close database connection
+        from database.database import db
+        await db.close()
+        logger.info("✅ Database connection closed")
+        
+    except Exception as e:
+        logger.error(f"❌ Error during shutdown: {e}")
 
-        # Import core handlers
-        from plugins.message_handler import register_handlers as register_message_handlers
-        from plugins.balance import register_handlers as register_balance_handlers
-        from plugins.admin import register_handlers as register_admin_handlers
-        from plugins.broadcast import register_handlers as register_broadcast_handlers
-        from plugins.withdrawal import register_handlers as register_withdrawal_handlers
-        from plugins.withdrawals import register_handlers as register_withdrawals_handlers
-        from plugins.stats import register_handlers as register_stats_handlers
-        from plugins.help import register_handlers as register_help_handlers
-
-        register_message_handlers(application)
-        register_balance_handlers(application)
-        register_admin_handlers(application)
-        register_broadcast_handlers(application)
-        register_withdrawal_handlers(application)
-        register_withdrawals_handlers(application)
-        register_stats_handlers(application)
-        register_help_handlers(application)
-
-        # Import advanced handlers
-        from plugins.leaderboard import register_handlers as register_leaderboard_handlers
-        from plugins.challenges import register_handlers as register_challenges_handlers
-        from plugins.analytics import register_handlers as register_analytics_handlers
-
-        register_leaderboard_handlers(application)
-        register_challenges_handlers(application)
-        register_analytics_handlers(application)
-
-        # Import announcements system
-        try:
-            from plugins.announcements import register_handlers as register_announcements_handlers
-            register_announcements_handlers(application)
-            logger.info("✅ Announcements registered")
-        except ImportError:
-            logger.warning("⚠️ Announcements system not found, continuing without it")
-
-        # Import auto-forward system
-        try:
-            from plugins.auto_forward import register_handlers as register_autoforward_handlers
-            register_autoforward_handlers(application)
-            logger.info("✅ Auto-forward handlers registered")
-        except ImportError:
-            logger.warning("⚠️ Auto-forward system not found, continuing without it")
-
-        logger.info("✅ All handlers registered!")
-
-    except ImportError as e:
-        logger.error(f"❌ Import error: {e}")
-
-        # Fallback start command
-        async def basic_start(update, context):
-            user_id = str(update.effective_user.id)
-            user = await db.get_user(user_id)
-            if not user:
-                await db.create_user(user_id, {"first_name": update.effective_user.first_name or ""})
-                await update.message.reply_text("Welcome! You're registered.")
-            else:
-                balance = user.get('balance', 0)
-                await update.message.reply_text(f"Welcome back! Balance: {int(balance)} kyat")
-
-        application.add_handler(CommandHandler("start", basic_start))
-
-    # Initialize database connection manually before starting
-    async def post_init(application):
-        """Initialize database after app starts"""
-        logger.info("🔗 Connecting to database...")
-        try:
-            await init_database()
-            logger.info("✅ Database connected successfully")
-        except Exception as e:
-            logger.error(f"❌ Database connection failed: {e}")
-
-    # Use post_init callback
-    application.post_init = post_init
-
-    # Start the bot
-    logger.info("🤖 Bot started successfully!")
-    logger.info("💰 Ready to process all commands!")
-    application.run_polling(allowed_updates=["message", "callback_query"])
+def main() -> None:
+    """Start the bot"""
+    try:
+        logger.info("🚀 Starting Telegram Bot...")
+        
+        # Create the Application
+        application = Application.builder().token(BOT_TOKEN).build()
+        
+        # Register handlers from all plugins
+        logger.info("📝 Registering handlers...")
+        
+        # Register plugin handlers in order of priority
+        start.register_handlers(application)
+        withdrawal.register_handlers(application)
+        message_handler.register_handlers(application)
+        admin.register_handlers(application)
+        leaderboard.register_handlers(application)
+        force_join.register_handlers(application)
+        
+        logger.info("✅ All handlers registered successfully")
+        
+        # Set post init and shutdown hooks
+        application.post_init = post_init
+        application.post_shutdown = post_shutdown
+        
+        # Start the bot
+        logger.info("🏃‍♂️ Bot is running! Press Ctrl+C to stop.")
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            close_loop=False
+        )
+        
+    except KeyboardInterrupt:
+        logger.info("⏹️ Bot stopped by user")
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
