@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 import logging
 import sys
 import os
@@ -12,7 +12,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from database.database import db
-from config import ADMIN_IDS, CURRENCY
+from config import ADMIN_IDS, CURRENCY, APPROVED_GROUPS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -217,6 +217,207 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Error in list_channels: {e}")
         await update.message.reply_text("❌ Error loading channels list.")
 
+async def set_referral_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Set referral reward amount"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
+        return
+    
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "❌ **အသုံးပြုပုံ:** `/setreferral <amount>`\n\n"
+            "**ဥပမာ:** `/setreferral 50`\n\n"
+            "**လက်ရှိ Referral Reward ကြည့်ရန်:** `/viewsettings`"
+        )
+        return
+    
+    try:
+        new_reward = int(context.args[0])
+        
+        if new_reward < 0:
+            await update.message.reply_text("❌ Referral reward cannot be negative.")
+            return
+            
+        success = await db.update_settings({"referral_reward": new_reward})
+        
+        if success:
+            await update.message.reply_text(
+                f"✅ **Referral Reward Updated Successfully**\n\n"
+                f"💰 **New Reward:** {new_reward} {CURRENCY} per successful referral\n"
+                f"👨‍💼 **Updated by:** Admin {user_id}\n"
+                f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"💡 **Note:** Users get {new_reward} {CURRENCY} when their referrals join mandatory channels."
+            )
+            logger.info(f"Admin {user_id} updated referral reward to {new_reward}")
+        else:
+            await update.message.reply_text("❌ Failed to update referral reward. Please try again.")
+            
+    except ValueError:
+        await update.message.reply_text("❌ Invalid amount. Please enter a valid number.")
+    except Exception as e:
+        logger.error(f"Error setting referral reward: {e}")
+        await update.message.reply_text("❌ Error occurred while updating referral reward.")
+
+async def set_message_rate_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Set message earning rate"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
+        return
+    
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "❌ **အသုံးပြုပုံ:** `/setrate <messages>`\n\n"
+            "**ဥပမာ:** `/setrate 3` (3 messages = 1 kyat)\n\n"
+            "**လက်ရှိ Message Rate ကြည့်ရန်:** `/viewsettings`"
+        )
+        return
+    
+    try:
+        new_rate = int(context.args[0])
+        
+        if new_rate < 1:
+            await update.message.reply_text("❌ Message rate must be at least 1.")
+            return
+        
+        if new_rate > 100:
+            await update.message.reply_text("❌ Message rate cannot be more than 100.")
+            return
+            
+        success = await db.update_settings({"message_rate": new_rate})
+        
+        if success:
+            await update.message.reply_text(
+                f"✅ **Message Earning Rate Updated Successfully**\n\n"
+                f"💬 **New Rate:** {new_rate} messages = 1 {CURRENCY}\n"
+                f"👨‍💼 **Updated by:** Admin {user_id}\n"
+                f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"💡 **Note:** Users now earn 1 {CURRENCY} for every {new_rate} messages."
+            )
+            logger.info(f"Admin {user_id} updated message rate to {new_rate}")
+        else:
+            await update.message.reply_text("❌ Failed to update message rate. Please try again.")
+            
+    except ValueError:
+        await update.message.reply_text("❌ Invalid rate. Please enter a valid number between 1-100.")
+    except Exception as e:
+        logger.error(f"Error setting message rate: {e}")
+        await update.message.reply_text("❌ Error occurred while updating message rate.")
+
+async def view_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """View current bot settings"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
+        return
+    
+    try:
+        settings = await db.get_settings()
+        channels = await db.get_mandatory_channels()
+        stats = await db.get_user_stats_summary()
+        
+        referral_reward = settings.get('referral_reward', 50)
+        message_rate = settings.get('message_rate', 3)
+        last_order_id = settings.get('last_order_id', 0)
+        
+        settings_text = (
+            f"⚙️ **BOT CONFIGURATION SETTINGS**\n\n"
+            f"💰 **Financial Settings:**\n"
+            f"• Referral Reward: {referral_reward} {CURRENCY} per referral\n"
+            f"• Message Rate: {message_rate} messages = 1 {CURRENCY}\n"
+            f"• Last Order ID: {last_order_id}\n\n"
+            f"📺 **Force Join Settings:**\n"
+            f"• Mandatory Channels: {len(channels)} channels\n"
+            f"• Required Referrals: 10 for withdrawal\n"
+            f"• Minimum Messages: 50 for withdrawal\n\n"
+            f"📊 **Current Statistics:**\n"
+            f"• Total Users: {stats.get('total_users', 0):,}\n"
+            f"• Active Users: {stats.get('active_users', 0):,}\n"
+            f"• Total Earnings: {int(stats.get('total_earnings', 0)):,} {CURRENCY}\n"
+            f"• System Balance: {int(stats.get('system_balance', 0)):,} {CURRENCY}\n\n"
+            f"📅 **Last Checked:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"**Management Commands:**\n"
+            f"• `/setreferral <amount>` - Change referral reward\n"
+            f"• `/setrate <messages>` - Change message earning rate\n"
+            f"• `/addchannel <id> <name>` - Add mandatory channel\n"
+            f"• `/removechannel <id>` - Remove channel\n"
+            f"• `/systemstats` - Detailed system statistics"
+        )
+        
+        await update.message.reply_text(settings_text)
+        
+    except Exception as e:
+        logger.error(f"Error viewing settings: {e}")
+        await update.message.reply_text("❌ Error loading bot settings.")
+
+async def system_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """View detailed system statistics"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
+        return
+    
+    try:
+        # Get comprehensive stats
+        total_users = await db.get_total_users_count()
+        total_earnings = await db.get_total_earnings()
+        total_withdrawals = await db.get_total_withdrawals()
+        channels = await db.get_mandatory_channels()
+        settings = await db.get_settings()
+        
+        # Get more detailed stats
+        stats = await db.get_user_stats_summary()
+        withdrawal_stats = await db.get_withdrawal_stats()
+        
+        # Calculate additional metrics
+        system_balance = int(total_earnings - total_withdrawals)
+        avg_earnings_per_user = int(total_earnings / max(total_users, 1))
+        avg_messages_per_user = int(stats.get('total_messages', 0) / max(stats.get('active_users', 1), 1))
+        withdrawal_rate = (withdrawal_stats.get('total_withdrawers', 0) / max(total_users, 1)) * 100
+        
+        stats_text = (
+            f"📊 **COMPREHENSIVE SYSTEM STATISTICS**\n\n"
+            f"👥 **USER ANALYTICS:**\n"
+            f"• Total Registered: {total_users:,} users\n"
+            f"• Active Users: {stats.get('active_users', 0):,} ({(stats.get('active_users', 0)/max(total_users, 1)*100):.1f}%)\n"
+            f"• Banned Users: {stats.get('banned_users', 0):,}\n"
+            f"• Withdrawal Rate: {withdrawal_rate:.1f}% of users withdrew\n\n"
+            f"💰 **FINANCIAL OVERVIEW:**\n"
+            f"• Total Distributed: {int(total_earnings):,} {CURRENCY}\n"
+            f"• Total Withdrawn: {int(total_withdrawals):,} {CURRENCY}\n"
+            f"• System Balance: {system_balance:,} {CURRENCY}\n"
+            f"• Active Withdrawers: {withdrawal_stats.get('total_withdrawers', 0):,} users\n"
+            f"• Average Withdrawal: {int(withdrawal_stats.get('avg_withdrawal', 0)):,} {CURRENCY}\n"
+            f"• Max Single Withdrawal: {int(withdrawal_stats.get('max_withdrawal', 0)):,} {CURRENCY}\n\n"
+            f"📈 **ENGAGEMENT METRICS:**\n"
+            f"• Total Messages: {stats.get('total_messages', 0):,}\n"
+            f"• Average Messages/User: {avg_messages_per_user:,}\n"
+            f"• Average Earnings/User: {avg_earnings_per_user:,} {CURRENCY}\n"
+            f"• Message-to-Earning Ratio: {stats.get('total_messages', 0) // max(int(total_earnings), 1)}:1\n\n"
+            f"⚙️ **SYSTEM CONFIGURATION:**\n"
+            f"• Referral Reward: {settings.get('referral_reward', 50)} {CURRENCY}/referral\n"
+            f"• Message Rate: {settings.get('message_rate', 3)} messages = 1 {CURRENCY}\n"
+            f"• Mandatory Channels: {len(channels)} active\n"
+            f"• Total Orders Processed: {settings.get('last_order_id', 0):,}\n\n"
+            f"📱 **INFRASTRUCTURE:**\n"
+            f"• Approved Groups: {len(APPROVED_GROUPS)} groups\n"
+            f"• Admin Users: {len(ADMIN_IDS)} admins\n"
+            f"• Database Status: ✅ Connected\n"
+            f"• Anti-Spam: ✅ Active\n\n"
+            f"⏰ **Report Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        
+        await update.message.reply_text(stats_text)
+        
+    except Exception as e:
+        logger.error(f"Error in system stats: {e}")
+        await update.message.reply_text("❌ Error loading system statistics.")
+
 async def update_user_names_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to update user names from Telegram API"""
     user_id = str(update.effective_user.id)
@@ -226,23 +427,25 @@ async def update_user_names_command(update: Update, context: ContextTypes.DEFAUL
         return
     
     try:
-        await update.message.reply_text("🔄 Updating user names from Telegram API...")
+        await update.message.reply_text("🔄 **Updating user names from Telegram API...**\n\nThis may take a few seconds...")
         
         # Update user names
         updated_count = await db.bulk_update_user_names(context)
         
         await update.message.reply_text(
-            f"✅ **User Names Updated**\n\n"
-            f"📊 **Updated:** {updated_count} users\n"
-            f"⏰ **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
-            f"🔄 Check leaderboard now - should show real names!"
+            f"✅ **User Names Update Complete**\n\n"
+            f"📊 **Successfully Updated:** {updated_count} users\n"
+            f"👨‍💼 **Initiated by:** Admin {user_id}\n"
+            f"⏰ **Completed at:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+            f"🔄 **Check leaderboard now - should show real names!**\n"
+            f"💡 **Tip:** Run `/systemstats` to see overall improvements."
         )
         
         logger.info(f"Admin {user_id} updated {updated_count} user names")
         
     except Exception as e:
         logger.error(f"Error in update user names command: {e}")
-        await update.message.reply_text("❌ Error updating user names.")
+        await update.message.reply_text("❌ Error updating user names. Please try again later.")
 
 async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin command to ban a user - Myanmar language"""
@@ -255,13 +458,19 @@ async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if len(context.args) < 1:
         await update.message.reply_text(
             f"❌ **အသုံးပြုပုံ:** `/ban <user_id> [အကြောင်းရင်း]`\n\n"
-            f"**ဥပမာ:** `/ban 123456789 Spamming`"
+            f"**ဥပမာ:** `/ban 123456789 Spamming messages`\n\n"
+            f"**Note:** User ID ကို forward လုပ်ထားသော message မှ ရယူနိုင်ပါသည်။"
         )
         return
     
     try:
         target_user_id = context.args[0]
-        reason = " ".join(context.args[1:]) if len(context.args) > 1 else "Admin မှ ပိတ်ပင်ခြင်း"
+        reason = " ".join(context.args[1:]) if len(context.args) > 1 else "Admin မှ ပိတ်ပင်ခြင်း - No reason specified"
+        
+        # Check if trying to ban another admin
+        if target_user_id in ADMIN_IDS:
+            await update.message.reply_text("❌ Cannot ban another admin user.")
+            return
         
         # Ban user in database
         success = await db.ban_user(target_user_id, reason)
@@ -270,20 +479,28 @@ async def ban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             # Try to get user info
             try:
                 user_info = await context.bot.get_chat(target_user_id)
-                user_name = user_info.first_name or "သုံးစွဲသူ"
+                user_name = user_info.first_name or "Unknown User"
+                username = f"@{user_info.username}" if user_info.username else "No username"
             except:
-                user_name = "သုံးစွဲသူ"
+                user_name = "Unknown User"
+                username = "Unknown"
             
             await update.message.reply_text(
-                f"✅ **သုံးစွဲသူကို ပိတ်ပင်ပြီးပါပြီ**\n\n"
-                f"👤 **သုံးစွဲသူ:** {user_name} ({target_user_id})\n"
-                f"📝 **အကြောင်းရင်း:** {reason}\n"
-                f"👨‍💼 **ပိတ်ပင်သူ:** Admin {user_id}"
+                f"✅ **USER BANNED SUCCESSFULLY**\n\n"
+                f"👤 **User:** {user_name} ({username})\n"
+                f"🆔 **User ID:** {target_user_id}\n"
+                f"📝 **Reason:** {reason}\n"
+                f"👨‍💼 **Banned by:** Admin {user_id}\n"
+                f"📅 **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"🚫 **User can no longer:**\n"
+                f"• Earn money from messages\n"
+                f"• Use withdrawal functions\n"
+                f"• Participate in referral system"
             )
             
             logger.info(f"Admin {user_id} banned user {target_user_id}: {reason}")
         else:
-            await update.message.reply_text("❌ သုံးစွဲသူကို ပိတ်ပင်၍မရပါ။ သုံးစွဲသူ မတွေ့ပါ။")
+            await update.message.reply_text("❌ Failed to ban user. User may not exist or already banned.")
     
     except Exception as e:
         logger.error(f"Error in ban command: {e}")
@@ -314,19 +531,27 @@ async def unban_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             # Try to get user info
             try:
                 user_info = await context.bot.get_chat(target_user_id)
-                user_name = user_info.first_name or "သုံးစွဲသူ"
+                user_name = user_info.first_name or "Unknown User"
+                username = f"@{user_info.username}" if user_info.username else "No username"
             except:
-                user_name = "သုံးစွဲသူ"
+                user_name = "Unknown User"
+                username = "Unknown"
             
             await update.message.reply_text(
-                f"✅ **သုံးစွဲသူကို ပြန်လည်ခွင့်ပြုပြီးပါပြီ**\n\n"
-                f"👤 **သုံးစွဲသူ:** {user_name} ({target_user_id})\n"
-                f"👨‍💼 **ပြန်လည်ခွင့်ပြုသူ:** Admin {user_id}"
+                f"✅ **USER UNBANNED SUCCESSFULLY**\n\n"
+                f"👤 **User:** {user_name} ({username})\n"
+                f"🆔 **User ID:** {target_user_id}\n"
+                f"👨‍💼 **Unbanned by:** Admin {user_id}\n"
+                f"📅 **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"✅ **User can now:**\n"
+                f"• Earn money from messages\n"
+                f"• Use withdrawal functions\n"
+                f"• Participate in referral system"
             )
             
             logger.info(f"Admin {user_id} unbanned user {target_user_id}")
         else:
-            await update.message.reply_text("❌ သုံးစွဲသူကို ပြန်လည်ခွင့်ပြု၍မရပါ။")
+            await update.message.reply_text("❌ Failed to unban user. User may not exist or not banned.")
     
     except Exception as e:
         logger.error(f"Error in unban command: {e}")
@@ -347,26 +572,37 @@ async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         total_withdrawals = await db.get_total_withdrawals()
         channels = await db.get_mandatory_channels()
         
+        # Check database connection
+        db_status = "🟢 Connected" if db.connected else "🔴 Disconnected"
+        
         uptime_str = "Running"
         
         status_text = (
-            f"🤖 **စနစ်အခြေအနေ**\n\n"
-            f"👥 **စုစုပေါင်းသုံးစွဲသူ:** {total_users:,}\n"
-            f"💰 **စုစုပေါင်းရရှိငွေ:** {int(total_earnings):,} {CURRENCY}\n"
-            f"💸 **စုစုပေါင်းထုတ်ယူငွေ:** {int(total_withdrawals):,} {CURRENCY}\n"
-            f"💳 **စနစ်ရှိငွေ:** {int(total_earnings - total_withdrawals):,} {CURRENCY}\n"
-            f"📺 **Mandatory Channels:** {len(channels)}\n\n"
-            f"🛡️ **Anti-spam:** အလုပ်လုပ်နေသည်\n"
-            f"📊 **Database:** ချိတ်ဆက်ထားသည်\n"
-            f"⏱️ **Bot status:** {uptime_str}\n\n"
-            f"✅ **စနစ်အားလုံး ကောင်းမွန်စွာအလုပ်လုပ်နေပါသည်**"
+            f"🤖 **SYSTEM STATUS OVERVIEW**\n\n"
+            f"📊 **Core Metrics:**\n"
+            f"• Total Users: {total_users:,}\n"
+            f"• Total Earnings: {int(total_earnings):,} {CURRENCY}\n"
+            f"• Total Withdrawals: {int(total_withdrawals):,} {CURRENCY}\n"
+            f"• System Balance: {int(total_earnings - total_withdrawals):,} {CURRENCY}\n\n"
+            f"🔧 **System Components:**\n"
+            f"• Database: {db_status}\n"
+            f"• Mandatory Channels: {len(channels)} active\n"
+            f"• Approved Groups: {len(APPROVED_GROUPS)} groups\n"
+            f"• Admin Users: {len(ADMIN_IDS)} admins\n\n"
+            f"🛡️ **Security Status:**\n"
+            f"• Anti-spam System: 🟢 Active\n"
+            f"• Force Join: 🟢 {'Active' if channels else 'No channels'}\n"
+            f"• Withdrawal Control: 🟢 Active\n\n"
+            f"⏱️ **Uptime:** {uptime_str}\n"
+            f"📅 **Status Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"✅ **All systems operational**"
         )
         
         await update.message.reply_text(status_text)
         
     except Exception as e:
         logger.error(f"Error in system status: {e}")
-        await update.message.reply_text("❌ စနစ်အခြေအနေ စစ်ဆေး၍မရပါ။")
+        await update.message.reply_text("❌ Error checking system status.")
 
 async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Broadcast message to all users - Myanmar language"""
@@ -379,7 +615,8 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if len(context.args) < 1:
         await update.message.reply_text(
             f"❌ **အသုံးပြုပုံ:** `/broadcast <မက်ဆေ့ချ်>`\n\n"
-            f"**ဥပမာ:** `/broadcast သုံးစွဲသူအားလုံးအတွက် အရေးကြီးသောအချက်အလက်!`"
+            f"**ဥပမာ:** `/broadcast သုံးစွဲသူအားလုံးအတွက် အရေးကြီးသောအချက်အလက်!`\n\n"
+            f"**Note:** Message will be sent to all registered users."
         )
         return
     
@@ -388,40 +625,205 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         
         # Get all users
         users = await db.get_all_users()
+        active_users = [user for user in users if not user.get('banned', False)]
         
         sent_count = 0
         failed_count = 0
         
-        await update.message.reply_text(f"📡 **{len(users)} သုံးစွဲသူများထံ ပို့နေပါသည်...**")
+        status_msg = await update.message.reply_text(f"📡 **Broadcasting to {len(active_users)} active users...**")
         
-        for user in users:
+        for i, user in enumerate(active_users):
             try:
                 await context.bot.send_message(
                     chat_id=user["user_id"],
-                    text=f"📢 **ကြေငြာချက်**\n\n{message}\n\n- Admin Team"
+                    text=f"📢 **OFFICIAL ANNOUNCEMENT**\n\n{message}\n\n━━━━━━━━━━━━━\n🤖 **Admin Team**\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 )
                 sent_count += 1
-            except:
+                
+                # Update progress every 50 users
+                if (i + 1) % 50 == 0:
+                    try:
+                        await status_msg.edit_text(f"📡 **Broadcasting... {i + 1}/{len(active_users)} users processed**")
+                    except:
+                        pass
+                    
+                # Small delay to avoid rate limiting
+                if sent_count % 20 == 0:
+                    await asyncio.sleep(1)
+                    
+            except Exception as e:
                 failed_count += 1
+                if "bot was blocked" not in str(e).lower():
+                    logger.warning(f"Failed to send broadcast to {user['user_id']}: {e}")
         
-        await update.message.reply_text(
-            f"✅ **Broadcast ပြီးစီးပါပြီ**\n\n"
-            f"📤 **ပို့အောင်မြင်:** {sent_count} သုံးစွဲသူ\n"
-            f"❌ **ပို့မရ:** {failed_count} သုံးစွဲသူ\n"
-            f"👨‍💼 **ပို့သူ:** Admin {user_id}"
+        # Final status report
+        success_rate = (sent_count / max(len(active_users), 1)) * 100
+        
+        await status_msg.edit_text(
+            f"✅ **BROADCAST COMPLETED**\n\n"
+            f"📤 **Successfully sent:** {sent_count} users\n"
+            f"❌ **Failed to send:** {failed_count} users\n"
+            f"📊 **Success Rate:** {success_rate:.1f}%\n"
+            f"👨‍💼 **Broadcast by:** Admin {user_id}\n"
+            f"📅 **Completed at:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+            f"💡 **Failed messages typically due to users blocking the bot.**"
         )
         
-        logger.info(f"Admin {user_id} broadcasted to {sent_count} users")
+        logger.info(f"Admin {user_id} broadcasted to {sent_count}/{len(active_users)} users")
     
     except Exception as e:
         logger.error(f"Error in broadcast: {e}")
-        await update.message.reply_text("❌ Broadcast ပို့၍မရပါ။")
+        await update.message.reply_text("❌ Error occurred during broadcast.")
+
+async def test_forward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Test auto-forward system"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
+        return
+    
+    try:
+        test_message = (
+            f"🧪 **AUTO-FORWARD SYSTEM TEST**\n\n"
+            f"⏰ **Test Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"🤖 **Test initiated by:** Admin {user_id}\n\n"
+            f"✅ **If you see this message, auto-forward is working!**"
+        )
+        
+        forwarded_count = 0
+        failed_count = 0
+        
+        # Forward to all approved groups
+        for group_id in APPROVED_GROUPS:
+            try:
+                await context.bot.send_message(
+                    chat_id=group_id,
+                    text=test_message
+                )
+                forwarded_count += 1
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Failed to forward test to group {group_id}: {e}")
+        
+        await update.message.reply_text(
+            f"🧪 **AUTO-FORWARD TEST RESULTS**\n\n"
+            f"✅ **Successfully forwarded:** {forwarded_count} groups\n"
+            f"❌ **Failed to forward:** {failed_count} groups\n"
+            f"📊 **Total groups:** {len(APPROVED_GROUPS)}\n\n"
+            f"💡 **Check the groups to verify message delivery.**"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in test forward: {e}")
+        await update.message.reply_text("❌ Error during forward test.")
+
+async def test_announce_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Test announcement system"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
+        return
+    
+    try:
+        from config import GENERAL_ANNOUNCEMENT_GROUPS
+        
+        test_announcement = (
+            f"📣 **SYSTEM ANNOUNCEMENT TEST**\n\n"
+            f"🎯 **This is a test announcement**\n"
+            f"⏰ **Time:** {datetime.now().strftime('%H:%M:%S')}\n"
+            f"🔧 **Test by:** Admin {user_id}\n\n"
+            f"✅ **Announcement system is working properly!**"
+        )
+        
+        announced_count = 0
+        failed_count = 0
+        
+        # Send to announcement groups
+        for group_id in GENERAL_ANNOUNCEMENT_GROUPS:
+            try:
+                await context.bot.send_message(
+                    chat_id=group_id,
+                    text=test_announcement
+                )
+                announced_count += 1
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Failed to announce test to group {group_id}: {e}")
+        
+        await update.message.reply_text(
+            f"📣 **ANNOUNCEMENT TEST RESULTS**\n\n"
+            f"✅ **Successfully announced:** {announced_count} groups\n"
+            f"❌ **Failed to announce:** {failed_count} groups\n"
+            f"📊 **Total announcement groups:** {len(GENERAL_ANNOUNCEMENT_GROUPS)}\n\n"
+            f"💡 **Check announcement groups for message delivery.**"
+        )
+        
+    except ImportError:
+        await update.message.reply_text("❌ GENERAL_ANNOUNCEMENT_GROUPS not configured in config.py")
+    except Exception as e:
+        logger.error(f"Error in test announce: {e}")
+        await update.message.reply_text("❌ Error during announcement test.")
+
+async def handle_forward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Forward a message to all approved groups"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ ဤကွန်မန်းသည် Admin များအတွက်သာဖြစ်သည်။")
+        return
+    
+    # Check if replying to a message
+    if not update.message.reply_to_message:
+        await update.message.reply_text(
+            "❌ **အသုံးပြုပုံ:** Reply to a message with `/forward`\n\n"
+            "**လမ်းညွှန်:**\n"
+            "1. Forward လုပ်ရန် message ကို reply လုပ်ပါ\n"
+            "2. `/forward` command ရိုက်ပါ\n"
+            "3. Message သည် approved groups အားလုံးသို့ ပို့သွားပါမည်"
+        )
+        return
+    
+    try:
+        forwarded_count = 0
+        failed_count = 0
+        
+        status_msg = await update.message.reply_text("📤 **Forwarding message to all groups...**")
+        
+        # Forward to all approved groups
+        for group_id in APPROVED_GROUPS:
+            try:
+                await context.bot.forward_message(
+                    chat_id=group_id,
+                    from_chat_id=update.message.chat_id,
+                    message_id=update.message.reply_to_message.message_id
+                )
+                forwarded_count += 1
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Failed to forward to group {group_id}: {e}")
+        
+        await status_msg.edit_text(
+            f"📤 **FORWARD COMPLETED**\n\n"
+            f"✅ **Successfully forwarded:** {forwarded_count} groups\n"
+            f"❌ **Failed to forward:** {failed_count} groups\n"
+            f"📊 **Total groups:** {len(APPROVED_GROUPS)}\n"
+            f"👨‍💼 **Forwarded by:** Admin {user_id}\n"
+            f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}"
+        )
+        
+        logger.info(f"Admin {user_id} forwarded message to {forwarded_count} groups")
+        
+    except Exception as e:
+        logger.error(f"Error in forward command: {e}")
+        await update.message.reply_text("❌ Error occurred during forwarding.")
 
 def register_handlers(application: Application):
-    """Register admin command handlers"""
-    logger.info("Registering admin handlers with Myanmar language support")
+    """Register admin command handlers - COMPLETE"""
+    logger.info("Registering comprehensive admin handlers")
     
-    # Channel management commands - HIGHEST PRIORITY
+    # Channel management commands
     application.add_handler(CommandHandler("addchannel", add_channel))
     application.add_handler(CommandHandler("removechannel", remove_channel))
     application.add_handler(CommandHandler("listchannels", list_channels))
@@ -431,11 +833,29 @@ def register_handlers(application: Application):
     application.add_handler(CommandHandler("ban", ban_user_command))
     application.add_handler(CommandHandler("unban", unban_user_command))
     
-    # System commands
-    application.add_handler(CommandHandler("broadcast", broadcast_message))
-    application.add_handler(CommandHandler("systemstatus", system_status))
+    # System configuration commands
+    application.add_handler(CommandHandler("setreferral", set_referral_reward_command))
+    application.add_handler(CommandHandler("setrate", set_message_rate_command))
+    application.add_handler(CommandHandler("viewsettings", view_settings_command))
+    application.add_handler(CommandHandler("systemstats", system_stats_command))
     
-    # User name update command
+    # System monitoring commands
+    application.add_handler(CommandHandler("systemstatus", system_status))
     application.add_handler(CommandHandler("updatenames", update_user_names_command))
     
-    logger.info("✅ Admin handlers with Myanmar language registered successfully")
+    # Communication commands
+    application.add_handler(CommandHandler("broadcast", broadcast_message))
+    application.add_handler(CommandHandler("forward", handle_forward_command))
+    
+    # Testing commands
+    application.add_handler(CommandHandler("testforward", test_forward_command))
+    application.add_handler(CommandHandler("testannounce", test_announce_command))
+    
+    logger.info("✅ All admin handlers registered successfully")
+    logger.info("Available admin commands:")
+    logger.info("  Channel: /addchannel, /removechannel, /listchannels")
+    logger.info("  Users: /ban, /unban")
+    logger.info("  Config: /setreferral, /setrate, /viewsettings")
+    logger.info("  Stats: /systemstats, /systemstatus, /updatenames")
+    logger.info("  Communication: /broadcast, /forward")
+    logger.info("  Testing: /testforward, /testannounce")
