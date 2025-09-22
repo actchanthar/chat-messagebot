@@ -10,7 +10,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from database.database import db
-from config import CURRENCY, BOT_NAME, APPROVED_GROUPS
+from config import CURRENCY, APPROVED_GROUPS  # REMOVED BOT_NAME
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -81,9 +81,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 await update.message.reply_text("❌ အကောင့်ဖွင့်၍မရပါ။ ထပ်မံကြိုးစားပါ။")
                 return
             
-            # Welcome message for new user
+            # Welcome message for new user - FIXED BOT_NAME
             welcome_text = (
-                f"🎉 **{BOT_NAME} မှ ကြိုဆိုပါတယ်!**\n\n"
+                f"🎉 **စာပို့ရင်း ငွေရှာကြမယ် မှ ကြိုဆိုပါတယ်!**\n\n"
                 f"👤 **{user.first_name}**, သင့်အကောင့်ကို အောင်မြင်စွာ ဖွင့်လှစ်ပါပြီ!\n\n"
                 f"🎁 **Welcome Bonus:** ၁၀၀ {CURRENCY} ရရှိပါပြီ!\n\n"
                 f"💡 **ငွေရှာနည်း:**\n"
