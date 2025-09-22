@@ -249,6 +249,9 @@ async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TY
         
         if len(not_joined) == 0:
             # All channels joined
+            back_keyboard = [[InlineKeyboardButton("🏠 Back to Menu", callback_data="back_to_main_menu")]]
+            back_markup = InlineKeyboardMarkup(back_keyboard)
+            
             await query.edit_message_text(
                 "✅ **CONGRATULATIONS!**\n\n"
                 "🎉 You joined all mandatory channels!\n"
@@ -259,7 +262,8 @@ async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TY
                 "• Earn 1 kyat every 3 messages\n"
                 "• Invite more friends for bonuses!\n\n"
                 f"**Your referral link:**\n"
-                f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
+                f"`https://t.me/{context.bot.username}?start=ref_{user_id}`",
+                reply_markup=back_markup
             )
             
             # Process referral reward
@@ -288,6 +292,7 @@ async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TY
                 keyboard.append([InlineKeyboardButton(f"📺 Join {channel_name}", url=join_url)])
             
             keyboard.append([InlineKeyboardButton("🔄 Check Again", callback_data="check_referral_channels")])
+            keyboard.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="back_to_main_menu")])
             reply_markup = InlineKeyboardMarkup(keyboard)
             
             not_joined_names = [ch['name'] for ch in not_joined[:3]]
@@ -308,7 +313,7 @@ async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TY
             pass
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle start menu callbacks - IMPROVED ERROR HANDLING"""
+    """Handle start menu callbacks - REMOVE BUTTONS AFTER CLICK"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
@@ -320,6 +325,10 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Failed to answer callback query: {e}")
     
     try:
+        # Add a "Back to Menu" button for most actions
+        back_keyboard = [[InlineKeyboardButton("🏠 Back to Menu", callback_data="back_to_main_menu")]]
+        back_markup = InlineKeyboardMarkup(back_keyboard)
+        
         if data == "withdraw_menu":
             await query.edit_message_text(
                 "💰 **WITHDRAWAL MENU**\n\n"
@@ -334,7 +343,8 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 "• KBZ Pay\n"
                 "• Wave Pay\n"
                 "• Binance Pay\n"
-                "• Phone Bill Top-up"
+                "• Phone Bill Top-up",
+                reply_markup=back_markup
             )
             
         elif data == "my_profile":
@@ -362,7 +372,7 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                     f"📋 **Referral Link:**\n"
                     f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
                 )
-                await query.edit_message_text(profile_text)
+                await query.edit_message_text(profile_text, reply_markup=back_markup)
             else:
                 await query.edit_message_text("❌ User profile not found. Please try `/start` again.")
             
@@ -386,7 +396,8 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 f"2. Share with friends on social media\n"
                 f"3. Explain they'll get 100 {CURRENCY} welcome bonus\n"
                 f"4. You get {current_reward} {CURRENCY} when they join channels\n\n"
-                f"🎯 **No limit on referrals - invite unlimited friends!**"
+                f"🎯 **No limit on referrals - invite unlimited friends!**",
+                reply_markup=back_markup
             )
             
         elif data == "leaderboard_menu":
@@ -401,7 +412,8 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 "• 💸 Top Withdrawers\n"
                 "• 👥 Best Referrers\n\n"
                 "Check your personal rank:\n"
-                "👉 `/rank` or `/myrank`"
+                "👉 `/rank` or `/myrank`",
+                reply_markup=back_markup
             )
             
         elif data == "start_earning":
@@ -432,7 +444,8 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 f"• Only meaningful messages count\n"
                 f"• No spam or repeated messages\n"
                 f"• Join mandatory channels to withdraw\n\n"
-                f"🎯 **Start chatting and earning now!**"
+                f"🎯 **Start chatting and earning now!**",
+                reply_markup=back_markup
             )
             
         elif data == "how_to_earn":
@@ -455,7 +468,8 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 f"• Join all mandatory channels\n"
                 f"• 10+ successful referrals\n"
                 f"• 50+ messages sent\n\n"
-                f"🎯 **Start earning today!**"
+                f"🎯 **Start earning today!**",
+                reply_markup=back_markup
             )
             
         elif data == "check_withdrawal_requirements":
@@ -505,7 +519,7 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                         for channel in not_joined[:3]:
                             status_text += f"• {channel['name']}\n"
                 
-                await query.edit_message_text(status_text)
+                await query.edit_message_text(status_text, reply_markup=back_markup)
                 
             except Exception as e:
                 logger.error(f"Error checking withdrawal requirements: {e}")
@@ -527,7 +541,8 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                         "• Invite 10 friends for withdrawal\n"
                         "• Reach 200 kyat minimum balance\n\n"
                         f"📋 **Your referral link:**\n"
-                        f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
+                        f"`https://t.me/{context.bot.username}?start=ref_{user_id}`",
+                        reply_markup=back_markup
                     )
                 else:
                     # Show join buttons for remaining channels
@@ -550,6 +565,7 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                         keyboard.append([InlineKeyboardButton(f"📺 Join {channel_name}", url=join_url)])
                     
                     keyboard.append([InlineKeyboardButton("🔄 Check Again", callback_data="check_force_join_status")])
+                    keyboard.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="back_to_main_menu")])
                     reply_markup = InlineKeyboardMarkup(keyboard)
                     
                     await query.edit_message_text(
@@ -566,6 +582,59 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
             except Exception as e:
                 logger.error(f"Error checking force join status: {e}")
                 await query.edit_message_text("❌ Error checking status. Please try `/start` again.")
+        
+        elif data == "back_to_main_menu":
+            # Return to main menu - RECREATE START MESSAGE
+            user = await db.get_user(user_id)
+            if user:
+                current_balance = user.get("balance", 0)
+                total_earnings = user.get("total_earnings", 0)
+                messages_count = user.get("messages", 0)
+                referrals = user.get("successful_referrals", 0)
+                
+                # Check withdrawal status
+                try:
+                    from plugins.withdrawal import check_user_subscriptions
+                    requirements_met, joined, not_joined, referral_count = await check_user_subscriptions(user_id, context)
+                    force_join_status = f"✅ Ready to withdraw" if requirements_met else f"❌ Need {len(not_joined)} channels + {10-referral_count} referrals"
+                except:
+                    force_join_status = "Check withdrawal requirements"
+                
+                welcome_text = (
+                    f"👋 **ကြိုဆိုပါတယ် {query.from_user.first_name}!**\n\n"
+                    f"💰 **လက်ကျန်ငွေ:** {int(current_balance)} {CURRENCY}\n"
+                    f"📈 **စုစုပေါင်းရငွေ:** {int(total_earnings)} {CURRENCY}\n"
+                    f"💬 **ပို့ထားသောစာ:** {messages_count:,} စာ\n"
+                    f"👥 **ဖိတ်ကြားမှုများ:** {referrals} မိတ်ဆွေ\n"
+                    f"🎯 **Withdrawal Status:** {force_join_status}\n\n"
+                    f"💡 **ငွေရှာနည်း:**\n"
+                    f"• Approved Groups များထဲမှာ စာပို့ပါ\n"
+                    f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
+                    f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၂၅ {CURRENCY} ရယူပါ\n"
+                    f"• အနည်းဆုံး ၂၀၀ {CURRENCY} ငွေထုတ်နိုင်ပါတယ်\n\n"
+                    f"🔗 **Your Referral Link:**\n"
+                    f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
+                )
+                
+                # Create main menu keyboard
+                keyboard = [
+                    [
+                        InlineKeyboardButton("💰 ငွေထုတ်မယ်", callback_data="withdraw_menu"),
+                        InlineKeyboardButton("📊 ကျွန်တော့်အခြေအနေ", callback_data="my_profile")
+                    ],
+                    [
+                        InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard_menu"),
+                        InlineKeyboardButton("👥 မိတ်ဆွေဖိတ်မယ်", callback_data="invite_friends")
+                    ],
+                    [
+                        InlineKeyboardButton("📺 Check Requirements", callback_data="check_withdrawal_requirements")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await query.edit_message_text(welcome_text, reply_markup=reply_markup)
+            else:
+                await query.edit_message_text("❌ User not found. Please use `/start` command.")
         
         else:
             logger.warning(f"Unknown callback data: {data}")
@@ -596,8 +665,8 @@ def register_handlers(application: Application):
     # Command handlers
     application.add_handler(CommandHandler("start", start_command))
     
-    # Callback handlers - IMPROVED ERROR HANDLING
+    # Callback handlers - IMPROVED ERROR HANDLING + BACK BUTTON
     application.add_handler(CallbackQueryHandler(handle_referral_check, pattern="^check_referral_channels$"))
-    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(withdraw_menu|my_profile|invite_friends|leaderboard_menu|start_earning|how_to_earn|check_withdrawal_requirements|check_force_join_status)$"))
+    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(withdraw_menu|my_profile|invite_friends|leaderboard_menu|start_earning|how_to_earn|check_withdrawal_requirements|check_force_join_status|back_to_main_menu)$"))
     
     logger.info("✅ Start handlers with advanced referral and force join system registered successfully")
