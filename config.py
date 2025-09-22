@@ -18,27 +18,40 @@ MESSAGE_RATE = 3
 MIN_WITHDRAWAL = 200
 MAX_DAILY_WITHDRAWAL = 10000
 
-# Anti-Spam Settings
-MAX_EMOJI_COUNT = 8
-MAX_LINKS_COUNT = 2
+# Enhanced Anti-Spam Settings
+MAX_EMOJI_COUNT = 3  # Maximum emojis per message
+MAX_LINKS_COUNT = 1  # Maximum links per message
+MIN_MESSAGE_LENGTH = 3  # Minimum message length
+MAX_MESSAGE_LENGTH = 500  # Maximum message length
+MAX_REPEATED_CHARS = 3  # Maximum repeated characters
+MAX_MESSAGES_PER_MINUTE = 8  # Maximum messages per user per minute
+SPAM_COOLDOWN_MINUTES = 5  # Cooldown period for spammers
 
-# Spam Keywords and Patterns
+# Enhanced Spam Keywords (case insensitive)
 SPAM_KEYWORDS = [
-    "free money", "click here", "buy now", "win prize", "guaranteed profit",
-    "join channel", "earn money", "make money", "100% free", "limited time",
-    "act now", "download app", "visit link", "call now", "whatsapp me"
+    "dmd", "dmmd", "dmdm", "mdm", "dm", "md", "rm", "em", "m",
+    "gm", "fkf", "kf", "mdfof", "rrkrek", "x.x", "g",
+    "haha", "lol", "wtf", "omg", "bruh", "ok", "yes", "no",
+    "test", "testing", "spam", "bot", "earn", "money", "dmr",
+    "mf", "dkf", "rkrek", "ddmd", "dmr", "d", "f", "k",
+    "dd", "mm", "ff", "kk", "gg", "rr", "tt", "pp"
 ]
 
+# Enhanced Spam Patterns (regex)
 SPAM_PATTERNS = [
-    r'https?://bit\.ly/\w+',
-    r'https?://tinyurl\.com/\w+',
-    r'(?:telegram\.me|t\.me)/\w+',
-    r'[A-Z]{6,}',
-    r'(.)\1{5,}',
-    r'\b(?:\+?95|09)\d{8,9}\b.*(?:call|contact|whatsapp)',
+    r'^[a-z]{1,3}$',  # Single/double/triple letters (d, dm, dmd)
+    r'^[A-Z]{1,3}$',  # Single caps (D, DM, DMD)
+    r'(.)\1{2,}',  # Repeated characters (aaa, ddd, mmm)
+    r'^(ha|haha|lol|wtf|omg|bruh|ok|yes|no|test)$',  # Common spam words
+    r'(.{1,3})\1{2,}',  # Repeated patterns (dmdmdm)
+    r'^[^\w\s]+$',  # Only special characters
+    r'^\s*$',  # Empty or whitespace only
+    r'^[a-z]$',  # Single letter
+    r'^[0-9]{1,3}$',  # Short numbers
+    r'^(.)\\1+$',  # Same character repeated
 ]
 
-# Receipt and Announcement Settings - FIXED
+# Receipt and Announcement Settings
 RECEIPT_CHANNEL_ID = "-1002978328897"  # Your @actearnproof channel ID
 RECEIPT_CHANNEL_NAME = "@actearnproof"
 
@@ -58,8 +71,8 @@ AUTO_ANNOUNCE_NEW_USERS = True
 AUTO_ANNOUNCE_MILESTONES = True
 
 # Referral Settings
-DEFAULT_REFERRAL_REWARD = 50  # 50 kyat per referral as requested
-DEFAULT_MESSAGE_RATE = 3      # 3 messages = 1 kyat as requested
+DEFAULT_REFERRAL_REWARD = 50  # 50 kyat per referral
+DEFAULT_MESSAGE_RATE = 3      # 3 messages = 1 kyat
 
 # Welcome Settings
 WELCOME_BONUS = 100  # New users get 100 kyat welcome bonus
