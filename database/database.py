@@ -109,15 +109,20 @@ class Database:
             return []
 
     async def add_mandatory_channel(self, channel_id: str, channel_name: str, added_by: str = "admin"):
-        """Add a mandatory channel"""
+        """Add a mandatory channel - FIXED"""
         try:
+            logger.info(f"Adding mandatory channel: {channel_id} - {channel_name} by {added_by}")
+            
             # Get current channels
             channels_doc = await self.settings.find_one({"_id": "mandatory_channels"})
             current_channels = channels_doc.get("channels", []) if channels_doc else []
             
+            logger.info(f"Current channels count: {len(current_channels)}")
+            
             # Check if channel already exists
             for channel in current_channels:
                 if channel.get("channel_id") == channel_id:
+                    logger.warning(f"Channel {channel_id} already exists")
                     return False  # Channel already exists
             
             # Add new channel
@@ -131,16 +136,25 @@ class Database:
             current_channels.append(new_channel)
             
             # Update in database
-            await self.settings.update_one(
+            result = await self.settings.update_one(
                 {"_id": "mandatory_channels"},
                 {"$set": {"channels": current_channels}},
                 upsert=True
             )
             
+            logger.info(f"Database update result: modified={result.modified_count}, upserted={result.upserted_id}")
+            
+            # Verify the channel was added
+            verification = await self.settings.find_one({"_id": "mandatory_channels"})
+            final_count = len(verification.get("channels", [])) if verification else 0
+            logger.info(f"Final channels count after adding: {final_count}")
+            
             return True
             
         except Exception as e:
-            logger.error(f"Error adding mandatory channel: {e}")
+            logger.error(f"Error adding mandatory channel {channel_id}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     async def remove_mandatory_channel(self, channel_id: str):
@@ -152,12 +166,13 @@ class Database:
                 return False
             
             current_channels = channels_doc.get("channels", [])
+            initial_count = len(current_channels)
             
             # Remove channel with matching ID
             updated_channels = [ch for ch in current_channels if ch.get("channel_id") != channel_id]
             
             # Check if anything was removed
-            if len(updated_channels) == len(current_channels):
+            if len(updated_channels) == initial_count:
                 return False  # No channel was removed
             
             # Update in database
@@ -166,6 +181,7 @@ class Database:
                 {"$set": {"channels": updated_channels}}
             )
             
+            logger.info(f"Removed channel {channel_id}, remaining: {len(updated_channels)}")
             return True
             
         except Exception as e:
@@ -557,6 +573,75 @@ class Database:
                 "avg_withdrawal": 0,
                 "max_withdrawal": 0
             }
+
+    async def update_user_telegram_info(self, user_id: str, telegram_user):
+        """Update user's Telegram info in database"""
+        try:
+            updates = {
+                "first_name": telegram_user.first_name or "",
+                "last_name": telegram_user.last_name or "",
+                "username": telegram_user.username or "",
+                "last_name_update": datetime.now(timezone.utc).isoformat()
+            }
+            
+            result = await self.users.update_one(
+                {"user_id": user_id},
+                {"$set": updates}
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error updating user Telegram info for {user_id}: {e}")
+            return False
+
+    async def bulk_update_user_names(self, context):
+        """Bulk update user names from Telegram API - USE CAREFULLY"""
+        try:
+            # Get users with missing names
+            cursor = self.users.find(
+                {
+                    "$or": [
+                        {"first_name": {"$in": ["", None, "None", "null"]}},
+                        {"first_name": {"$exists": False}},
+                        {"last_name": {"$in": ["", None, "None", "null"]}},
+                        {"username": {"$in": ["", None, "None", "null"]}}
+                    ],
+                    "banned": {"$ne": True}
+                },
+                {"user_id": 1, "first_name": 1, "last_name": 1, "username": 1}
+            ).limit(50)  # Limit to avoid rate limits
+            
+            users_to_update = await cursor.to_list(length=50)
+            updated_count = 0
+            
+            for user in users_to_update:
+                try:
+                    user_id = user.get("user_id")
+                    if not user_id:
+                        continue
+                    
+                    # Get fresh info from Telegram
+                    telegram_user = await context.bot.get_chat(int(user_id))
+                    
+                    if telegram_user:
+                        await self.update_user_telegram_info(user_id, telegram_user)
+                        updated_count += 1
+                        logger.info(f"Updated user info for {user_id}: {telegram_user.first_name}")
+                    
+                    # Small delay to avoid rate limits
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    logger.error(f"Failed to update user {user_id}: {e}")
+                    continue
+            
+            logger.info(f"Bulk updated {updated_count} user names")
+            return updated_count
+            
+        except Exception as e:
+            logger.error(f"Error in bulk update user names: {e}")
+            return 0
 
     async def process_message_earning(self, user_id: str, group_id: str, context):
         """Process message earning for user"""
