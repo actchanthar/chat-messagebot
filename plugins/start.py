@@ -16,7 +16,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command with advanced referral system and force join"""
+    """Handle /start command with advanced referral system and force join - FIXED"""
     user_id = str(update.effective_user.id)
     user = update.effective_user
     logger.info(f"Start command from user {user_id}")
@@ -26,9 +26,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         referred_by = None
         if context.args:
             ref_arg = context.args[0]
+            logger.info(f"Referral argument received: {ref_arg}")
             if ref_arg.startswith("ref_"):
                 referred_by = ref_arg[4:]  # Remove "ref_" prefix
                 logger.info(f"User {user_id} referred by {referred_by}")
+            else:
+                logger.warning(f"Invalid referral format: {ref_arg}")
 
         # Check if user already exists
         existing_user = await db.get_user(user_id)
@@ -80,18 +83,23 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             reply_markup = InlineKeyboardMarkup(keyboard)
             
         else:
-            # New user - create account
+            # NEW USER - Create account with proper referral handling
+            logger.info(f"Creating new user {user_id} with referrer {referred_by}")
+            
             user_data = {
                 "first_name": user.first_name or "",
                 "last_name": user.last_name or "",
                 "username": user.username or ""
             }
             
+            # Create user with referrer
             new_user = await db.create_user(user_id, user_data, referred_by)
             
             if not new_user:
                 await update.message.reply_text("❌ အကောင့်ဖွင့်၍မရပါ။ ထပ်မံကြိုးစားပါ။")
                 return
+            
+            logger.info(f"Successfully created user {user_id}, balance: {new_user.get('balance', 0)}")
             
             # Get mandatory channels for new users
             channels = await db.get_mandatory_channels()
@@ -100,8 +108,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             welcome_text = (
                 f"🎉 **စာပို့ရင်း ငွေရှာကြမယ် မှ ကြိုဆိုပါတယ်!**\n\n"
                 f"👤 **{user.first_name}**, သင့်အကောင့်ကို အောင်မြင်စွာ ဖွင့်လှစ်ပါပြီ!\n\n"
-                f"🎁 **Welcome Bonus:** ၁၀၀ {CURRENCY} ရရှိပါပြီ!\n\n"
-                f"💡 **ငွေရှာနည်း:**\n"
+                f"🎁 **Welcome Bonus:** ၁၀၀ {CURRENCY} ရရှိပါပြီ!\n"
+            )
+            
+            # Add referral info if applicable
+            if referred_by:
+                try:
+                    referrer_info = await context.bot.get_chat(int(referred_by))
+                    referrer_name = referrer_info.first_name or "friend"
+                    welcome_text += f"👥 **You were invited by {referrer_name}!**\n"
+                except:
+                    welcome_text += f"👥 **You were referred by a friend!**\n"
+            
+            welcome_text += (
+                f"\n💡 **ငွေရှာနည်း:**\n"
                 f"• Approved Groups များတွင် စာများပို့ပါ\n"
                 f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
                 f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရပါ\n"
@@ -120,6 +140,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             if referred_by and channels:
                 # Special handling for referred users - FORCE JOIN FLOW
                 keyboard = []
+                
+                welcome_text += f"🎁 **SPECIAL REFERRAL BONUS**\n\n"
+                welcome_text += f"💰 **Join all channels below to activate referral bonus**\n"
+                welcome_text += f"🎯 **Your friend will get reward when you join all channels**\n\n"
+                welcome_text += f"⚠️ **IMPORTANT:** You must join ALL channels below to unlock:\n"
+                welcome_text += f"• Referral bonus for your friend\n"
+                welcome_text += f"• Withdrawal privileges\n"
+                welcome_text += f"• Full bot features\n\n"
+                welcome_text += f"📺 **Please join these channels to continue:**"
                 
                 # Add join buttons for each channel
                 for channel in channels[:5]:  # Show max 5 channels
@@ -143,24 +172,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 # Add verification button
                 keyboard.append([InlineKeyboardButton("✅ I Joined All Channels", callback_data="check_referral_channels")])
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                # Get referrer name
-                referrer_name = "friend"
-                try:
-                    referrer_info = await context.bot.get_chat(int(referred_by))
-                    referrer_name = referrer_info.first_name or "friend"
-                except:
-                    pass
-                
-                welcome_text += f"\n🎁 **SPECIAL REFERRAL BONUS**\n\n"
-                welcome_text += f"👥 **You were invited by {referrer_name}!**\n"
-                welcome_text += f"💰 **Join all channels below to activate referral bonus**\n"
-                welcome_text += f"🎯 **Your friend will get 50 {CURRENCY} when you join all channels**\n\n"
-                welcome_text += f"⚠️ **IMPORTANT:** You must join ALL channels below to unlock:\n"
-                welcome_text += f"• Referral bonus for your friend\n"
-                welcome_text += f"• Withdrawal privileges\n"
-                welcome_text += f"• Full bot features\n\n"
-                welcome_text += f"📺 **Please join these channels to continue:**"
                 
             elif channels:
                 # Regular new user with channels - show force join requirement
