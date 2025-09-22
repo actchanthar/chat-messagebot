@@ -42,6 +42,25 @@ STEP_PAYMENT_METHOD, STEP_AMOUNT, STEP_DETAILS = range(3)
 # Updated payment methods as requested
 PAYMENT_METHODS = ["KBZ Pay", "Wave Pay", "Binance Pay", "Phone Bill"]
 
+async def get_next_order_id():
+    """Get next sequential order ID"""
+    try:
+        # Get the highest order ID from database
+        settings = await db.get_settings()
+        current_order_id = settings.get("last_order_id", 0)
+        
+        # Increment for new order
+        next_order_id = current_order_id + 1
+        
+        # Update in database
+        await db.update_settings({"last_order_id": next_order_id})
+        
+        return next_order_id
+    except Exception as e:
+        logger.error(f"Error getting next order ID: {e}")
+        # Fallback to timestamp-based ID
+        return int(datetime.now().timestamp()) % 100000
+
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handle the /withdraw command to initiate withdrawal process."""
     user_id = str(update.effective_user.id)
@@ -366,7 +385,7 @@ async def handle_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ConversationHandler.END
 
 async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle payment details input (text or QR image) - AUTO DEDUCT BALANCE"""
+    """Handle payment details input with ORDER ID SYSTEM"""
     user_id = str(update.effective_user.id)
     logger.info(f"Payment details from user {user_id}")
 
@@ -428,6 +447,10 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             )
             return ConversationHandler.END
 
+        # *** GENERATE UNIQUE ORDER ID ***
+        order_id = await get_next_order_id()
+        logger.info(f"Generated Order ID {order_id} for user {user_id}")
+
         # *** IMMEDIATELY DEDUCT BALANCE WHEN REQUEST IS SUBMITTED ***
         new_balance = current_balance - amount
         withdrawn_today = user.get("withdrawn_today", 0) + amount
@@ -446,9 +469,10 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         telegram_user = await context.bot.get_chat(user_id)
         name = (telegram_user.first_name or "") + (" " + telegram_user.last_name if telegram_user.last_name else "")
 
-        # Create admin approval message
+        # Create admin approval message with ORDER ID
         admin_message = (
             f"🔔 **NEW WITHDRAWAL REQUEST**\n\n"
+            f"🆔 **Order ID:** #{order_id}\n"
             f"👤 **User:** {name} ({user_id})\n"
             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
             f"💳 **Method:** {payment_method}\n"
@@ -462,11 +486,11 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"⏳ **Status:** PENDING APPROVAL"
         )
 
-        # Create admin keyboard
+        # Create admin keyboard with order ID
         keyboard = [
             [
-                InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}_{amount}"),
-                InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}_{amount}")
+                InlineKeyboardButton("✅ APPROVE", callback_data=f"approve_{user_id}_{amount}_{order_id}"),
+                InlineKeyboardButton("❌ REJECT", callback_data=f"reject_{user_id}_{amount}_{order_id}")
             ],
             [
                 InlineKeyboardButton("👤 User Profile", callback_data=f"profile_{user_id}")
@@ -487,7 +511,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await context.bot.send_photo(
                     chat_id=LOG_CHANNEL_ID,
                     photo=photo_file_id,
-                    caption=f"💳 QR Code for withdrawal request\nUser: {name} ({user_id})",
+                    caption=f"💳 QR Code for Order #{order_id}\nUser: {name} ({user_id})\nAmount: {amount:,} {CURRENCY}",
                     reply_to_message_id=log_msg.message_id
                 )
                 
@@ -501,8 +525,9 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text("❌ Failed to submit withdrawal request. Balance restored. Please try again.")
             return ConversationHandler.END
 
-        # Update user with pending withdrawal
+        # Update user with pending withdrawal including Order ID
         pending_withdrawal = {
+            "order_id": order_id,
             "amount": amount,
             "payment_method": payment_method,
             "details": details,
@@ -523,10 +548,10 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "last_name": telegram_user.last_name
         })
 
-        # Success message to user
+        # Success message to user with ORDER ID
         success_message = (
             f"✅ **WITHDRAWAL SUBMITTED SUCCESSFULLY!**\n\n"
-            f"🆔 **Request ID:** WD-{log_msg.message_id}\n"
+            f"🆔 **Order ID:** #{order_id}\n"
             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
             f"💳 **Method:** {payment_method}\n"
             f"📱 **Details:** {details if not photo_file_id else 'QR Code Provided'}\n\n"
@@ -536,13 +561,14 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"🔄 **Will be refunded if admin rejects**\n"
             f"⏳ **Status:** Pending Admin Approval\n"
             f"⏱️ **Processing Time:** Usually 2-24 hours\n\n"
-            f"🔔 **You will be notified when processed.**\n\n"
+            f"🔔 **You will be notified when processed.**\n"
+            f"📋 **Keep your Order ID for reference: #{order_id}**\n\n"
             f"သင့်ငွေထုတ်မှုကို အောင်မြင်စွာ တင်ပြပြီး လက်ကျန်ငွေမှ နုတ်ယူပါသည်။\n"
-            f"Admin မှ ငြင်းပယ်ပါက ပြန်လည်ထည့်သွင်းပေးပါမည်။"
+            f"Order ID #{order_id} ကို မှတ်သားထားပါ။"
         )
         
         await update.message.reply_text(success_message)
-        logger.info(f"Withdrawal request submitted and balance deducted: User {user_id}, Amount {amount}, Method {payment_method}")
+        logger.info(f"Withdrawal request submitted with Order ID {order_id}: User {user_id}, Amount {amount}, Method {payment_method}")
 
         return ConversationHandler.END
 
@@ -552,7 +578,7 @@ async def handle_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return ConversationHandler.END
 
 async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle user profile callback from withdrawal requests - FIXED"""
+    """Handle user profile callback from withdrawal requests"""
     query = update.callback_query
     admin_id = str(query.from_user.id)
     data = query.data
@@ -587,9 +613,12 @@ async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE
                 username = "Private"
                 full_name = user.get('first_name', 'Unknown') + " " + user.get('last_name', '')
             
+            # Get order history
+            pending_orders = [w for w in user.get('pending_withdrawals', []) if w.get('status') == 'PENDING']
+            completed_orders = [w for w in user.get('pending_withdrawals', []) if w.get('status') == 'APPROVED']
+            
             # Create detailed profile
-            profile_text = f"""
-👤 **USER PROFILE DETAILS**
+            profile_text = f"""👤 **USER PROFILE DETAILS**
 
 🆔 **Basic Info:**
 • User ID: {target_user_id}
@@ -613,20 +642,19 @@ async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE
 • Successful Referrals: {user.get('successful_referrals', 0)}
 • Total Invites: {user.get('invites', 0)}
 
+🔄 **Order History:**
+• Pending Orders: {len(pending_orders)}
+• Completed Orders: {len(completed_orders)}
+• Total Requests: {len(user.get('pending_withdrawals', []))}
+
 ⏰ **Timing:**
 • Account Created: {user.get('created_at', 'Unknown')}
 • Last Activity: {user.get('last_activity', 'Unknown')}
 • Last Withdrawal: {user.get('last_withdrawal', 'Never')}
 
-🔄 **Withdrawal History:**
-• Pending Requests: {len([w for w in user.get('pending_withdrawals', []) if w.get('status') == 'PENDING'])}
-• Total Requests: {len(user.get('pending_withdrawals', []))}
-
-🎯 **Risk Assessment:** {'⚠️ Review Needed' if user.get('messages', 0) < 100 else '✅ Trusted User'}
-            """
+🎯 **Risk Assessment:** {'⚠️ Review Needed' if user.get('messages', 0) < 100 else '✅ Trusted User'}"""
             
-            # FIXED: Send NEW message instead of editing withdrawal message
-            # This preserves the original withdrawal approval buttons
+            # Send NEW message to preserve withdrawal buttons
             await context.bot.send_message(
                 chat_id=admin_id,
                 text=profile_text
@@ -637,16 +665,17 @@ async def handle_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer("❌ Error loading profile!", show_alert=True)
 
 async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle admin approval/rejection of withdrawal requests - WITH AUTO FORWARD"""
+    """Handle admin approval/rejection with ORDER ID tracking - FIXED"""
     query = update.callback_query
-    user_id = str(query.from_user.id)
+    admin_id = str(query.from_user.id)
     data = query.data
     
-    if user_id not in ADMIN_IDS:
+    if admin_id not in ADMIN_IDS:
         await query.answer("❌ You are not authorized!", show_alert=True)
         return
 
     await query.answer()
+    logger.info(f"Processing approval callback: {data}")
     
     try:
         if data.startswith("approve_") or data.startswith("reject_"):
@@ -655,26 +684,60 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             target_user_id = parts[1]
             amount = int(parts[2])
             
-            # Process the withdrawal
+            # Handle both old format (3 parts) and new format (4 parts with order_id)
+            order_id = int(parts[3]) if len(parts) > 3 else None
+            
+            logger.info(f"Parsed callback: action={action}, user={target_user_id}, amount={amount}, order_id={order_id}")
+            
+            # Get user from database
             user = await db.get_user(target_user_id)
             if not user:
                 await query.edit_message_text("❌ User not found.")
                 return
 
-            # Find the pending withdrawal
+            # Find the pending withdrawal - IMPROVED MATCHING LOGIC
             pending_withdrawals = user.get("pending_withdrawals", [])
             withdrawal = None
+            withdrawal_index = -1
+            
+            logger.info(f"Searching through {len(pending_withdrawals)} pending withdrawals")
             
             for i, w in enumerate(pending_withdrawals):
-                if (w["amount"] == amount and 
-                    w["status"] == "PENDING" and 
-                    w.get("message_id") == query.message.message_id):
+                logger.info(f"Checking withdrawal {i}: status={w.get('status')}, amount={w.get('amount')}, order_id={w.get('order_id')}, message_id={w.get('message_id')}")
+                
+                # Multiple matching criteria for better reliability
+                is_match = (
+                    w.get("status") == "PENDING" and 
+                    w.get("amount") == amount and
+                    (
+                        # Match by order ID if available
+                        (order_id is not None and w.get("order_id") == order_id) or
+                        # Match by message ID as fallback
+                        w.get("message_id") == query.message.message_id or
+                        # Match by amount and recent timestamp as last resort
+                        (order_id is None and abs(w.get("amount", 0) - amount) == 0)
+                    )
+                )
+                
+                if is_match:
                     withdrawal = w
                     withdrawal_index = i
+                    logger.info(f"Found matching withdrawal at index {i}")
                     break
 
             if not withdrawal:
-                await query.edit_message_text("❌ Withdrawal request not found.")
+                # Debug information
+                debug_info = f"Debug info:\n"
+                debug_info += f"- Callback data: {data}\n"
+                debug_info += f"- Message ID: {query.message.message_id}\n"
+                debug_info += f"- Looking for: user={target_user_id}, amount={amount}, order_id={order_id}\n"
+                debug_info += f"- Found {len(pending_withdrawals)} pending withdrawals:\n"
+                
+                for i, w in enumerate(pending_withdrawals):
+                    debug_info += f"  {i}: status={w.get('status')}, amount={w.get('amount')}, order_id={w.get('order_id')}, msg_id={w.get('message_id')}\n"
+                
+                logger.error(debug_info)
+                await query.edit_message_text(f"❌ Withdrawal request not found.\n\n{debug_info}")
                 return
 
             if action == "approve":
@@ -683,7 +746,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 
                 # Update withdrawal status
                 pending_withdrawals[withdrawal_index]["status"] = "APPROVED"
-                pending_withdrawals[withdrawal_index]["approved_by"] = user_id
+                pending_withdrawals[withdrawal_index]["approved_by"] = admin_id
                 pending_withdrawals[withdrawal_index]["approved_at"] = datetime.now(timezone.utc).isoformat()
                 
                 await db.update_user(target_user_id, {
@@ -693,38 +756,44 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 })
 
                 # Update admin message
-                updated_message = query.message.text + f"\n\n✅ **APPROVED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Payment processed - balance was already deducted**"
+                order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else "N/A"
+                updated_message = query.message.text + f"\n\n✅ **APPROVED** by Admin {admin_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Payment processed for Order {order_display}**"
                 await query.edit_message_text(updated_message)
 
-                # Notify user
+                # Notify user with Order ID
                 try:
                     current_balance = user.get("balance", 0)
+                    order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else f"WD-{withdrawal.get('message_id', 'Unknown')}"
+                    
                     await context.bot.send_message(
                         chat_id=target_user_id,
                         text=(
                             f"✅ **WITHDRAWAL APPROVED!**\n\n"
+                            f"🆔 **Order ID:** {order_display}\n"
                             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
                             f"💳 **Method:** {withdrawal['payment_method']}\n"
                             f"💵 **Current Balance:** {int(current_balance)} {CURRENCY}\n\n"
                             f"🎉 Your withdrawal has been processed successfully!\n"
                             f"💸 **Payment is being sent to your account!**\n\n"
-                            f"သင့်ငွေထုတ်မှုကို အတည်ပြုပါသည်။\n"
+                            f"သင့်ငွေထုတ်မှု {order_display} ကို အတည်ပြုပါသည်။\n"
                             f"ငွေကို သင့်အကောင့်သို့ ပို့နေပါသည်။"
                         )
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                # UPDATED: Send to proof channel THEN forward to groups
+                # Send withdrawal announcement with Order ID
                 try:
                     if AUTO_ANNOUNCE_WITHDRAWALS:
                         telegram_user = await context.bot.get_chat(target_user_id)
                         display_name = telegram_user.first_name or "User"
+                        order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else f"WD-{withdrawal.get('message_id', 'Unknown')}"
                         
                         announcement_text = f"""💸 **WITHDRAWAL SUCCESSFUL!**
 
 🎉 **{display_name} just received {amount:,} {CURRENCY}!**
 💳 **Method:** {withdrawal['payment_method']}
+🆔 **Order ID:** {order_display}
 📅 **Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
 ✅ **PROOF OUR BOT PAYS REAL MONEY!**
@@ -745,7 +814,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                                 chat_id=RECEIPT_CHANNEL_ID,
                                 text=announcement_text
                             )
-                            logger.info(f"✅ Withdrawal receipt sent to proof channel {RECEIPT_CHANNEL_ID}")
+                            logger.info(f"✅ Withdrawal receipt sent to proof channel for {order_display}")
                         except Exception as e:
                             logger.error(f"❌ Failed to send receipt to proof channel: {e}")
                         
@@ -758,15 +827,15 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                                         from_chat_id=RECEIPT_CHANNEL_ID,
                                         message_id=receipt_msg.message_id
                                     )
-                                    logger.info(f"✅ Forwarded receipt to group {group_id}")
-                                    await asyncio.sleep(0.5)  # Small delay to avoid spam limits
+                                    logger.info(f"✅ Forwarded {order_display} receipt to group {group_id}")
+                                    await asyncio.sleep(0.5)
                                 except Exception as e:
-                                    logger.error(f"❌ Failed to forward to group {group_id}: {e}")
+                                    logger.error(f"❌ Failed to forward {order_display} to group {group_id}: {e}")
                 
                 except Exception as e:
                     logger.error(f"Error in withdrawal announcements: {e}")
 
-                logger.info(f"Admin {user_id} approved withdrawal: {target_user_id} - {amount} {CURRENCY}")
+                logger.info(f"Admin {admin_id} approved withdrawal {order_display}: {target_user_id} - {amount} {CURRENCY}")
 
             else:  # reject
                 # Reject withdrawal - REFUND the balance
@@ -776,7 +845,7 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 
                 # Update withdrawal status
                 pending_withdrawals[withdrawal_index]["status"] = "REJECTED"
-                pending_withdrawals[withdrawal_index]["rejected_by"] = user_id
+                pending_withdrawals[withdrawal_index]["rejected_by"] = admin_id
                 pending_withdrawals[withdrawal_index]["rejected_at"] = datetime.now(timezone.utc).isoformat()
                 
                 await db.update_user(target_user_id, {
@@ -786,15 +855,19 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 })
 
                 # Update admin message
-                updated_message = query.message.text + f"\n\n❌ **REJECTED** by Admin {user_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Balance refunded: {amount:,} {CURRENCY}**"
+                order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else "N/A"
+                updated_message = query.message.text + f"\n\n❌ **REJECTED** by Admin {admin_id}\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n💰 **Balance refunded for Order {order_display}: {amount:,} {CURRENCY}**"
                 await query.edit_message_text(updated_message)
 
-                # Notify user
+                # Notify user with Order ID
                 try:
+                    order_display = f"#{withdrawal.get('order_id')}" if withdrawal.get('order_id') else f"WD-{withdrawal.get('message_id', 'Unknown')}"
+                    
                     await context.bot.send_message(
                         chat_id=target_user_id,
                         text=(
                             f"❌ **WITHDRAWAL REJECTED**\n\n"
+                            f"🆔 **Order ID:** {order_display}\n"
                             f"💰 **Amount:** {amount:,} {CURRENCY}\n"
                             f"💳 **Method:** {withdrawal['payment_method']}\n"
                             f"💵 **Previous Balance:** {int(current_balance)} {CURRENCY}\n"
@@ -802,30 +875,35 @@ async def handle_approval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                             f"🔄 **Your balance has been fully restored**\n"
                             f"📝 Your withdrawal request was not approved.\n"
                             f"💡 Please contact support if you have questions.\n\n"
-                            f"သင့်ငွေထုတ်မှုကို ငြင်းပယ်ပြီး လက်ကျန်ငွေ ပြန်လည်ထည့်သွင်းပေးပါမည်။"
+                            f"Order {order_display} ကို ငြင်းပယ်ပြီး လက်ကျန်ငွေ ပြန်လည်ထည့်သွင်းပေးပါမည်။"
                         )
                     )
                 except Exception as e:
                     logger.error(f"Failed to notify user {target_user_id}: {e}")
 
-                logger.info(f"Admin {user_id} rejected withdrawal and refunded: {target_user_id} - {amount} {CURRENCY}")
+                logger.info(f"Admin {admin_id} rejected withdrawal {order_display} and refunded: {target_user_id} - {amount} {CURRENCY}")
 
     except Exception as e:
         logger.error(f"Error in handle_approval: {e}")
-        await query.edit_message_text("❌ Error processing withdrawal decision.")
+        logger.error(f"Callback data: {data}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        await query.edit_message_text(f"❌ Error processing withdrawal decision: {str(e)}")
 
 def register_handlers(application: Application):
     """Register all withdrawal handlers - FIXED CALLBACK PATTERNS"""
-    logger.info("Registering withdrawal conversation handlers")
+    logger.info("Registering withdrawal conversation handlers with Order ID system")
     
-    # Create conversation handler with SPECIFIC callback patterns
+    # Create conversation handler with FIXED PATTERNS
     conv_handler = ConversationHandler(
         entry_points=[
             CommandHandler("withdraw", withdraw)
         ],
         states={
             STEP_PAYMENT_METHOD: [
-                CallbackQueryHandler(handle_payment_method, pattern="^(wd_method_|wd_cancel)$")
+                # FIXED: More flexible pattern matching
+                CallbackQueryHandler(handle_payment_method, pattern=r"^wd_method_"),
+                CallbackQueryHandler(handle_payment_method, pattern=r"^wd_cancel$")
             ],
             STEP_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_amount)
@@ -836,26 +914,26 @@ def register_handlers(application: Application):
         },
         fallbacks=[
             CommandHandler("withdraw", withdraw),
-            CallbackQueryHandler(handle_payment_method, pattern="^wd_cancel$")
+            CallbackQueryHandler(handle_payment_method, pattern=r"^wd_cancel$")
         ],
         allow_reentry=True,
         name="withdrawal_conversation",
-        persistent=False
+        persistent=False,
+        per_message=False  # ADDED: This should fix the callback issue
     )
     
-    # Register handlers with specific priority order
-    application.add_handler(conv_handler)
+    # Register with GROUP 0 (highest priority)
+    application.add_handler(conv_handler, group=0)
     
-    # Admin approval handlers (high priority)
+    # Other handlers with lower priority
     application.add_handler(CallbackQueryHandler(
         handle_approval, 
-        pattern="^(approve_|reject_)"
-    ))
+        pattern=r"^(approve_|reject_)"
+    ), group=1)
     
-    # User profile handler (separate from approval to avoid conflicts)
     application.add_handler(CallbackQueryHandler(
         handle_user_profile, 
-        pattern="^profile_"
-    ))
+        pattern=r"^profile_"
+    ), group=1)
     
-    logger.info("✅ Withdrawal handlers registered successfully")
+    logger.info("✅ Withdrawal handlers with Order ID system registered successfully")
