@@ -1,207 +1,218 @@
 from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
-from telegram.error import TelegramError
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
 import logging
-import sys
-import os
-from collections import defaultdict
 import time
 import re
-from datetime import datetime, timedelta
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+import asyncio
+import sys
+import os
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from database.database import db
-from config import APPROVED_GROUPS, CURRENCY, ADMIN_IDS
+from config import APPROVED_GROUPS, CURRENCY
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Anti-spam tracking
-user_message_history = defaultdict(list)
-user_spam_warnings = defaultdict(int)
-user_temp_bans = {}
+# Anti-spam system - In-memory storage
+user_message_history = defaultdict(lambda: deque(maxlen=10))  # Store last 10 message times
+user_content_history = defaultdict(lambda: deque(maxlen=5))   # Store last 5 message contents
+user_warnings = defaultdict(int)  # Warning count per user
+temp_banned_users = set()  # Temporarily banned users
+user_temp_ban_until = {}  # Ban expiry times
 
 # Spam detection parameters
-RAPID_MESSAGE_THRESHOLD = 3  # Messages in time window
-RAPID_TIME_WINDOW = 10       # Seconds
-FLOOD_MESSAGE_THRESHOLD = 8  # Messages in larger window
-FLOOD_TIME_WINDOW = 30       # Seconds
-MAX_IDENTICAL_MESSAGES = 3   # Same message repetitions
-SPAM_WARNING_THRESHOLD = 3   # Warnings before temp ban
+RAPID_MESSAGE_THRESHOLD = 3  # messages
+RAPID_MESSAGE_WINDOW = 10    # seconds
+DUPLICATE_THRESHOLD = 3      # repeated messages
+WARNING_THRESHOLD = 2        # warnings before temp ban
 TEMP_BAN_DURATION = 300      # 5 minutes
 
 def is_meaningful_message(text: str) -> bool:
-    """Check if message has meaningful content"""
-    if not text or len(text.strip()) < 2:
+    """Check if message contains meaningful content"""
+    if not text or len(text.strip()) < 3:
         return False
     
-    # Remove emojis and special characters for analysis
-    clean_text = re.sub(r'[^\w\s]', '', text.lower().strip())
-    
-    if len(clean_text) < 2:
-        return False
-    
-    # Common spam patterns
+    # Check for common spam patterns
     spam_patterns = [
-        r'^(.)\1{4,}$',  # Repeated characters like 'aaaaa'
-        r'^(..)\1{3,}$', # Repeated pairs like 'hahaha'
-        r'^\d+$',        # Only numbers
-        r'^[!@#$%^&*()]+$', # Only special characters
+        r'^(.)\1{4,}$',  # Repeated characters (aaaaa)
+        r'^[!@#$%^&*()_+-=\[\]{}|;:,.<>?/~`]{4,}$',  # Only symbols
+        r'^[0-9\s]+$',   # Only numbers and spaces
+        r'^[a-zA-Z]\s[a-zA-Z]\s[a-zA-Z]',  # Single letters spaced out
+        r'^\s*$',        # Only whitespace
     ]
     
     for pattern in spam_patterns:
-        if re.match(pattern, clean_text):
+        if re.match(pattern, text.strip()):
             return False
     
-    # Check for repeated words
-    words = clean_text.split()
-    if len(words) > 1:
-        unique_words = set(words)
-        if len(unique_words) == 1 and len(words) > 3:  # Same word repeated
-            return False
+    # Check for meaningful words (at least 2 characters)
+    words = text.strip().split()
+    meaningful_words = [w for w in words if len(w) >= 2 and not w.isdigit()]
     
-    return True
-
-async def analyze_spam_behavior(user_id: str, message_text: str, chat_id: int) -> dict:
-    """Analyze user's messaging behavior for spam detection"""
-    current_time = time.time()
-    
-    # Clean old message history (older than flood window)
-    user_message_history[user_id] = [
-        msg for msg in user_message_history[user_id] 
-        if current_time - msg['time'] < FLOOD_TIME_WINDOW
-    ]
-    
-    # Add current message
-    user_message_history[user_id].append({
-        'text': message_text,
-        'time': current_time,
-        'chat_id': chat_id
-    })
-    
-    messages = user_message_history[user_id]
-    
-    # Analyze recent messages
-    recent_messages = [msg for msg in messages if current_time - msg['time'] < RAPID_TIME_WINDOW]
-    rapid_count = len(recent_messages)
-    
-    # Check for flooding
-    flood_count = len(messages)
-    
-    # Check for identical messages
-    recent_texts = [msg['text'] for msg in recent_messages[-5:]]
-    identical_count = max([recent_texts.count(text) for text in set(recent_texts)]) if recent_texts else 0
-    
-    # Calculate time since last message
-    time_since_last = 0
-    if len(messages) >= 2:
-        time_since_last = messages[-1]['time'] - messages[-2]['time']
-    
-    # Determine spam type
-    is_rapid = rapid_count >= RAPID_MESSAGE_THRESHOLD
-    is_flooding = flood_count >= FLOOD_MESSAGE_THRESHOLD
-    is_identical = identical_count >= MAX_IDENTICAL_MESSAGES
-    
-    return {
-        'messages_in_window': len(recent_messages),
-        'time_since_last': time_since_last,
-        'rapid_count': rapid_count,
-        'flood_count': flood_count,
-        'identical_count': identical_count,
-        'is_rapid': is_rapid,
-        'is_flooding': is_flooding,
-        'is_identical': is_identical,
-        'is_spam': is_rapid or is_flooding or is_identical
-    }
-
-async def handle_spam_detection(user_id: str, user_name: str, spam_analysis: dict, context: ContextTypes.DEFAULT_TYPE, chat_id: int):
-    """Handle spam detection and apply appropriate actions"""
-    
-    # Determine spam severity
-    spam_reasons = []
-    if spam_analysis['is_rapid']:
-        spam_reasons.append(f"Rapid messaging: {spam_analysis['rapid_count']} fast messages")
-    if spam_analysis['is_flooding']:
-        spam_reasons.append(f"Flooding: {spam_analysis['flood_count']} messages in {FLOOD_TIME_WINDOW}s")
-    if spam_analysis['is_identical']:
-        spam_reasons.append(f"Identical messages: {spam_analysis['identical_count']} repeats")
-    
-    if not spam_reasons:
-        return False
-    
-    spam_type = "rapid" if spam_analysis['is_rapid'] else "flood" if spam_analysis['is_flooding'] else "identical"
-    reason = "; ".join(spam_reasons)
-    
-    logger.info(f"Intelligent spam handling - User: {user_id}, Type: {spam_type}, Reason: {reason}")
-    logger.info(f"Stats: {spam_analysis}")
-    
-    # Check if user is admin
-    if user_id in ADMIN_IDS:
-        logger.info(f"Admin {user_id} detected as spam but not penalized")
-        return False
-    
-    # Increment spam warnings
-    user_spam_warnings[user_id] += 1
-    current_warnings = user_spam_warnings[user_id]
-    
-    # Apply progressive penalties
-    if current_warnings >= SPAM_WARNING_THRESHOLD:
-        # Temporary ban
-        ban_until = time.time() + TEMP_BAN_DURATION
-        user_temp_bans[user_id] = ban_until
-        
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=(
-                    f"⚠️ **{user_name}** has been temporarily restricted for spam.\n"
-                    f"🕐 **Duration:** {TEMP_BAN_DURATION//60} minutes\n"
-                    f"📝 **Reason:** {reason}\n"
-                    f"💡 **Please chat normally to avoid restrictions.**"
-                )
-            )
-        except Exception as e:
-            logger.error(f"Failed to send spam notification: {e}")
-        
-        logger.warning(f"User {user_id} temporarily banned for {TEMP_BAN_DURATION//60} minutes - {reason}")
-        return True
-    
-    else:
-        # Warning message
-        try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=(
-                    f"⚠️ **Spam Warning {current_warnings}/{SPAM_WARNING_THRESHOLD}** for {user_name}\n"
-                    f"📝 **Reason:** {reason}\n"
-                    f"💡 **Please slow down and chat normally.**"
-                )
-            )
-        except Exception as e:
-            logger.error(f"Failed to send warning: {e}")
-        
-        logger.warning(f"Spam warning {current_warnings} for user {user_id} - {reason}")
-        return False
+    return len(meaningful_words) >= 1
 
 def is_user_temp_banned(user_id: str) -> bool:
     """Check if user is temporarily banned"""
-    if user_id not in user_temp_bans:
-        return False
+    if user_id in temp_banned_users:
+        # Check if ban expired
+        if user_id in user_temp_ban_until:
+            if time.time() > user_temp_ban_until[user_id]:
+                # Ban expired, remove user
+                temp_banned_users.discard(user_id)
+                del user_temp_ban_until[user_id]
+                logger.info(f"Temp ban expired for user {user_id}")
+                return False
+        return True
+    return False
+
+async def analyze_spam_behavior(user_id: str, message_text: str, chat_id: str) -> dict:
+    """Analyze user's messaging behavior for spam detection"""
+    current_time = time.time()
     
-    if time.time() > user_temp_bans[user_id]:
-        # Ban expired
-        del user_temp_bans[user_id]
-        user_spam_warnings[user_id] = max(0, user_spam_warnings[user_id] - 1)  # Reduce warnings
-        return False
+    # Add current message time to history
+    user_message_history[user_id].append(current_time)
+    user_content_history[user_id].append(message_text.lower().strip())
     
-    return True
+    # Check for rapid messaging
+    recent_messages = list(user_message_history[user_id])
+    if len(recent_messages) >= RAPID_MESSAGE_THRESHOLD:
+        time_diff = recent_messages[-1] - recent_messages[-RAPID_MESSAGE_THRESHOLD]
+        is_rapid = time_diff < RAPID_MESSAGE_WINDOW
+    else:
+        is_rapid = False
+    
+    # Check for duplicate content
+    recent_content = list(user_content_history[user_id])
+    duplicate_count = recent_content.count(message_text.lower().strip())
+    is_duplicate = duplicate_count >= DUPLICATE_THRESHOLD
+    
+    # Check for meaningless content
+    is_meaningless = not is_meaningful_message(message_text)
+    
+    # Determine overall spam score
+    spam_score = 0
+    if is_rapid:
+        spam_score += 1
+    if is_duplicate:
+        spam_score += 2
+    if is_meaningless:
+        spam_score += 1
+    
+    return {
+        'is_spam': spam_score >= 2,
+        'is_rapid': is_rapid,
+        'is_duplicate': is_duplicate,
+        'is_meaningless': is_meaningless,
+        'spam_score': spam_score,
+        'duplicate_count': duplicate_count
+    }
+
+async def handle_spam_detection(user_id: str, user_name: str, spam_analysis: dict, context: ContextTypes.DEFAULT_TYPE, chat_id: str) -> bool:
+    """Handle spam detection and apply appropriate actions"""
+    
+    if spam_analysis['spam_score'] >= 3 or spam_analysis['duplicate_count'] >= 3:
+        # Severe spam - immediate temp ban
+        user_warnings[user_id] = WARNING_THRESHOLD
+        temp_banned_users.add(user_id)
+        user_temp_ban_until[user_id] = time.time() + TEMP_BAN_DURATION
+        
+        logger.warning(f"User {user_id} temp banned for severe spam (score: {spam_analysis['spam_score']})")
+        
+        # Notify user privately
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=(
+                    f"⚠️ **TEMPORARY BAN - 5 MINUTES**\n\n"
+                    f"🚫 **Reason:** Spam/Duplicate messages detected\n\n"
+                    f"📋 **What happened:**\n"
+                    f"• {'Rapid messaging, ' if spam_analysis['is_rapid'] else ''}"
+                    f"{'Duplicate content, ' if spam_analysis['is_duplicate'] else ''}"
+                    f"{'Meaningless messages' if spam_analysis['is_meaningless'] else ''}\n\n"
+                    f"⏰ **Ban expires in:** 5 minutes\n"
+                    f"💡 **After ban:** Send meaningful, unique messages\n\n"
+                    f"🔄 **Future violations may result in longer bans**"
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify temp banned user {user_id}: {e}")
+        
+        return True
+    
+    elif spam_analysis['is_spam']:
+        # Moderate spam - increase warning
+        user_warnings[user_id] += 1
+        
+        if user_warnings[user_id] >= WARNING_THRESHOLD:
+            # Temp ban after warnings
+            temp_banned_users.add(user_id)
+            user_temp_ban_until[user_id] = time.time() + TEMP_BAN_DURATION
+            
+            logger.warning(f"User {user_id} temp banned after {user_warnings[user_id]} warnings")
+            
+            # Notify user
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=(
+                        f"🚫 **TEMPORARY BAN - 5 MINUTES**\n\n"
+                        f"⚠️ **Reason:** Multiple spam warnings\n\n"
+                        f"📊 **Your spam score:** {spam_analysis['spam_score']}/5\n"
+                        f"⚠️ **Warnings received:** {user_warnings[user_id]}\n\n"
+                        f"⏰ **Ban expires:** 5 minutes\n"
+                        f"💡 **Send quality messages to avoid future bans**"
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify warned user {user_id}: {e}")
+            
+            return True
+        else:
+            # Just a warning
+            logger.info(f"User {user_id} received spam warning {user_warnings[user_id]}/{WARNING_THRESHOLD}")
+            
+            # Send private warning (don't notify in group)
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=(
+                        f"⚠️ **SPAM WARNING {user_warnings[user_id]}/{WARNING_THRESHOLD}**\n\n"
+                        f"📊 **Detected issues:**\n"
+                        f"{'• Rapid messaging\n' if spam_analysis['is_rapid'] else ''}"
+                        f"{'• Duplicate messages\n' if spam_analysis['is_duplicate'] else ''}"
+                        f"{'• Low-quality content\n' if spam_analysis['is_meaningless'] else ''}"
+                        f"\n💡 **Please send meaningful, unique messages**\n"
+                        f"🚫 **Next warning = 5 minute ban**"
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Failed to send warning to user {user_id}: {e}")
+    
+    return False
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle all messages and process earnings with milestone notifications"""
+    """Handle all messages and process earnings with milestone notifications - FIXED"""
     try:
+        # Check if this is a callback query or channel post - SKIP THESE
+        if update.callback_query or update.channel_post or update.edited_message or update.edited_channel_post:
+            return
+        
+        # Check if update.message exists
+        if not update.message:
+            logger.warning("Received update without message object")
+            return
+        
+        # Check if message has text
+        if not hasattr(update.message, 'text') or update.message.text is None:
+            logger.info("Received non-text message, skipping earning processing")
+            return
+        
         user_id = str(update.effective_user.id)
         chat_id = update.effective_chat.id
         message_text = update.message.text or ""
@@ -243,11 +254,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_meaningful = is_meaningful_message(message_text)
         
         # Analyze spam behavior
-        spam_analysis = await analyze_spam_behavior(user_id, message_text, chat_id)
+        spam_analysis = await analyze_spam_behavior(user_id, message_text, str(chat_id))
         
         # Handle spam detection
         if spam_analysis['is_spam']:
-            spam_handled = await handle_spam_detection(user_id, user_name, spam_analysis, context, chat_id)
+            spam_handled = await handle_spam_detection(user_id, user_name, spam_analysis, context, str(chat_id))
             
             if spam_handled:
                 # User was temp banned
@@ -361,13 +372,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Traceback: {traceback.format_exc()}")
 
 def register_handlers(application: Application):
-    """Register message handlers with anti-spam system"""
+    """Register message handlers with anti-spam system - FIXED"""
     logger.info("Registering message handlers with intelligent anti-spam system")
     
-    # Handle all text messages in groups
+    # Handle all TEXT messages in GROUPS only - EXCLUDE callbacks and other message types
     application.add_handler(MessageHandler(
-        filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND,
+        filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND & ~filters.UpdateType.CALLBACK_QUERY,
         handle_message
     ))
     
     logger.info("✅ Message handlers with milestone notifications registered successfully")
+    logger.info("✅ Anti-spam system active with intelligent detection")
+    logger.info("✅ Callback queries excluded from message processing")
