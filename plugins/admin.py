@@ -331,7 +331,7 @@ async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Broadcast ပို့၍မရပါ။")
 
 async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Check system status - Myanmar language - FIXED"""
+    """Check system status - Myanmar language - FIXED WITHOUT PSUTIL"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -353,15 +353,8 @@ async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             warned_users = 0
             rapid_users = 0
         
-        # Get bot uptime
-        import psutil
-        try:
-            uptime_seconds = time.time() - psutil.Process().create_time()
-            uptime_hours = int(uptime_seconds // 3600)
-            uptime_minutes = int((uptime_seconds % 3600) // 60)
-            uptime_str = f"{uptime_hours}h {uptime_minutes}m"
-        except:
-            uptime_str = "Unknown"
+        # Get bot uptime - SIMPLIFIED WITHOUT PSUTIL
+        uptime_str = "Running"
         
         status_text = (
             f"🤖 **စနစ်အခြေအနေ**\n\n"
@@ -373,7 +366,7 @@ async def system_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             f"🚨 **Rapid messaging:** {rapid_users}\n"
             f"🛡️ **Anti-spam:** အလုပ်လုပ်နေသည်\n"
             f"📊 **Database:** ချိတ်ဆက်ထားသည်\n"
-            f"⏱️ **Bot uptime:** {uptime_str}\n\n"
+            f"⏱️ **Bot status:** {uptime_str}\n\n"
             f"✅ **စနစ်အားလုံး ကောင်းမွန်စွာအလုပ်လုပ်နေပါသည်**"
         )
         
