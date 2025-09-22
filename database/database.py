@@ -96,13 +96,81 @@ class Database:
             return 3
 
     async def get_channels(self):
-        """Get mandatory channels - FIXED"""
+        """Get mandatory channels - LEGACY METHOD"""
+        return await self.get_mandatory_channels()
+
+    async def get_mandatory_channels(self):
+        """Get all mandatory channels"""
         try:
             channels_doc = await self.settings.find_one({"_id": "mandatory_channels"})
             return channels_doc.get("channels", []) if channels_doc else []
         except Exception as e:
-            logger.error(f"Error getting channels: {e}")
+            logger.error(f"Error getting mandatory channels: {e}")
             return []
+
+    async def add_mandatory_channel(self, channel_id: str, channel_name: str, added_by: str = "admin"):
+        """Add a mandatory channel"""
+        try:
+            # Get current channels
+            channels_doc = await self.settings.find_one({"_id": "mandatory_channels"})
+            current_channels = channels_doc.get("channels", []) if channels_doc else []
+            
+            # Check if channel already exists
+            for channel in current_channels:
+                if channel.get("channel_id") == channel_id:
+                    return False  # Channel already exists
+            
+            # Add new channel
+            new_channel = {
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "added_by": added_by,
+                "added_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            current_channels.append(new_channel)
+            
+            # Update in database
+            await self.settings.update_one(
+                {"_id": "mandatory_channels"},
+                {"$set": {"channels": current_channels}},
+                upsert=True
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error adding mandatory channel: {e}")
+            return False
+
+    async def remove_mandatory_channel(self, channel_id: str):
+        """Remove a mandatory channel"""
+        try:
+            # Get current channels
+            channels_doc = await self.settings.find_one({"_id": "mandatory_channels"})
+            if not channels_doc:
+                return False
+            
+            current_channels = channels_doc.get("channels", [])
+            
+            # Remove channel with matching ID
+            updated_channels = [ch for ch in current_channels if ch.get("channel_id") != channel_id]
+            
+            # Check if anything was removed
+            if len(updated_channels) == len(current_channels):
+                return False  # No channel was removed
+            
+            # Update in database
+            await self.settings.update_one(
+                {"_id": "mandatory_channels"},
+                {"$set": {"channels": updated_channels}}
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error removing mandatory channel: {e}")
+            return False
 
     async def create_user(self, user_id: str, user_data: dict, referred_by: str = None):
         """Create a new user - FIXED SIGNATURE"""
