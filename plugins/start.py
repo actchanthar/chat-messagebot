@@ -10,13 +10,13 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from database.database import db
-from config import CURRENCY, APPROVED_GROUPS  # REMOVED BOT_NAME
+from config import CURRENCY, APPROVED_GROUPS
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command with referral system and channel requirements"""
+    """Handle /start command with advanced referral system and force join"""
     user_id = str(update.effective_user.id)
     user = update.effective_user
     logger.info(f"Start command from user {user_id}")
@@ -34,7 +34,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         existing_user = await db.get_user(user_id)
         
         if existing_user:
-            # Existing user - show welcome back message
+            # Existing user - check force join status for withdrawal
+            try:
+                from plugins.withdrawal import check_user_subscriptions
+                requirements_met, joined, not_joined, referral_count = await check_user_subscriptions(user_id, context)
+                force_join_status = f"✅ Ready to withdraw" if requirements_met else f"❌ Need {len(not_joined)} channels + {10-referral_count} referrals"
+            except:
+                force_join_status = "Check withdrawal requirements"
+            
             current_balance = existing_user.get("balance", 0)
             total_earnings = existing_user.get("total_earnings", 0)
             messages_count = existing_user.get("messages", 0)
@@ -45,13 +52,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"💰 **လက်ကျန်ငွေ:** {int(current_balance)} {CURRENCY}\n"
                 f"📈 **စုစုပေါင်းရငွေ:** {int(total_earnings)} {CURRENCY}\n"
                 f"💬 **ပို့ထားသောစာ:** {messages_count:,} စာ\n"
-                f"👥 **ဖိတ်ကြားမှုများ:** {referrals} မိတ်ဆွေ\n\n"
-                f"🎯 **ငွေရှာနည်း:**\n"
+                f"👥 **ဖိတ်ကြားမှုများ:** {referrals} မိတ်ဆွေ\n"
+                f"🎯 **Withdrawal Status:** {force_join_status}\n\n"
+                f"💡 **ငွေရှာနည်း:**\n"
                 f"• Approved Groups များထဲမှာ စာပို့ပါ\n"
                 f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
+                f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရယူပါ\n"
                 f"• အနည်းဆုံး ၂၀၀ {CURRENCY} ငွေထုတ်နိုင်ပါတယ်\n\n"
-                f"🔗 **မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရယူပါ!**\n"
-                f"**သင့်ရဲ့ ဖိတ်ကြားလင့်:** `https://t.me/{context.bot.username}?start=ref_{user_id}`"
+                f"🔗 **Your Referral Link:**\n"
+                f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
             )
             
             # Create main menu keyboard
@@ -63,6 +72,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 [
                     InlineKeyboardButton("🏆 Leaderboard", callback_data="leaderboard_menu"),
                     InlineKeyboardButton("👥 မိတ်ဆွေဖိတ်မယ်", callback_data="invite_friends")
+                ],
+                [
+                    InlineKeyboardButton("📺 Check Requirements", callback_data="check_withdrawal_requirements")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -81,7 +93,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 await update.message.reply_text("❌ အကောင့်ဖွင့်၍မရပါ။ ထပ်မံကြိုးစားပါ။")
                 return
             
-            # Welcome message for new user - FIXED BOT_NAME
+            # Get mandatory channels for new users
+            channels = await db.get_mandatory_channels()
+            
+            # Welcome message for new user
             welcome_text = (
                 f"🎉 **စာပို့ရင်း ငွေရှာကြမယ် မှ ကြိုဆိုပါတယ်!**\n\n"
                 f"👤 **{user.first_name}**, သင့်အကောင့်ကို အောင်မြင်စွာ ဖွင့်လှစ်ပါပြီ!\n\n"
@@ -91,17 +106,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
                 f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရပါ\n"
                 f"• အနည်းဆုံး ၂၀၀ {CURRENCY} ငွေထုတ်နိုင်ပါတယ်\n\n"
-                f"📋 **လိုအပ်ချက်များ:**\n"
-                f"• Mandatory channels များ join လုပ်ရပါမယ်\n"
-                f"• အနည်းဆုံး ၁၀ မိတ်ဆွေ ဖိတ်ကြားရပါမယ်\n"
-                f"• အနည်းဆုံး ၅၀ စာ ပို့ရပါမယ်\n\n"
             )
             
-            # Check if this is a referral and there are mandatory channels
-            channels = await db.get_mandatory_channels()
+            if channels:
+                welcome_text += (
+                    f"📋 **IMPORTANT - Withdrawal Requirements:**\n"
+                    f"• Join all {len(channels)} mandatory channels\n"
+                    f"• Invite at least 10 friends\n"
+                    f"• Send at least 50 messages\n\n"
+                )
             
+            # Check if this is a referral and there are mandatory channels
             if referred_by and channels:
-                # Special handling for referred users
+                # Special handling for referred users - FORCE JOIN FLOW
                 keyboard = []
                 
                 # Add join buttons for each channel
@@ -139,10 +156,48 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 welcome_text += f"👥 **You were invited by {referrer_name}!**\n"
                 welcome_text += f"💰 **Join all channels below to activate referral bonus**\n"
                 welcome_text += f"🎯 **Your friend will get 50 {CURRENCY} when you join all channels**\n\n"
+                welcome_text += f"⚠️ **IMPORTANT:** You must join ALL channels below to unlock:\n"
+                welcome_text += f"• Referral bonus for your friend\n"
+                welcome_text += f"• Withdrawal privileges\n"
+                welcome_text += f"• Full bot features\n\n"
                 welcome_text += f"📺 **Please join these channels to continue:**"
                 
+            elif channels:
+                # Regular new user with channels - show force join requirement
+                keyboard = []
+                
+                # Add join buttons for channels
+                for channel in channels[:5]:
+                    channel_name = channel.get('channel_name', 'Channel')
+                    channel_id = channel.get('channel_id')
+                    
+                    try:
+                        chat_info = await context.bot.get_chat(channel_id)
+                        if hasattr(chat_info, 'invite_link') and chat_info.invite_link:
+                            join_url = chat_info.invite_link
+                        elif hasattr(chat_info, 'username') and chat_info.username:
+                            join_url = f"https://t.me/{chat_info.username}"
+                        else:
+                            join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                    except:
+                        join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                    
+                    keyboard.append([InlineKeyboardButton(f"📺 Join {channel_name}", url=join_url)])
+                
+                keyboard.extend([
+                    [InlineKeyboardButton("✅ Check My Status", callback_data="check_force_join_status")],
+                    [
+                        InlineKeyboardButton("💰 Start Earning", callback_data="start_earning"),
+                        InlineKeyboardButton("👥 Invite Friends", callback_data="invite_friends")
+                    ]
+                ])
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                welcome_text += f"📺 **MANDATORY CHANNELS - Join to unlock withdrawal:**\n"
+                welcome_text += f"You must join all {len(channels)} channels below to withdraw money.\n\n"
+                
             else:
-                # Regular new user or no channels
+                # No mandatory channels
                 keyboard = [
                     [
                         InlineKeyboardButton("💰 Start Earning", callback_data="start_earning"),
@@ -161,6 +216,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
     except Exception as e:
         logger.error(f"Error in start command: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         await update.message.reply_text("❌ An error occurred. Please try again later.")
 
 async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -194,14 +251,38 @@ async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TY
             await db.check_and_process_referral_reward(user_id, context)
             
         else:
-            # Not all channels joined
+            # Not all channels joined - show remaining channels
+            keyboard = []
+            
+            # Add join buttons for not joined channels
+            for channel in not_joined[:5]:
+                channel_name = channel['name']
+                channel_id = channel['id']
+                
+                try:
+                    chat_info = await context.bot.get_chat(channel_id)
+                    if hasattr(chat_info, 'invite_link') and chat_info.invite_link:
+                        join_url = chat_info.invite_link
+                    elif hasattr(chat_info, 'username') and chat_info.username:
+                        join_url = f"https://t.me/{chat_info.username}"
+                    else:
+                        join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                except:
+                    join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                
+                keyboard.append([InlineKeyboardButton(f"📺 Join {channel_name}", url=join_url)])
+            
+            keyboard.append([InlineKeyboardButton("🔄 Check Again", callback_data="check_referral_channels")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             not_joined_names = [ch['name'] for ch in not_joined[:3]]
             await query.edit_message_text(
                 f"❌ **Please join ALL channels first**\n\n"
                 f"✅ **Joined:** {len(joined)} channels\n"
                 f"❌ **Still need to join:** {len(not_joined)} channels\n\n"
                 f"**Missing channels:** {', '.join(not_joined_names)}\n\n"
-                f"💡 **Join all channels then click the button again**"
+                f"💡 **Join all channels above then click Check Again**",
+                reply_markup=reply_markup
             )
         
     except Exception as e:
@@ -346,20 +427,131 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 f"• 50+ messages sent\n\n"
                 f"🎯 **Start earning today!**"
             )
+            
+        elif data == "check_withdrawal_requirements":
+            # Show detailed withdrawal requirements
+            try:
+                from plugins.withdrawal import check_user_subscriptions
+                requirements_met, joined, not_joined, referral_count = await check_user_subscriptions(user_id, context)
+                
+                user = await db.get_user(user_id)
+                balance = user.get("balance", 0) if user else 0
+                messages = user.get("messages", 0) if user else 0
+                
+                status_text = f"📋 **WITHDRAWAL REQUIREMENTS STATUS**\n\n"
+                
+                # Balance check
+                if balance >= 200:
+                    status_text += f"✅ **Balance:** {int(balance)} {CURRENCY} (Minimum met)\n"
+                else:
+                    status_text += f"❌ **Balance:** {int(balance)} {CURRENCY} (Need {200-int(balance)} more)\n"
+                
+                # Messages check
+                if messages >= 50:
+                    status_text += f"✅ **Messages:** {messages:,} (Minimum met)\n"
+                else:
+                    status_text += f"❌ **Messages:** {messages:,} (Need {50-messages} more)\n"
+                
+                # Channels check
+                if len(not_joined) == 0:
+                    status_text += f"✅ **Channels:** All {len(joined)} channels joined\n"
+                else:
+                    status_text += f"❌ **Channels:** {len(joined)}/{len(joined)+len(not_joined)} joined\n"
+                
+                # Referrals check
+                if referral_count >= 10:
+                    status_text += f"✅ **Referrals:** {referral_count} (Minimum met)\n"
+                else:
+                    status_text += f"❌ **Referrals:** {referral_count}/10 (Need {10-referral_count} more)\n"
+                
+                if requirements_met and balance >= 200 and messages >= 50:
+                    status_text += f"\n🎉 **ALL REQUIREMENTS MET!**\n"
+                    status_text += f"🚀 **You can now use `/withdraw`**"
+                else:
+                    status_text += f"\n⚠️ **Complete missing requirements above**"
+                    
+                    if not_joined:
+                        status_text += f"\n\n**Missing channels:**\n"
+                        for channel in not_joined[:3]:
+                            status_text += f"• {channel['name']}\n"
+                
+                await query.edit_message_text(status_text)
+                
+            except Exception as e:
+                logger.error(f"Error checking withdrawal requirements: {e}")
+                await query.edit_message_text("❌ Error checking requirements.")
+                
+        elif data == "check_force_join_status":
+            # Check force join status for new users
+            try:
+                from plugins.withdrawal import check_user_subscriptions
+                requirements_met, joined, not_joined, referral_count = await check_user_subscriptions(user_id, context)
+                
+                if len(not_joined) == 0:
+                    await query.edit_message_text(
+                        "✅ **CHANNELS REQUIREMENT MET!**\n\n"
+                        "🎉 You have joined all mandatory channels!\n"
+                        "🚀 You can now start earning and withdraw!\n\n"
+                        "💰 **Next steps:**\n"
+                        "• Send messages in approved groups\n"
+                        "• Invite 10 friends for withdrawal\n"
+                        "• Reach 200 kyat minimum balance\n\n"
+                        f"📋 **Your referral link:**\n"
+                        f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
+                    )
+                else:
+                    # Show join buttons for remaining channels
+                    keyboard = []
+                    for channel in not_joined[:5]:
+                        channel_name = channel['name']
+                        channel_id = channel['id']
+                        
+                        try:
+                            chat_info = await context.bot.get_chat(channel_id)
+                            if hasattr(chat_info, 'invite_link') and chat_info.invite_link:
+                                join_url = chat_info.invite_link
+                            elif hasattr(chat_info, 'username') and chat_info.username:
+                                join_url = f"https://t.me/{chat_info.username}"
+                            else:
+                                join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                        except:
+                            join_url = f"https://t.me/c/{channel_id.replace('-100', '')}"
+                        
+                        keyboard.append([InlineKeyboardButton(f"📺 Join {channel_name}", url=join_url)])
+                    
+                    keyboard.append([InlineKeyboardButton("🔄 Check Again", callback_data="check_force_join_status")])
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    
+                    await query.edit_message_text(
+                        f"❌ **PLEASE JOIN REMAINING CHANNELS**\n\n"
+                        f"✅ **Joined:** {len(joined)} channels\n"
+                        f"❌ **Missing:** {len(not_joined)} channels\n\n"
+                        f"🔒 **You must join ALL channels to unlock:**\n"
+                        f"• Withdrawal privileges\n"
+                        f"• Full earning features\n"
+                        f"• Referral bonuses\n\n"
+                        f"📺 **Join the remaining channels:**",
+                        reply_markup=reply_markup
+                    )
+            except Exception as e:
+                logger.error(f"Error checking force join status: {e}")
+                await query.edit_message_text("❌ Error checking status.")
     
     except Exception as e:
         logger.error(f"Error in start callbacks: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         await query.edit_message_text("❌ Error occurred. Please try again.")
 
 def register_handlers(application: Application):
     """Register start command handlers"""
-    logger.info("Registering start handlers with advanced referral system")
+    logger.info("Registering start handlers with advanced referral and force join system")
     
     # Command handlers
     application.add_handler(CommandHandler("start", start_command))
     
     # Callback handlers
     application.add_handler(CallbackQueryHandler(handle_referral_check, pattern="^check_referral_channels$"))
-    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(withdraw_menu|my_profile|invite_friends|leaderboard_menu|start_earning|how_to_earn)$"))
+    application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(withdraw_menu|my_profile|invite_friends|leaderboard_menu|start_earning|how_to_earn|check_withdrawal_requirements|check_force_join_status)$"))
     
-    logger.info("✅ Start handlers with advanced referral system registered successfully")
+    logger.info("✅ Start handlers with advanced referral and force join system registered successfully")
