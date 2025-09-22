@@ -3,7 +3,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 import asyncio
-from config import MONGODB_URL, MONGODB_NAME, MESSAGE_RATE, DEFAULT_REFERRAL_REWARD
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +17,7 @@ class Database:
     async def connect(self):
         """Connect to MongoDB"""
         try:
+            from config import MONGODB_URL, MONGODB_NAME
             self.client = motor.motor_asyncio.AsyncIOMotorClient(MONGODB_URL)
             self.db = self.client[MONGODB_NAME]
             self.users = self.db.users
@@ -42,8 +42,8 @@ class Database:
             if not settings_doc:
                 default_settings = {
                     "_id": "bot_settings",
-                    "referral_reward": DEFAULT_REFERRAL_REWARD,
-                    "message_rate": MESSAGE_RATE,
+                    "referral_reward": 50,
+                    "message_rate": 3,
                     "last_order_id": 0,
                     "created_at": datetime.now(timezone.utc)
                 }
@@ -59,7 +59,7 @@ class Database:
             if not settings:
                 await self.initialize_settings()
                 settings = await self.settings.find_one({"_id": "bot_settings"})
-            return settings
+            return settings or {}
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
             return {}
@@ -81,30 +81,39 @@ class Database:
         """Get current referral reward amount"""
         try:
             settings = await self.get_settings()
-            return settings.get("referral_reward", DEFAULT_REFERRAL_REWARD)
+            return settings.get("referral_reward", 50)
         except Exception as e:
             logger.error(f"Error getting referral reward: {e}")
-            return DEFAULT_REFERRAL_REWARD
+            return 50
 
     async def get_message_rate(self):
         """Get current message earning rate"""
         try:
             settings = await self.get_settings()
-            return settings.get("message_rate", MESSAGE_RATE)
+            return settings.get("message_rate", 3)
         except Exception as e:
             logger.error(f"Error getting message rate: {e}")
-            return MESSAGE_RATE
+            return 3
 
-    async def create_user(self, user_id: str, user_data: dict):
-        """Create a new user"""
+    async def get_channels(self):
+        """Get mandatory channels - FIXED"""
+        try:
+            channels_doc = await self.settings.find_one({"_id": "mandatory_channels"})
+            return channels_doc.get("channels", []) if channels_doc else []
+        except Exception as e:
+            logger.error(f"Error getting channels: {e}")
+            return []
+
+    async def create_user(self, user_id: str, user_data: dict, referred_by: str = None):
+        """Create a new user - FIXED SIGNATURE"""
         try:
             user_doc = {
                 "user_id": user_id,
                 "first_name": user_data.get("first_name", ""),
                 "last_name": user_data.get("last_name", ""),
                 "username": user_data.get("username", ""),
-                "balance": 0,
-                "total_earnings": 0,
+                "balance": 100,  # Welcome bonus
+                "total_earnings": 100,
                 "total_withdrawn": 0,
                 "withdrawn_today": 0,
                 "messages": 0,
@@ -112,7 +121,7 @@ class Database:
                 "banned": False,
                 "invites": 0,
                 "successful_referrals": 0,
-                "referred_by": user_data.get("referred_by", ""),
+                "referred_by": referred_by or "",
                 "referral_code": f"REF_{user_id}",
                 "message_count": 0,
                 "last_message_time": None,
@@ -123,12 +132,38 @@ class Database:
             
             result = await self.users.insert_one(user_doc)
             if result.inserted_id:
+                # Process referral if exists
+                if referred_by:
+                    await self.process_referral(referred_by, user_id)
+                
                 return user_doc
             return None
             
         except Exception as e:
             logger.error(f"Error creating user {user_id}: {e}")
             return None
+
+    async def process_referral(self, referrer_id: str, referred_id: str):
+        """Process referral reward"""
+        try:
+            referral_reward = await self.get_referral_reward()
+            
+            # Give reward to referrer
+            await self.users.update_one(
+                {"user_id": referrer_id},
+                {
+                    "$inc": {
+                        "balance": referral_reward,
+                        "total_earnings": referral_reward,
+                        "successful_referrals": 1
+                    }
+                }
+            )
+            
+            logger.info(f"Processed referral: {referrer_id} got {referral_reward} for referring {referred_id}")
+            
+        except Exception as e:
+            logger.error(f"Error processing referral: {e}")
 
     async def get_user(self, user_id: str):
         """Get user by ID"""
