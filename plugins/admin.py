@@ -6,6 +6,7 @@ import os
 from collections import defaultdict
 import time
 from datetime import datetime
+import asyncio
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -218,7 +219,7 @@ async def list_channels(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ Error loading channels list.")
 
 async def set_referral_reward_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Set referral reward amount"""
+    """Set referral reward amount - FIXED"""
     user_id = str(update.effective_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -228,7 +229,7 @@ async def set_referral_reward_command(update: Update, context: ContextTypes.DEFA
     if len(context.args) != 1:
         await update.message.reply_text(
             "❌ **အသုံးပြုပုံ:** `/setreferral <amount>`\n\n"
-            "**ဥပမာ:** `/setreferral 50`\n\n"
+            "**ဥပမာ:** `/setreferral 25`\n\n"
             "**လက်ရှိ Referral Reward ကြည့်ရန်:** `/viewsettings`"
         )
         return
@@ -239,20 +240,38 @@ async def set_referral_reward_command(update: Update, context: ContextTypes.DEFA
         if new_reward < 0:
             await update.message.reply_text("❌ Referral reward cannot be negative.")
             return
+        
+        if new_reward > 1000:
+            await update.message.reply_text("❌ Referral reward cannot exceed 1000.")
+            return
             
+        logger.info(f"Admin {user_id} attempting to set referral reward to {new_reward}")
+        
         success = await db.update_settings({"referral_reward": new_reward})
         
         if success:
-            await update.message.reply_text(
-                f"✅ **Referral Reward Updated Successfully**\n\n"
-                f"💰 **New Reward:** {new_reward} {CURRENCY} per successful referral\n"
-                f"👨‍💼 **Updated by:** Admin {user_id}\n"
-                f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
-                f"💡 **Note:** Users get {new_reward} {CURRENCY} when their referrals join mandatory channels."
-            )
-            logger.info(f"Admin {user_id} updated referral reward to {new_reward}")
+            # Verify the update by getting current settings
+            current_settings = await db.get_settings()
+            actual_reward = current_settings.get("referral_reward", 0)
+            
+            if actual_reward == new_reward:
+                await update.message.reply_text(
+                    f"✅ **Referral Reward Updated Successfully**\n\n"
+                    f"💰 **New Reward:** {new_reward} {CURRENCY} per successful referral\n"
+                    f"👨‍💼 **Updated by:** Admin {user_id}\n"
+                    f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+                    f"💡 **Note:** Users get {new_reward} {CURRENCY} when their referrals join mandatory channels."
+                )
+                logger.info(f"✅ Admin {user_id} successfully updated referral reward to {new_reward}")
+            else:
+                await update.message.reply_text(
+                    f"⚠️ **Update completed but verification failed**\n\n"
+                    f"Expected: {new_reward}, Got: {actual_reward}\n"
+                    f"Please check database connection."
+                )
         else:
             await update.message.reply_text("❌ Failed to update referral reward. Please try again.")
+            logger.error(f"❌ Admin {user_id} failed to update referral reward to {new_reward}")
             
     except ValueError:
         await update.message.reply_text("❌ Invalid amount. Please enter a valid number.")
@@ -290,14 +309,21 @@ async def set_message_rate_command(update: Update, context: ContextTypes.DEFAULT
         success = await db.update_settings({"message_rate": new_rate})
         
         if success:
-            await update.message.reply_text(
-                f"✅ **Message Earning Rate Updated Successfully**\n\n"
-                f"💬 **New Rate:** {new_rate} messages = 1 {CURRENCY}\n"
-                f"👨‍💼 **Updated by:** Admin {user_id}\n"
-                f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
-                f"💡 **Note:** Users now earn 1 {CURRENCY} for every {new_rate} messages."
-            )
-            logger.info(f"Admin {user_id} updated message rate to {new_rate}")
+            # Verify the update
+            current_settings = await db.get_settings()
+            actual_rate = current_settings.get("message_rate", 0)
+            
+            if actual_rate == new_rate:
+                await update.message.reply_text(
+                    f"✅ **Message Earning Rate Updated Successfully**\n\n"
+                    f"💬 **New Rate:** {new_rate} messages = 1 {CURRENCY}\n"
+                    f"👨‍💼 **Updated by:** Admin {user_id}\n"
+                    f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+                    f"💡 **Note:** Users now earn 1 {CURRENCY} for every {new_rate} messages."
+                )
+                logger.info(f"Admin {user_id} updated message rate to {new_rate}")
+            else:
+                await update.message.reply_text(f"⚠️ Update verification failed: Expected {new_rate}, got {actual_rate}")
         else:
             await update.message.reply_text("❌ Failed to update message rate. Please try again.")
             
@@ -727,7 +753,13 @@ async def test_announce_command(update: Update, context: ContextTypes.DEFAULT_TY
         return
     
     try:
-        from config import GENERAL_ANNOUNCEMENT_GROUPS
+        # Try to import announcement groups, fallback to approved groups
+        try:
+            from config import GENERAL_ANNOUNCEMENT_GROUPS
+            announcement_groups = GENERAL_ANNOUNCEMENT_GROUPS
+        except ImportError:
+            announcement_groups = APPROVED_GROUPS
+            logger.info("Using APPROVED_GROUPS as announcement groups (GENERAL_ANNOUNCEMENT_GROUPS not configured)")
         
         test_announcement = (
             f"📣 **SYSTEM ANNOUNCEMENT TEST**\n\n"
@@ -741,7 +773,7 @@ async def test_announce_command(update: Update, context: ContextTypes.DEFAULT_TY
         failed_count = 0
         
         # Send to announcement groups
-        for group_id in GENERAL_ANNOUNCEMENT_GROUPS:
+        for group_id in announcement_groups:
             try:
                 await context.bot.send_message(
                     chat_id=group_id,
@@ -756,12 +788,10 @@ async def test_announce_command(update: Update, context: ContextTypes.DEFAULT_TY
             f"📣 **ANNOUNCEMENT TEST RESULTS**\n\n"
             f"✅ **Successfully announced:** {announced_count} groups\n"
             f"❌ **Failed to announce:** {failed_count} groups\n"
-            f"📊 **Total announcement groups:** {len(GENERAL_ANNOUNCEMENT_GROUPS)}\n\n"
+            f"📊 **Total announcement groups:** {len(announcement_groups)}\n\n"
             f"💡 **Check announcement groups for message delivery.**"
         )
         
-    except ImportError:
-        await update.message.reply_text("❌ GENERAL_ANNOUNCEMENT_GROUPS not configured in config.py")
     except Exception as e:
         logger.error(f"Error in test announce: {e}")
         await update.message.reply_text("❌ Error during announcement test.")
@@ -819,9 +849,93 @@ async def handle_forward_command(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Error in forward command: {e}")
         await update.message.reply_text("❌ Error occurred during forwarding.")
 
+async def debug_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Debug user information - FIXED"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin only command")
+        return
+    
+    if len(context.args) != 1:
+        await update.message.reply_text("❌ **Usage:** `/debuguser <user_id>`\n\n**Example:** `/debuguser 123456789`")
+        return
+    
+    try:
+        target_user_id = context.args[0]
+        user = await db.get_user(target_user_id)
+        
+        if not user:
+            await update.message.reply_text(f"❌ **User {target_user_id} not found in database**")
+            return
+        
+        debug_text = f"🔍 **USER DEBUG INFORMATION**\n\n"
+        debug_text += f"🆔 **User ID:** {user.get('user_id', 'Unknown')}\n"
+        debug_text += f"👤 **Name:** {user.get('first_name', '')} {user.get('last_name', '')}\n"
+        debug_text += f"📧 **Username:** @{user.get('username', 'None')}\n"
+        debug_text += f"💰 **Balance:** {user.get('balance', 0)} {CURRENCY}\n"
+        debug_text += f"📈 **Total Earnings:** {user.get('total_earnings', 0)} {CURRENCY}\n"
+        debug_text += f"💸 **Total Withdrawn:** {user.get('total_withdrawn', 0)} {CURRENCY}\n"
+        debug_text += f"👥 **Referred By:** {user.get('referred_by', 'None')}\n"
+        debug_text += f"✅ **Successful Referrals:** {user.get('successful_referrals', 0)}\n"
+        debug_text += f"📺 **Channels Joined:** {user.get('referral_channels_joined', False)}\n"
+        debug_text += f"🎁 **Referral Reward Given:** {user.get('referral_reward_given', False)}\n"
+        debug_text += f"💬 **Messages:** {user.get('messages', 0)}\n"
+        debug_text += f"📊 **Message Count:** {user.get('message_count', 0)}\n"
+        debug_text += f"🚫 **Banned:** {user.get('banned', False)}\n"
+        debug_text += f"📅 **Created:** {str(user.get('created_at', 'Unknown'))[:10]}\n"
+        debug_text += f"⏰ **Last Activity:** {str(user.get('last_activity', 'Unknown'))[:10]}"
+        
+        await update.message.reply_text(debug_text)
+        
+        logger.info(f"Admin {user_id} debugged user {target_user_id}")
+        
+    except Exception as e:
+        logger.error(f"Error in debug user: {e}")
+        await update.message.reply_text("❌ Debug error occurred")
+
+async def reset_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reset user for testing - DANGEROUS COMMAND"""
+    user_id = str(update.effective_user.id)
+    
+    if user_id not in ADMIN_IDS:
+        await update.message.reply_text("❌ Admin only command")
+        return
+    
+    if len(context.args) != 1:
+        await update.message.reply_text("❌ **Usage:** `/resetuser <user_id>`\n\n**⚠️ WARNING:** This will DELETE the user completely!")
+        return
+    
+    try:
+        target_user_id = context.args[0]
+        
+        # Extra safety check
+        if target_user_id in ADMIN_IDS:
+            await update.message.reply_text("❌ **SECURITY ERROR:** Cannot reset admin user!")
+            return
+        
+        result = await db.users.delete_one({"user_id": target_user_id})
+        
+        if result.deleted_count > 0:
+            await update.message.reply_text(
+                f"✅ **USER RESET SUCCESSFUL**\n\n"
+                f"🆔 **User ID:** {target_user_id}\n"
+                f"🗑️ **Status:** Completely deleted from database\n"
+                f"👨‍💼 **Reset by:** Admin {user_id}\n"
+                f"📅 **Time:** {datetime.now().strftime('%H:%M:%S')}\n\n"
+                f"💡 **User can now rejoin with /start for fresh account**"
+            )
+            logger.warning(f"Admin {user_id} RESET (deleted) user {target_user_id}")
+        else:
+            await update.message.reply_text(f"❌ **User {target_user_id} not found or already deleted**")
+            
+    except Exception as e:
+        logger.error(f"Error in reset user: {e}")
+        await update.message.reply_text(f"❌ **Error:** {e}")
+
 def register_handlers(application: Application):
-    """Register admin command handlers - COMPLETE"""
-    logger.info("Registering comprehensive admin handlers")
+    """Register admin command handlers - COMPLETE WITH ALL COMMANDS"""
+    logger.info("Registering comprehensive admin handlers with all commands")
     
     # Channel management commands
     application.add_handler(CommandHandler("addchannel", add_channel))
@@ -851,10 +965,14 @@ def register_handlers(application: Application):
     application.add_handler(CommandHandler("testforward", test_forward_command))
     application.add_handler(CommandHandler("testannounce", test_announce_command))
     
+    # Debug and development commands
+    application.add_handler(CommandHandler("debuguser", debug_user_command))
+    application.add_handler(CommandHandler("resetuser", reset_user_command))
+    
     logger.info("✅ All admin handlers registered successfully")
     logger.info("Available admin commands:")
     logger.info("  Channel: /addchannel, /removechannel, /listchannels")
-    logger.info("  Users: /ban, /unban")
+    logger.info("  Users: /ban, /unban, /debuguser, /resetuser")
     logger.info("  Config: /setreferral, /setrate, /viewsettings")
     logger.info("  Stats: /systemstats, /systemstatus, /updatenames")
     logger.info("  Communication: /broadcast, /forward")
