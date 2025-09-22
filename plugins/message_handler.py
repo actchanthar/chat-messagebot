@@ -372,15 +372,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Traceback: {traceback.format_exc()}")
 
 def register_handlers(application: Application):
-    """Register message handlers with anti-spam system - FIXED"""
+    """Register message handlers with anti-spam system - FIXED FILTER"""
     logger.info("Registering message handlers with intelligent anti-spam system")
     
-    # Handle all TEXT messages in GROUPS only - EXCLUDE callbacks and other message types
+    # Handle all TEXT messages in GROUPS only - EXCLUDE commands
+    # Callback queries are automatically excluded because they don't have text messages
     application.add_handler(MessageHandler(
-        filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND & ~filters.UpdateType.CALLBACK_QUERY,
+        filters.TEXT & filters.ChatType.GROUPS & ~filters.COMMAND,
         handle_message
     ))
     
     logger.info("✅ Message handlers with milestone notifications registered successfully")
     logger.info("✅ Anti-spam system active with intelligent detection")
-    logger.info("✅ Callback queries excluded from message processing")
+    logger.info("✅ Only text messages in groups will be processed for earnings")
