@@ -39,7 +39,7 @@ async def is_spam_message(message_text: str, user_id: str) -> tuple[bool, str, s
     text = message_text.strip().lower()
     original_text = message_text.strip()
     
-    # Check message length
+    # Check message length - more lenient
     if len(text) < 2:
         return True, "Message too short", "mild"
     
@@ -71,7 +71,7 @@ async def is_spam_message(message_text: str, user_id: str) -> tuple[bool, str, s
     user_times[:] = [t for t in user_times if now - t < 60]
     
     # Check if too many messages in last minute (increased limit)
-    if len(user_times) >= 15:  # Increased from 10 to 15
+    if len(user_times) >= MAX_MESSAGES_PER_MINUTE:
         return True, "Sending too fast", "mild"
     
     # Check for rapid messaging (less than 1 second apart)
@@ -97,13 +97,14 @@ async def handle_spam_gently(update: Update, context: ContextTypes.DEFAULT_TYPE,
             chat_id=update.effective_chat.id,
             message_id=update.message.message_id
         )
+        logger.info(f"Deleted spam message from {user_id}: {reason} ({severity})")
     except:
         pass  # Ignore if can't delete
     
     # Handle different severity levels
     if severity == "rapid":
         # Just delay/ignore rapid messages - no warning
-        logger.info(f"Rapid messaging from {user_id} - message ignored")
+        logger.info(f"Rapid messaging from {user_id} - message ignored silently")
         return
     
     elif severity == "mild":
@@ -112,20 +113,26 @@ async def handle_spam_gently(update: Update, context: ContextTypes.DEFAULT_TYPE,
         warnings = user_warnings[user_id]
         
         if warnings <= 3:  # Only warn first 3 times
-            warning_msg = f"⏰ {user_name} - စာများကို ပိုနှေးနှေးပို့ပါ။ အဓိပ္ပါယ်ရှိတဲ့စာများ ရေးပြီး ငွေရယူပါ! 💰"
+            warning_messages = [
+                f"⏰ {user_name} - စာများကို ပိုနှေးနှေးပို့ပါ။ အဓိပ္পါယ်ရှိတဲ့စာများ ရေးပြီး ငွေရယူပါ! 💰",
+                f"💬 {user_name} - ကောင်းသောစာများ ရေးပါ။ ရိုးရှင်းသောစာများဖြင့် ငွေရှာပါ! ({warnings}/3)",
+                f"📝 {user_name} - အဓိပ္ပါယ်ပြည့်ဝသော စာများရေးပါ။ စပမ်မဟုတ်ဘဲ ငွေရှာပါ! ({warnings}/3)"
+            ]
+            warning_msg = warning_messages[min(warnings-1, 2)]
         else:
-            return  # No more warnings after 3 times
+            return  # No more warnings after 3 times for mild spam
     
     elif severity == "moderate":
         # Moderate warning
         user_warnings[user_id] += 1
         warnings = user_warnings[user_id]
         
-        warning_msg = f"⚠️ {user_name} - စပမ်မလုပ်ပါနှင့်! အဓိပ္ပါယ်ရှိသော စာများရေးပြီး ငွေရယူပါ! ({warnings}/5)"
-        
-        # Only give cooldown after 5 warnings
-        if warnings >= 5:
-            warning_msg = f"🔕 {user_name} - စပမ်များလွန်းပါသည်! ၅မိနစ် စာမပို့ပါနှင့်။ ({warnings}/5)"
+        if warnings <= 2:
+            warning_msg = f"⚠️ {user_name} - စပမ်မလုပ်ပါနှင့်! အဓိပ္ပါယ်ရှိသော စာများရေးပြီး ငွေရယူပါ! ({warnings}/5)"
+        elif warnings <= 4:
+            warning_msg = f"🚨 {user_name} - စပမ်များလွန်းပါသည်! ကောင်းသောစာများ ရေးပါ! ({warnings}/5)"
+        else:
+            warning_msg = f"🔕 {user_name} - စပမ်များများလွန်းပါသည်! ၅မိနစ် ခဏစာရပ်ပါ။ ({warnings}/5)"
     
     else:
         return
@@ -137,11 +144,14 @@ async def handle_spam_gently(update: Update, context: ContextTypes.DEFAULT_TYPE,
             text=warning_msg
         )
         
-        # Auto-delete warning after 10 seconds
+        # Auto-delete warning after 8 seconds
         context.job_queue.run_once(
             lambda context: delete_warning_message(context, update.effective_chat.id, warning.message_id),
-            10
+            8
         )
+        
+        logger.info(f"Sent gentle warning to {user_id}: {severity} - {warnings} warnings")
+        
     except Exception as e:
         logger.error(f"Failed to send gentle warning: {e}")
 
@@ -177,10 +187,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if is_spam:
             await handle_spam_gently(update, context, reason, severity)
             
-            # Don't process earnings for spam, but don't be harsh
-            if severity in ["moderate", "rapid"]:
-                return  # Don't earn for clear spam
-            # For "mild" spam, still allow earning after warning
+            # Don't process earnings for spam, but be gentle about it
+            if severity == "rapid":
+                return  # Don't earn for rapid messages
+            elif severity == "moderate":
+                return  # Don't earn for obvious spam
+            # For "mild" spam, still allow earning after first warning
         
         # Check if user has too many warnings (gentle cooldown)
         warnings = user_warnings.get(user_id, 0)
@@ -201,6 +213,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 else:
                     # Reset warnings after cooldown
                     user_warnings[user_id] = 0
+                    logger.info(f"Reset warnings for user {user_id} after cooldown")
         
         # Get user from database
         user = await db.get_user(user_id)
@@ -247,7 +260,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def register_handlers(application: Application):
     """Register gentle message handlers"""
-    logger.info("Registering gentle message handlers")
+    logger.info("Registering gentle message handlers with Myanmar language support")
     
     # Handle all text messages in groups (not commands)
     application.add_handler(MessageHandler(
