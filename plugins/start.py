@@ -16,7 +16,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /start command with advanced referral system and force join - FIXED"""
+    """Handle /start command with advanced referral system and force join"""
     user_id = str(update.effective_user.id)
     user = update.effective_user
     logger.info(f"Start command from user {user_id}")
@@ -60,7 +60,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"💡 **ငွေရှာနည်း:**\n"
                 f"• Approved Groups များထဲမှာ စာပို့ပါ\n"
                 f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
-                f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရယူပါ\n"
+                f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၂၅ {CURRENCY} ရယူပါ\n"
                 f"• အနည်းဆုံး ၂၀၀ {CURRENCY} ငွေထုတ်နိုင်ပါတယ်\n\n"
                 f"🔗 **Your Referral Link:**\n"
                 f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
@@ -124,7 +124,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 f"\n💡 **ငွေရှာနည်း:**\n"
                 f"• Approved Groups များတွင် စာများပို့ပါ\n"
                 f"• ၃ စာ ပို့တိုင်း ၁ {CURRENCY} ရပါမယ်\n"
-                f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၅၀ {CURRENCY} ရပါ\n"
+                f"• မိတ်ဆွေများကို ဖိတ်ကြားပြီး ၂၅ {CURRENCY} ရပါ\n"
                 f"• အနည်းဆုံး ၂၀၀ {CURRENCY} ငွေထုတ်နိုင်ပါတယ်\n\n"
             )
             
@@ -236,7 +236,11 @@ async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     user_id = str(query.from_user.id)
     
-    await query.answer()
+    # Always answer callback query first
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.error(f"Failed to answer referral check callback: {e}")
     
     try:
         # Check if user joined all channels
@@ -298,15 +302,22 @@ async def handle_referral_check(update: Update, context: ContextTypes.DEFAULT_TY
         
     except Exception as e:
         logger.error(f"Error in referral check: {e}")
-        await query.edit_message_text("❌ Error checking channels. Please try again.")
+        try:
+            await query.edit_message_text("❌ Error checking channels. Please try `/start` again.")
+        except:
+            pass
 
 async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle start menu callbacks"""
+    """Handle start menu callbacks - IMPROVED ERROR HANDLING"""
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = query.data
     
-    await query.answer()
+    # Always answer callback query first
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.error(f"Failed to answer callback query: {e}")
     
     try:
         if data == "withdraw_menu":
@@ -352,11 +363,19 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                     f"`https://t.me/{context.bot.username}?start=ref_{user_id}`"
                 )
                 await query.edit_message_text(profile_text)
+            else:
+                await query.edit_message_text("❌ User profile not found. Please try `/start` again.")
             
         elif data == "invite_friends":
+            # Get current referral reward from settings
+            try:
+                current_reward = await db.get_referral_reward()
+            except:
+                current_reward = 25
+            
             await query.edit_message_text(
                 f"👥 **INVITE FRIENDS & EARN!**\n\n"
-                f"💰 **Earn 50 {CURRENCY} for each friend who:**\n"
+                f"💰 **Earn {current_reward} {CURRENCY} for each friend who:**\n"
                 f"• Joins using your link\n"
                 f"• Joins all mandatory channels\n"
                 f"• Stays active in the community\n\n"
@@ -366,7 +385,7 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 f"1. Copy the link above\n"
                 f"2. Share with friends on social media\n"
                 f"3. Explain they'll get 100 {CURRENCY} welcome bonus\n"
-                f"4. You get 50 {CURRENCY} when they join channels\n\n"
+                f"4. You get {current_reward} {CURRENCY} when they join channels\n\n"
                 f"🎯 **No limit on referrals - invite unlimited friends!**"
             )
             
@@ -424,7 +443,7 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 f"• Earn 1 {CURRENCY} every 3 messages\n"
                 f"• Only meaningful messages count\n\n"
                 f"**2. Referral System:**\n"
-                f"• Invite friends = 50 {CURRENCY} each\n"
+                f"• Invite friends = 25 {CURRENCY} each\n"
                 f"• Friends must join mandatory channels\n"
                 f"• Unlimited referrals allowed\n\n"
                 f"**3. Milestones & Bonuses:**\n"
@@ -490,7 +509,7 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                 
             except Exception as e:
                 logger.error(f"Error checking withdrawal requirements: {e}")
-                await query.edit_message_text("❌ Error checking requirements.")
+                await query.edit_message_text("❌ Error checking requirements. Please try `/start` again.")
                 
         elif data == "check_force_join_status":
             # Check force join status for new users
@@ -546,13 +565,29 @@ async def handle_start_callbacks(update: Update, context: ContextTypes.DEFAULT_T
                     )
             except Exception as e:
                 logger.error(f"Error checking force join status: {e}")
-                await query.edit_message_text("❌ Error checking status.")
+                await query.edit_message_text("❌ Error checking status. Please try `/start` again.")
+        
+        else:
+            logger.warning(f"Unknown callback data: {data}")
+            await query.edit_message_text("❌ Unknown action. Please try `/start` again.")
     
     except Exception as e:
-        logger.error(f"Error in start callbacks: {e}")
+        logger.error(f"Error in start callbacks for {data}: {e}")
         import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        await query.edit_message_text("❌ Error occurred. Please try again.")
+        logger.error(f"Callback error traceback: {traceback.format_exc()}")
+        
+        # Try to send error message to user
+        try:
+            await query.edit_message_text(
+                "❌ **Temporary Error**\n\n"
+                "Something went wrong. Please try:\n"
+                "• `/start` - Restart bot\n"
+                "• Wait a few seconds and try again\n\n"
+                "If problem persists, contact admin."
+            )
+        except Exception as error_e:
+            # If even error message fails, just log it
+            logger.error(f"Failed to send error message to user {user_id}: {error_e}")
 
 def register_handlers(application: Application):
     """Register start command handlers"""
@@ -561,7 +596,7 @@ def register_handlers(application: Application):
     # Command handlers
     application.add_handler(CommandHandler("start", start_command))
     
-    # Callback handlers
+    # Callback handlers - IMPROVED ERROR HANDLING
     application.add_handler(CallbackQueryHandler(handle_referral_check, pattern="^check_referral_channels$"))
     application.add_handler(CallbackQueryHandler(handle_start_callbacks, pattern="^(withdraw_menu|my_profile|invite_friends|leaderboard_menu|start_earning|how_to_earn|check_withdrawal_requirements|check_force_join_status)$"))
     
