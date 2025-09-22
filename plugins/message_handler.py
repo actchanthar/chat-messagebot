@@ -19,141 +19,246 @@ from config import (
     ADMIN_IDS,
     SPAM_KEYWORDS,
     SPAM_PATTERNS,
+    MEANINGFUL_PATTERNS,
     MAX_EMOJI_COUNT,
-    MAX_MESSAGES_PER_MINUTE
+    MAX_MESSAGES_PER_MINUTE,
+    RAPID_MESSAGE_THRESHOLD,
+    MAX_RAPID_MESSAGES,
+    RAPID_WINDOW_SECONDS,
+    MAX_MESSAGES_IN_WINDOW,
+    PROTECT_NORMAL_USERS,
+    SMART_SPAM_DETECTION,
+    DETAILED_SPAM_LOGGING,
+    LOG_NORMAL_USERS,
+    LOG_EARNING_NOTIFICATIONS
 )
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Gentle anti-spam tracking
+# Smart anti-spam tracking - separate tracking for different types
 user_message_times = defaultdict(list)
-user_warnings = defaultdict(int)
+user_rapid_count = defaultdict(int)
 user_last_message = {}
+user_warning_count = defaultdict(int)
+user_last_warning_reset = defaultdict(float)
 
-async def is_spam_message(message_text: str, user_id: str) -> tuple[bool, str, str]:
-    """Gentle spam detection - returns (is_spam, reason, severity)"""
+def is_meaningful_message(message_text: str) -> tuple[bool, str]:
+    """Smart detection for meaningful messages (normal users)"""
     if not message_text:
-        return True, "Empty message", "mild"
+        return False, "Empty message"
     
-    text = message_text.strip().lower()
-    original_text = message_text.strip()
+    text = message_text.strip()
     
-    # Check message length - more lenient
-    if len(text) < 2:
-        return True, "Message too short", "mild"
+    # Check against meaningful patterns from config
+    for pattern in MEANINGFUL_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True, f"Matched meaningful pattern: {pattern[:20]}..."
     
-    if len(text) > 500:
-        return True, "Message too long", "moderate"
+    # Additional smart checks
     
-    # Check for obvious spam patterns only
-    obvious_spam_patterns = [
-        r'^[a-z]{1,2}$',  # Only d, dm, etc.
-        r'(.)\1{4,}',  # Only 5+ repeated characters (ddddd)
-        r'^[^\w\s]*$',  # Only special characters
+    # Length check - longer messages are usually meaningful
+    if len(text) >= 10:
+        return True, "Message length >= 10 characters"
+    
+    # Multiple words check
+    words = text.split()
+    if len(words) >= 2:
+        # Check if words are not just repeated letters
+        unique_words = set(word.lower() for word in words if len(word) > 1)
+        if len(unique_words) >= 2:
+            return True, "Multiple unique words"
+    
+    # Myanmar script detection
+    myanmar_chars = len(re.findall(r'[\u1000-\u109F]', text))
+    if myanmar_chars >= 2:
+        return True, "Contains Myanmar text"
+    
+    # Numbers and mixed content
+    has_numbers = bool(re.search(r'\d', text))
+    has_letters = bool(re.search(r'[a-zA-Z]', text))
+    if has_numbers and has_letters:
+        return True, "Mixed numbers and letters"
+    
+    # Common conversation patterns
+    conversation_patterns = [
+        r'(good|morning|evening|night|hello|hi|hey|thanks|thank you|bye|see you)',
+        r'(how|what|when|where|why|who).{0,20}[?]',
+        r'(yes|no|ok|okay|sure|maybe|really|wow|cool|nice)',
+        r'[0-9]+\s*(am|pm|hour|minute|day|week|month|year)',
     ]
     
-    for pattern in obvious_spam_patterns:
+    for pattern in conversation_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True, f"Conversation pattern: {pattern[:20]}..."
+    
+    return False, "No meaningful patterns detected"
+
+def is_obvious_spam(message_text: str) -> tuple[bool, str]:
+    """Detection for obvious spam only - very restrictive"""
+    if not message_text:
+        return True, "Empty message"
+    
+    text = message_text.strip().lower()
+    
+    # Check against spam patterns from config
+    for pattern in SPAM_PATTERNS:
         if re.search(pattern, text):
-            return True, f"Obvious spam pattern", "moderate"
+            return True, f"Matched spam pattern: {pattern}"
     
-    # Check against severe spam keywords only
-    severe_spam = ["dmd", "dmmd", "dmdm", "mdm", "dm", "md", "rm", "em", "m", "g", "f", "k", "d"]
+    # Check against spam keywords from config  
+    if text in SPAM_KEYWORDS:
+        return True, f"Spam keyword: {text}"
     
-    if text in severe_spam:
-        return True, f"Spam keyword: {text}", "moderate"
+    # Very obvious spam patterns
+    obvious_patterns = [
+        r'^[a-z]{1,2}$',      # Only d, dm, dmd
+        r'(.)\1{5,}',         # 6+ repeated chars (dddddd)
+        r'^[^\w\s]*$',        # Only symbols (!@#$)
+        r'^[a-z]\s[a-z]$',    # d m, k f (single letters with space)
+    ]
     
-    # Rate limiting check - GENTLE
+    for pattern in obvious_patterns:
+        if re.search(pattern, text):
+            return True, f"Obvious spam pattern: {pattern}"
+    
+    return False, "Not obvious spam"
+
+async def check_rapid_messaging(user_id: str, message_text: str) -> tuple[bool, str, dict]:
+    """Smart rapid messaging detection"""
     now = time.time()
+    
+    # Get user's message times in the rapid window
     user_times = user_message_times[user_id]
     
-    # Remove old messages (older than 1 minute)
-    user_times[:] = [t for t in user_times if now - t < 60]
+    # Remove old messages outside the window
+    user_times[:] = [t for t in user_times if now - t < RAPID_WINDOW_SECONDS]
     
-    # Check if too many messages in last minute (increased limit)
-    if len(user_times) >= MAX_MESSAGES_PER_MINUTE:
-        return True, "Sending too fast", "mild"
+    # Initialize stats
+    stats = {
+        "messages_in_window": len(user_times),
+        "time_since_last": 0,
+        "rapid_count": user_rapid_count.get(user_id, 0),
+        "is_rapid": False,
+        "is_flooding": False
+    }
     
-    # Check for rapid messaging (less than 1 second apart)
+    # Check time since last message
     if user_id in user_last_message:
         time_diff = now - user_last_message[user_id]
-        if time_diff < 1.0:  # Less than 1 second
-            return True, "Messaging too rapidly", "rapid"
+        stats["time_since_last"] = time_diff
+        
+        # Check for rapid messaging
+        if time_diff < RAPID_MESSAGE_THRESHOLD:
+            user_rapid_count[user_id] += 1
+            stats["rapid_count"] = user_rapid_count[user_id]
+            stats["is_rapid"] = True
+            
+            # Too many rapid messages?
+            if user_rapid_count[user_id] >= MAX_RAPID_MESSAGES:
+                return True, f"Rapid messaging: {user_rapid_count[user_id]} fast messages", stats
+        else:
+            # Reset rapid count if enough time passed
+            user_rapid_count[user_id] = 0
+            stats["rapid_count"] = 0
     
-    # Update last message time
+    # Check for message flooding
+    if len(user_times) >= MAX_MESSAGES_IN_WINDOW:
+        stats["is_flooding"] = True
+        return True, f"Message flooding: {len(user_times)} messages in {RAPID_WINDOW_SECONDS}s", stats
+    
+    # Update tracking
     user_last_message[user_id] = now
     user_times.append(now)
     
-    return False, "", "none"
+    return False, "Normal messaging rate", stats
 
-async def handle_spam_gently(update: Update, context: ContextTypes.DEFAULT_TYPE, reason: str, severity: str):
-    """Gentle spam handling - Myanmar language"""
+async def handle_spam_intelligently(update: Update, context: ContextTypes.DEFAULT_TYPE, 
+                                   spam_type: str, reason: str, stats: dict = None):
+    """Intelligent spam handling based on type and severity"""
     user_id = str(update.effective_user.id)
     user_name = update.effective_user.first_name or "သုံးစွဲသူ"
     
-    # Delete the spam message silently
-    try:
-        await context.bot.delete_message(
-            chat_id=update.effective_chat.id,
-            message_id=update.message.message_id
-        )
-        logger.info(f"Deleted spam message from {user_id}: {reason} ({severity})")
-    except:
-        pass  # Ignore if can't delete
+    if DETAILED_SPAM_LOGGING:
+        logger.info(f"Intelligent spam handling - User: {user_id}, Type: {spam_type}, Reason: {reason}")
+        if stats:
+            logger.info(f"Stats: {stats}")
     
-    # Handle different severity levels
-    if severity == "rapid":
-        # Just delay/ignore rapid messages - no warning
-        logger.info(f"Rapid messaging from {user_id} - message ignored silently")
-        return
-    
-    elif severity == "mild":
-        # Very gentle warning - no punishment
-        user_warnings[user_id] += 1
-        warnings = user_warnings[user_id]
+    # Handle different spam types differently
+    if spam_type == "rapid":
+        # Rapid messaging - just ignore/delay, don't delete normal messages
+        is_meaningful, _ = is_meaningful_message(update.message.text)
         
-        if warnings <= 3:  # Only warn first 3 times
-            warning_messages = [
-                f"⏰ {user_name} - စာများကို ပိုနှေးနှေးပို့ပါ။ အဓိပ္পါယ်ရှိတဲ့စာများ ရေးပြီး ငွေရယူပါ! 💰",
-                f"💬 {user_name} - ကောင်းသောစာများ ရေးပါ။ ရိုးရှင်းသောစာများဖြင့် ငွေရှာပါ! ({warnings}/3)",
-                f"📝 {user_name} - အဓိပ္ပါယ်ပြည့်ဝသော စာများရေးပါ။ စပမ်မဟုတ်ဘဲ ငွေရှာပါ! ({warnings}/3)"
-            ]
-            warning_msg = warning_messages[min(warnings-1, 2)]
+        if is_meaningful:
+            # Meaningful message sent rapidly - just delay earning, keep message
+            logger.info(f"Meaningful message sent rapidly by {user_id} - kept message, no earning")
+            return "delayed"  # Special return code
         else:
-            return  # No more warnings after 3 times for mild spam
+            # Rapid spam - delete it
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=update.message.message_id
+                )
+                logger.info(f"Deleted rapid spam from {user_id}")
+            except:
+                pass
+            return "deleted"
     
-    elif severity == "moderate":
-        # Moderate warning
-        user_warnings[user_id] += 1
-        warnings = user_warnings[user_id]
-        
-        if warnings <= 2:
-            warning_msg = f"⚠️ {user_name} - စပမ်မလုပ်ပါနှင့်! အဓိပ္ပါယ်ရှိသော စာများရေးပြီး ငွေရယူပါ! ({warnings}/5)"
-        elif warnings <= 4:
-            warning_msg = f"🚨 {user_name} - စပမ်များလွန်းပါသည်! ကောင်းသောစာများ ရေးပါ! ({warnings}/5)"
-        else:
-            warning_msg = f"🔕 {user_name} - စပမ်များများလွန်းပါသည်! ၅မိနစ် ခဏစာရပ်ပါ။ ({warnings}/5)"
+    elif spam_type == "obvious":
+        # Obvious spam - delete and warn
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=update.message.message_id
+            )
+            
+            # Send gentle warning
+            user_warning_count[user_id] += 1
+            warnings = user_warning_count[user_id]
+            
+            if warnings <= 3:  # Only warn first 3 times
+                warning_messages = [
+                    f"⚠️ {user_name} - အဓိပ္ပါယ်ရှိတဲ့စာများ ရေးပါ။ စပမ်မလုပ်ပါနှင့်!",
+                    f"🚨 {user_name} - ကောင်းသောစာများ ရေးပြီး ငွေရှာပါ! ({warnings}/3)",
+                    f"🔕 {user_name} - စပမ်မဲ့ အဓိပ္ပါယ်ပြည့်စုံတဲ့ စာများရေးပါ! ({warnings}/3)"
+                ]
+                
+                warning_msg = warning_messages[min(warnings-1, 2)]
+                
+                try:
+                    warning = await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=warning_msg
+                    )
+                    
+                    # Auto-delete warning after 6 seconds
+                    context.job_queue.run_once(
+                        lambda context: delete_warning_message(context, update.effective_chat.id, warning.message_id),
+                        6
+                    )
+                except:
+                    pass
+                    
+            logger.info(f"Deleted obvious spam from {user_id}, warning {warnings}")
+            
+        except:
+            pass
+        return "deleted"
     
-    else:
-        return
+    elif spam_type == "flooding":
+        # Message flooding - temporary ignore
+        try:
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=update.message.message_id
+            )
+            logger.info(f"Deleted flood message from {user_id}")
+        except:
+            pass
+        return "deleted"
     
-    # Send gentle warning that auto-deletes
-    try:
-        warning = await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=warning_msg
-        )
-        
-        # Auto-delete warning after 8 seconds
-        context.job_queue.run_once(
-            lambda context: delete_warning_message(context, update.effective_chat.id, warning.message_id),
-            8
-        )
-        
-        logger.info(f"Sent gentle warning to {user_id}: {severity} - {warnings} warnings")
-        
-    except Exception as e:
-        logger.error(f"Failed to send gentle warning: {e}")
+    return "ignored"
 
 def delete_warning_message(context, chat_id, message_id):
     """Helper to delete warning message"""
@@ -163,7 +268,7 @@ def delete_warning_message(context, chat_id, message_id):
         pass
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Gentle message handler - Myanmar friendly"""
+    """INTELLIGENT message handler - maximum protection for normal users"""
     try:
         # Skip if not a text message
         if not update.message or not update.message.text:
@@ -181,39 +286,59 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         user_id = str(update.effective_user.id)
         message_text = update.message.text
         
-        # GENTLE SPAM CHECK
-        is_spam, reason, severity = await is_spam_message(message_text, user_id)
+        if LOG_NORMAL_USERS:
+            logger.info(f"Processing message from {user_id}: {message_text[:50]}...")
         
-        if is_spam:
-            await handle_spam_gently(update, context, reason, severity)
-            
-            # Don't process earnings for spam, but be gentle about it
-            if severity == "rapid":
-                return  # Don't earn for rapid messages
-            elif severity == "moderate":
-                return  # Don't earn for obvious spam
-            # For "mild" spam, still allow earning after first warning
+        # INTELLIGENT SPAM ANALYSIS
         
-        # Check if user has too many warnings (gentle cooldown)
-        warnings = user_warnings.get(user_id, 0)
-        if warnings >= 5:
-            # Check if 5 minutes have passed since last warning
-            now = time.time()
-            if user_id in user_last_message:
-                if now - user_last_message[user_id] < 300:  # 5 minutes
-                    # Just ignore message during cooldown - no harsh action
-                    try:
-                        await context.bot.delete_message(
-                            chat_id=update.effective_chat.id,
-                            message_id=update.message.message_id
-                        )
-                    except:
-                        pass
-                    return
-                else:
-                    # Reset warnings after cooldown
-                    user_warnings[user_id] = 0
-                    logger.info(f"Reset warnings for user {user_id} after cooldown")
+        # Step 1: Check if message is meaningful (protect normal users)
+        is_meaningful, meaningful_reason = is_meaningful_message(message_text)
+        
+        # Step 2: Check for rapid messaging
+        is_rapid_spam, rapid_reason, rapid_stats = await check_rapid_messaging(user_id, message_text)
+        
+        # Step 3: Check for obvious spam
+        is_obvious, obvious_reason = is_obvious_spam(message_text)
+        
+        # INTELLIGENT DECISION MATRIX
+        
+        process_earning = True
+        action_taken = None
+        
+        if PROTECT_NORMAL_USERS and is_meaningful and not is_rapid_spam:
+            # PRIORITY 1: NORMAL USER WITH MEANINGFUL MESSAGE
+            if LOG_NORMAL_USERS:
+                logger.info(f"Normal user {user_id}: meaningful message, allowing all - {meaningful_reason}")
+            # Allow everything - message stays, earning processed
+        
+        elif is_meaningful and is_rapid_spam:
+            # PRIORITY 2: NORMAL USER MESSAGING TOO FAST
+            action_taken = await handle_spam_intelligently(update, context, "rapid", rapid_reason, rapid_stats)
+            if action_taken == "delayed":
+                # Message kept, but no earning for rapid messaging
+                process_earning = False
+                logger.info(f"Normal user {user_id} messaging rapidly: kept message, no earning")
+            elif action_taken == "deleted":
+                # Message deleted, no earning
+                return
+        
+        elif not is_meaningful and is_rapid_spam:
+            # PRIORITY 3: SPAM MESSAGE SENT RAPIDLY
+            action_taken = await handle_spam_intelligently(update, context, "rapid", rapid_reason, rapid_stats)
+            return  # Don't process earning
+        
+        elif not is_meaningful and is_obvious:
+            # PRIORITY 4: OBVIOUS SPAM
+            action_taken = await handle_spam_intelligently(update, context, "obvious", obvious_reason)
+            return  # Don't process earning
+        
+        elif not is_meaningful and len(message_text.strip()) < 3:
+            # PRIORITY 5: VERY SHORT NON-MEANINGFUL MESSAGE
+            # Allow message but no earning
+            process_earning = False
+            logger.info(f"Very short message from {user_id}: allowing message, no earning")
+        
+        # If we reach here, message is allowed
         
         # Get user from database
         user = await db.get_user(user_id)
@@ -237,30 +362,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 pass
             return
         
-        # Process message for earning
-        earned = await db.process_message_earning(user_id, chat_id, context)
-        
-        if earned:
-            # User earned money - send Myanmar notification
-            current_user = await db.get_user(user_id)
-            new_balance = current_user.get("balance", 0) if current_user else 0
+        # Process earning if allowed
+        if process_earning:
+            earned = await db.process_message_earning(user_id, chat_id, context)
             
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"💰 သင် 1 {CURRENCY} ရရှိပါပြီ! လက်ကျန်ငွေ: {int(new_balance)} {CURRENCY}",
-                    disable_notification=True
-                )
-                logger.info(f"User {user_id} earned 1 {CURRENCY} in group {chat_id}")
-            except Exception as e:
-                logger.error(f"Failed to notify user {user_id} about earning: {e}")
+            if earned:
+                # User earned money - send Myanmar notification
+                current_user = await db.get_user(user_id)
+                new_balance = current_user.get("balance", 0) if current_user else 0
+                
+                try:
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"💰 သင် 1 {CURRENCY} ရရှိပါပြီ! လက်ကျန်ငွေ: {int(new_balance)} {CURRENCY}",
+                        disable_notification=True
+                    )
+                    
+                    if LOG_EARNING_NOTIFICATIONS:
+                        logger.info(f"User {user_id} earned 1 {CURRENCY} in group {chat_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to notify user {user_id} about earning: {e}")
     
     except Exception as e:
-        logger.error(f"Error in handle_message: {e}")
+        logger.error(f"Error in intelligent message handler: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
 def register_handlers(application: Application):
-    """Register gentle message handlers"""
-    logger.info("Registering gentle message handlers with Myanmar language support")
+    """Register intelligent message handlers with maximum normal user protection"""
+    logger.info("Registering INTELLIGENT message handlers with maximum normal user protection")
     
     # Handle all text messages in groups (not commands)
     application.add_handler(MessageHandler(
@@ -268,4 +399,12 @@ def register_handlers(application: Application):
         handle_message
     ))
     
-    logger.info("✅ Gentle message handlers registered successfully")
+    logger.info("✅ Intelligent message handlers registered successfully")
+    
+    # Log current configuration
+    logger.info(f"🛡️ Normal user protection: {'ENABLED' if PROTECT_NORMAL_USERS else 'DISABLED'}")
+    logger.info(f"🧠 Smart spam detection: {'ENABLED' if SMART_SPAM_DETECTION else 'DISABLED'}")
+    logger.info(f"⚡ Rapid message threshold: {RAPID_MESSAGE_THRESHOLD} seconds")
+    logger.info(f"🚨 Max rapid messages: {MAX_RAPID_MESSAGES}")
+    logger.info(f"🪟 Rapid window: {RAPID_WINDOW_SECONDS} seconds")
+    logger.info(f"📊 Max messages in window: {MAX_MESSAGES_IN_WINDOW}")
